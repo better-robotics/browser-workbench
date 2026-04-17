@@ -170,10 +170,18 @@
       border-top: 1px dashed var(--line);
     }
     .empty-state {
-      color: var(--ink-muted);
-      font-size: 14px;
       text-align: center;
-      padding: 24px 0;
+      padding: 24px 16px 8px;
+    }
+    .empty-state .empty-title {
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .empty-state .empty-sub {
+      color: var(--ink-muted);
+      font-size: 13px;
+      margin-bottom: 20px;
     }
     .log {
       font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
@@ -218,12 +226,16 @@
   </section>
 
   <section class="card">
-    <div class="card-header">
+    <div class="card-header" id="robots-header" hidden>
       <div class="label">Your robots</div>
       <button id="scan-btn" class="secondary sm">Scan for new</button>
     </div>
     <div id="robot-list"></div>
-    <div id="empty-state" class="empty-state" hidden>No robots paired yet. Click "Scan for new" to add one.</div>
+    <div id="empty-state" class="empty-state" hidden>
+      <div class="empty-title">No robots yet</div>
+      <div class="empty-sub">Click below to scan for a robot nearby.</div>
+      <button id="empty-scan-btn">Scan for a robot</button>
+    </div>
   </section>
 
   <section class="card">
@@ -245,26 +257,68 @@
     $("log").textContent = `[${now}] ${msg}\n` + $("log").textContent;
   };
 
+  const STORAGE_KEY = "better-robotics:known";
+
   const state = {
-    devices: new Map(),       // id -> { device, status, ledChar, ledOn }
+    // id -> { id, name, device?, status, ledChar?, ledOn }
+    // device is present during an active session, absent after a refresh
+    // when Chrome lacks getDevices().
+    devices: new Map(),
     connectedId: null,
   };
 
+  function persist() {
+    const out = [];
+    for (const e of state.devices.values()) out.push({ id: e.id, name: e.name });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+  }
+
+  function loadKnown() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
+    catch { return []; }
+  }
+
+  function attachDevice(entry, device) {
+    entry.device = device;
+    device.addEventListener("gattserverdisconnected", () => onDisconnected(entry.id));
+  }
+
   function entryFor(device) {
-    if (!state.devices.has(device.id)) {
-      state.devices.set(device.id, { device, status: "idle", ledChar: null, ledOn: false });
-      device.addEventListener("gattserverdisconnected", () => onDisconnected(device.id));
+    const existing = state.devices.get(device.id);
+    if (existing) {
+      if (!existing.device) attachDevice(existing, device);
+      return existing;
     }
-    return state.devices.get(device.id);
+    const entry = {
+      id: device.id,
+      name: device.name || device.id,
+      device: null,
+      status: "idle",
+      ledChar: null,
+      ledOn: false,
+    };
+    attachDevice(entry, device);
+    state.devices.set(device.id, entry);
+    persist();
+    return entry;
   }
 
   async function loadPaired() {
-    if (!navigator.bluetooth.getDevices) {
-      log("This Chrome build does not expose getDevices(); paired list unavailable.");
-      return;
+    // Restore remembered robots first — works even when getDevices() is missing.
+    for (const { id, name } of loadKnown()) {
+      if (!state.devices.has(id)) {
+        state.devices.set(id, { id, name, device: null, status: "idle", ledChar: null, ledOn: false });
+      }
     }
-    const paired = await navigator.bluetooth.getDevices();
-    paired.forEach(entryFor);
+    // Reattach live BluetoothDevice objects if the browser exposes them.
+    if (navigator.bluetooth.getDevices) {
+      try {
+        const paired = await navigator.bluetooth.getDevices();
+        paired.forEach(entryFor);
+      } catch (err) {
+        log(`Could not list paired devices: ${err.message}`);
+      }
+    }
     render();
   }
 
@@ -282,14 +336,34 @@
     }
   }
 
+  async function restoreDevice(entry) {
+    // Ask the user to pick this robot again — chooser shows, filtered to the saved name.
+    // Necessary on browsers that don't expose navigator.bluetooth.getDevices().
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: entry.name, services: [SERVICE_UUID] }],
+    });
+    attachDevice(entry, device);
+  }
+
   async function connect(id) {
     if (state.connectedId && state.connectedId !== id) await disconnect(state.connectedId);
 
     const entry = state.devices.get(id);
     if (!entry) return;
+
+    if (!entry.device) {
+      try {
+        log(`Reconnecting ${entry.name}…`);
+        await restoreDevice(entry);
+      } catch (err) {
+        if (err.name !== "NotFoundError") log(`Reconnect cancelled: ${err.message}`);
+        return;
+      }
+    }
+
     entry.status = "connecting";
     render();
-    log(`Connecting to ${entry.device.name || id}…`);
+    log(`Connecting to ${entry.name}…`);
 
     try {
       const server = await entry.device.gatt.connect();
@@ -309,7 +383,7 @@
 
       entry.status = "connected";
       state.connectedId = id;
-      log(`Connected to ${entry.device.name || id}`);
+      log(`Connected to ${entry.name}`);
     } catch (err) {
       entry.status = "error";
       log(`Connect failed: ${err.message}`);
@@ -319,7 +393,7 @@
 
   async function disconnect(id) {
     const entry = state.devices.get(id);
-    if (entry && entry.device.gatt.connected) entry.device.gatt.disconnect();
+    if (entry && entry.device && entry.device.gatt.connected) entry.device.gatt.disconnect();
     onDisconnected(id);
   }
 
@@ -329,20 +403,23 @@
     entry.status = "idle";
     entry.ledChar = null;
     if (state.connectedId === id) state.connectedId = null;
-    log(`Disconnected from ${entry.device.name || id}`);
+    log(`Disconnected from ${entry.name}`);
     render();
   }
 
   async function forgetDevice(id) {
     const entry = state.devices.get(id);
     if (!entry) return;
-    if (entry.device.gatt.connected) entry.device.gatt.disconnect();
-    if (entry.device.forget) {
-      await entry.device.forget();  // Chrome 114+
+    if (entry.device) {
+      if (entry.device.gatt.connected) entry.device.gatt.disconnect();
+      if (entry.device.forget) {
+        try { await entry.device.forget(); } catch {}  // Chrome 114+, ignore if unsupported
+      }
     }
     state.devices.delete(id);
     if (state.connectedId === id) state.connectedId = null;
-    log(`Forgot ${entry.device.name || id}`);
+    persist();
+    log(`Forgot ${entry.name}`);
     render();
   }
 
@@ -362,16 +439,19 @@
   function render() {
     const list = $("robot-list");
     const empty = $("empty-state");
+    const header = $("robots-header");
     list.innerHTML = "";
 
     if (state.devices.size === 0) {
       empty.hidden = false;
+      header.hidden = true;
       return;
     }
     empty.hidden = true;
+    header.hidden = false;
 
     for (const [id, entry] of state.devices) {
-      const { device, status, ledOn } = entry;
+      const { name, status, ledOn } = entry;
       const connected = status === "connected";
       const connecting = status === "connecting";
       const statusText = { idle: "Not connected", connecting: "Connecting…", connected: "Connected", error: "Error" }[status] || "Not connected";
@@ -382,7 +462,7 @@
       robot.innerHTML = `
         <div class="row">
           <div>
-            <div class="label">${escapeHtml(device.name || device.id)}</div>
+            <div class="label">${escapeHtml(name)}</div>
             <div class="status"><span class="dot${dotClass}"></span><span>${statusText}</span></div>
           </div>
           <div style="display: flex; gap: 4px;">
@@ -446,6 +526,7 @@
       return;
     }
     $("scan-btn").addEventListener("click", scanForNew);
+    $("empty-scan-btn").addEventListener("click", scanForNew);
 
     $("menu-forget").addEventListener("click", () => {
       const id = menuTargetId;
