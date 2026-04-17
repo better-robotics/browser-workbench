@@ -33,7 +33,7 @@ Bandwidth caps at ~1–3 Mbps, which is fine for commands, telemetry, and parame
 Minimum viable path: one LED, one button.
 
 - `firmware/esp32_ble_led/` — ESP32 firmware that advertises a GATT service with one LED-state characteristic
-- `dashboard/index.html` — Chrome page that scans for the device and toggles its LED
+- `public/index.html` — Chrome page that scans for the device and toggles its LED (served by GitHub Pages via the `docs` symlink)
 
 Once this loop works end-to-end on real hardware, scope expands to motors, sensors, and multi-robot.
 

@@ -48,4 +48,4 @@ flash-monitor: flash monitor
 
 preview:
 	@echo "Serving dashboard at http://localhost:8080"
-	@cd dashboard && python3 -m http.server 8080
+	@cd public && python3 -m http.server 8080
