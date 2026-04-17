@@ -61,7 +61,7 @@ Chrome opens at `http://localhost:8080`. Click **Scan**, pick your ESP32, toggle
 Firmware and published binaries target the **ESP32-CAM-MB** (AI Thinker ESP32-CAM module on the MB programmer carrier). Specifically:
 
 - **`LED_PIN = 33`** — the red onboard LED on the camera module, active-low. Other boards may not have an LED at that pin.
-- **FQBN `esp32:esp32:esp32cam:PartitionScheme=min_spiffs`** — sets the flash layout (`min_spiffs` to leave room for the BLE stack).
+- **FQBN `esp32:esp32:esp32cam:PartitionScheme=min_spiffs`** — dual 1.9 MB app slots (A/B) plus a 128 KB SPIFFS. OTA-capable so future Bluetooth firmware updates don't require USB.
 - The bins in `public/firmware/bins/` are compiled against that FQBN. Flashing them onto a different ESP32 board will probably boot, but the LED won't respond and the partition table will be CAM-specific.
 
 To target a different ESP32 board, edit `FQBN` in the Makefile and `LED_PIN` in `firmware/esp32_ble_led/esp32_ble_led.ino`, then rerun `make publish-firmware`.
