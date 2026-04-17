@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Better Robotics</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --surface: #ffffff;
+      --ink: #1d1d1f;
+      --ink-muted: #6e6e73;
+      --line: #d2d2d7;
+      --accent: #012169; /* Duke navy */
+      --accent-ink: #ffffff;
+      --danger: #d70015;
+      --success: #30a46c;
+      --radius: 12px;
+      --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    main {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 64px 24px 48px;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0 0 8px;
+    }
+    p.lede {
+      color: var(--ink-muted);
+      margin: 0 0 32px;
+    }
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      justify-content: space-between;
+    }
+    .row + .row {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .label {
+      font-weight: 500;
+    }
+    .meta {
+      color: var(--ink-muted);
+      font-size: 13px;
+      font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+    }
+    button {
+      font: inherit;
+      border: none;
+      cursor: pointer;
+      padding: 10px 16px;
+      border-radius: 10px;
+      min-height: 44px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-weight: 500;
+      transition: transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s;
+    }
+    button:active { transform: scale(0.98); }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    button.danger { background: var(--danger); }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--ink-muted);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ink-muted);
+    }
+    .dot.connected { background: var(--success); }
+    .dot.error { background: var(--danger); }
+    .log {
+      font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+      font-size: 12px;
+      color: var(--ink-muted);
+      white-space: pre-wrap;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .unsupported {
+      padding: 16px;
+      border-radius: var(--radius);
+      background: #fff4e0;
+      color: #7a4a00;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Better Robotics</h1>
+  <p class="lede">Scan, connect, drive. No network required.</p>
+
+  <div id="unsupported" class="unsupported" hidden>
+    This browser does not support Web Bluetooth. Use Chrome, Edge, or Opera on desktop or Android.
+  </div>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <div class="label" id="device-name">Not connected</div>
+        <div class="status"><span class="dot" id="dot"></span><span id="status">Idle</span></div>
+      </div>
+      <button id="scan-btn">Scan</button>
+    </div>
+    <div class="row" id="led-row" hidden>
+      <div>
+        <div class="label">LED</div>
+        <div class="meta" id="led-state">off</div>
+      </div>
+      <button id="led-btn" class="secondary">Turn on</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="label" style="margin-bottom: 8px;">Log</div>
+    <div class="log" id="log">Ready.</div>
+  </section>
+</main>
+<script>
+  const SERVICE_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
+  const LED_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
+
+  const $ = (id) => document.getElementById(id);
+  const log = (msg) => {
+    const now = new Date().toLocaleTimeString();
+    $("log").textContent = `[${now}] ${msg}\n` + $("log").textContent;
+  };
+  const setStatus = (text, kind) => {
+    $("status").textContent = text;
+    $("dot").className = "dot" + (kind ? " " + kind : "");
+  };
+
+  let device = null;
+  let ledChar = null;
+  let ledOn = false;
+
+  const renderLed = () => {
+    $("led-state").textContent = ledOn ? "on" : "off";
+    $("led-btn").textContent = ledOn ? "Turn off" : "Turn on";
+  };
+
+  async function scanAndConnect() {
+    try {
+      setStatus("Requesting device…");
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],
+      });
+      device.addEventListener("gattserverdisconnected", onDisconnected);
+      $("device-name").textContent = device.name || device.id;
+      log(`Selected ${device.name || device.id}`);
+
+      setStatus("Connecting…");
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      ledChar = await service.getCharacteristic(LED_CHAR_UUID);
+
+      const value = await ledChar.readValue();
+      ledOn = value.getUint8(0) !== 0;
+      renderLed();
+
+      await ledChar.startNotifications();
+      ledChar.addEventListener("characteristicvaluechanged", (e) => {
+        ledOn = e.target.value.getUint8(0) !== 0;
+        renderLed();
+        log(`LED changed to ${ledOn ? "on" : "off"}`);
+      });
+
+      $("led-row").hidden = false;
+      $("scan-btn").textContent = "Disconnect";
+      $("scan-btn").classList.add("danger");
+      setStatus("Connected", "connected");
+      log("Connected.");
+    } catch (err) {
+      log(`Error: ${err.message}`);
+      setStatus("Error", "error");
+    }
+  }
+
+  function disconnect() {
+    if (device && device.gatt.connected) device.gatt.disconnect();
+    onDisconnected();
+  }
+
+  function onDisconnected() {
+    ledChar = null;
+    device = null;
+    $("led-row").hidden = true;
+    $("device-name").textContent = "Not connected";
+    $("scan-btn").textContent = "Scan";
+    $("scan-btn").classList.remove("danger");
+    setStatus("Idle");
+    log("Disconnected.");
+  }
+
+  async function toggleLed() {
+    if (!ledChar) return;
+    const next = !ledOn;
+    try {
+      await ledChar.writeValueWithResponse(Uint8Array.of(next ? 1 : 0));
+      ledOn = next;
+      renderLed();
+      log(`Wrote LED=${next ? 1 : 0}`);
+    } catch (err) {
+      log(`Write failed: ${err.message}`);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!navigator.bluetooth) {
+      $("unsupported").hidden = false;
+      $("scan-btn").disabled = true;
+      return;
+    }
+    $("scan-btn").addEventListener("click", () => {
+      device ? disconnect() : scanAndConnect();
+    });
+    $("led-btn").addEventListener("click", toggleLed);
+  });
+</script>
+</body>
+</html>

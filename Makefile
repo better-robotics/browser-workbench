@@ -1,0 +1,51 @@
+.DEFAULT_GOAL := help
+
+FQBN      ?= esp32:esp32:esp32cam:PartitionScheme=min_spiffs
+PORT      ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -1)
+SKETCH    ?= esp32_ble_led
+BUILD_DIR := /tmp/esp32-$(SKETCH)-build
+MONITOR    = arduino-cli monitor --port "$(PORT)" --config baudrate=115200,dtr=off,rts=off
+
+.PHONY: help setup compile flash monitor flash-monitor preview
+
+help:
+	@echo ""
+	@echo "\033[2mSetup\033[0m"
+	@echo "  \033[36msetup\033[0m          Install host dependencies (once per machine)"
+	@echo ""
+	@echo "\033[2mFirmware\033[0m"
+	@echo "  \033[36mcompile\033[0m        Compile $(SKETCH)"
+	@echo "  \033[36mflash\033[0m          Compile + upload over USB"
+	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200"
+	@echo "  \033[36mflash-monitor\033[0m  Flash then open monitor"
+	@echo ""
+	@echo "\033[2mDashboard\033[0m"
+	@echo "  \033[36mpreview\033[0m        Serve dashboard at http://localhost:8080"
+	@echo ""
+
+setup:
+	@command -v brew >/dev/null || (echo "Install Homebrew first: https://brew.sh" && exit 1)
+	@command -v arduino-cli >/dev/null || brew install arduino-cli
+	arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+	arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+	@echo ""
+	@echo "If the ESP32-CAM-MB does not appear as a serial port, install the CP210x driver:"
+	@echo "  https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers"
+	@echo "Then allow it in System Settings > Privacy & Security before flashing."
+
+compile:
+	arduino-cli compile --fqbn "$(FQBN)" --build-path "$(BUILD_DIR)" firmware/$(SKETCH)
+
+flash: compile
+	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-*. Is it plugged in?" && exit 1)
+	arduino-cli upload --fqbn "$(FQBN)" --port "$(PORT)" --input-dir "$(BUILD_DIR)" firmware/$(SKETCH)
+
+monitor:
+	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-*" && exit 1)
+	$(MONITOR)
+
+flash-monitor: flash monitor
+
+preview:
+	@echo "Serving dashboard at http://localhost:8080"
+	@cd dashboard && python3 -m http.server 8080
