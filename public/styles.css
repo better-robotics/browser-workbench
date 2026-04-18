@@ -277,6 +277,8 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   max-height: 160px;
   overflow-y: auto;
 }
+.log .err { color: var(--danger); }
+.log .ok  { color: var(--success); }
 
 /* visible progress log (inside prepare dialog) */
 .progress-log {

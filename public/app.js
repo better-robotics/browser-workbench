@@ -18,25 +18,32 @@ const encodeJson = (obj) => new TextEncoder().encode(JSON.stringify(obj));
 
 const $ = (id) => document.getElementById(id);
 // Adjacent-duplicate coalescing: streaming events (OTA progress, WiFi
-// status notifies) fire many times with the same rounded value. Instead
-// of appending each one we rewrite the newest line with a (xN) counter,
-// same shape as syslog's "last message repeated N times".
+// status notifies) fire many times with the same rounded value. Each line
+// is a DOM node so we can (a) rewrite the newest line with a (xN) counter
+// when the message repeats, and (b) colorize errors/successes via CSS
+// classes inferred from keywords in the message.
+let _lastLogNode = null;
 let _lastLogMsg = null;
 let _lastLogCount = 0;
+const _errRe = /\b(fail(?:ed|ure)?|error|rejected|timeout|cancelled|stalled|stuck|not found)\b/i;
+const _okRe  = /\b(connected|paired|joined|installed|done|ready|enabled|ok)\b/i;
+const _logClass = (msg) => _errRe.test(msg) ? "err" : _okRe.test(msg) ? "ok" : "";
 const log = (msg) => {
   const el = $("log");
   const now = new Date().toLocaleTimeString();
-  const existing = el.textContent;
-  if (msg === _lastLogMsg) {
+  if (msg === _lastLogMsg && _lastLogNode) {
     _lastLogCount++;
-    const newline = existing.indexOf("\n");
-    const tail = newline >= 0 ? existing.slice(newline) : "";
-    el.textContent = `[${now}] ${msg} (×${_lastLogCount})` + tail;
-  } else {
-    _lastLogMsg = msg;
-    _lastLogCount = 1;
-    el.textContent = `[${now}] ${msg}\n` + existing;
+    _lastLogNode.textContent = `[${now}] ${msg} (×${_lastLogCount})`;
+    return;
   }
+  _lastLogMsg = msg;
+  _lastLogCount = 1;
+  const line = document.createElement("div");
+  const cls = _logClass(msg);
+  if (cls) line.className = cls;
+  line.textContent = `[${now}] ${msg}`;
+  el.prepend(line);
+  _lastLogNode = line;
 };
 // Robot-scoped logging. Any event that belongs to a specific robot gets
 // its name prefixed so multi-robot logs stay legible. System-wide events
