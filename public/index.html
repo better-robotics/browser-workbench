@@ -321,7 +321,7 @@
     <div class="setup-grid">
       <div class="setup-item">
         <div class="label">Flash an ESP32</div>
-        <div class="meta">Over USB — no Arduino IDE needed</div>
+        <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
         <div class="meta" style="font-size: 11px;">S3 boards: no driver. CAM-MB with CP2102: needs the <a href="https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers">Silicon Labs driver</a> once.</div>
         <esp-web-install-button manifest="firmware/manifest.json">
           <button slot="activate" class="secondary">Flash firmware</button>
@@ -330,9 +330,9 @@
         </esp-web-install-button>
       </div>
       <div class="setup-item">
-        <div class="label">Prepare a Pi SD card</div>
-        <div class="meta">Customize the boot partition — wheels + firstrun + SSH key</div>
-        <a href="prepare.html"><button class="secondary" type="button">Prepare card</button></a>
+        <div class="label">Customize a Pi SD card</div>
+        <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stage firmware, wheels, SSH key on the boot partition.</div>
+        <a href="prepare.html"><button class="secondary" type="button">Customize card</button></a>
       </div>
     </div>
   </section>
