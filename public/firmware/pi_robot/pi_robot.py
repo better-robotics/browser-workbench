@@ -37,6 +37,12 @@ OTA_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96"
 OTA_STATUS_CHAR_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
 FW_INFO_CHAR_UUID     = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
 MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
+# Camera signaling (optional — only registered if picamera2 + aiortc are
+# importable). Two chars, same chunked protocol as OTA:
+#   camera-signal (write)   — SDP offer / ICE candidate / stop from the browser
+#   camera-status (notify)  — status + outbound SDP answer / ICE back to browser
+CAMERA_SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a"
+CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
 
 FW_INFO = {"type": "pi", "url": "firmware/pi_robot/pi_robot.py"}
 
@@ -72,6 +78,30 @@ OTA_OP_BEGIN = 0x01
 OTA_OP_CHUNK = 0x02
 OTA_OP_COMMIT = 0x03
 
+# Camera opcodes share the OTA pattern: begin-stream, chunk, commit, stop.
+CAM_OP_BEGIN  = 0x01
+CAM_OP_CHUNK  = 0x02
+CAM_OP_COMMIT = 0x03
+CAM_OP_STOP   = 0x04
+
+# Optional camera stack. We import lazily and tolerate failure so Pis without
+# a camera (or without aiortc installed) run the rest of the firmware cleanly.
+# ImportError OR OSError at camera init both degrade to "no camera" — the
+# signal/status characteristics simply aren't registered.
+_camera_available = False
+try:
+    from picamera2 import Picamera2  # type: ignore
+    from aiortc import (  # type: ignore
+        RTCPeerConnection, RTCSessionDescription, RTCIceCandidate,
+        MediaStreamTrack,
+    )
+    from aiortc.rtcrtpsender import RTCRtpSender  # type: ignore
+    import av  # type: ignore
+    import fractions
+    _camera_available = True
+except ImportError as _e:
+    _camera_import_err = str(_e)
+
 logging.basicConfig(format="%(asctime)s %(message)s", level=logging.INFO)
 log = logging.getLogger("pi_robot")
 
@@ -87,6 +117,14 @@ _ota_size: int = 0
 _motor_left: int = 0
 _motor_right: int = 0
 _motor_last_write_at: float = 0.0
+
+# Camera state. _cam_pc is the current RTCPeerConnection; _cam_buf accumulates
+# inbound signaling chunks; _cam_expected is the size announced by CAM_OP_BEGIN.
+_cam_pc = None
+_cam_track = None
+_cam_buf: bytearray = bytearray()
+_cam_expected: int = 0
+_cam_status: dict = {"st": "idle"}
 
 
 def device_name() -> str:
@@ -255,6 +293,150 @@ def _motor_handle_write(data: bytearray) -> None:
     _apply_motors(signed(data[0]), signed(data[1]))
 
 
+def _cam_send(obj: dict) -> None:
+    """Outbound signaling / status to the dashboard via notify on camera-status.
+    Chunks with the same opcode shape as inbound so the browser assembler is
+    symmetric. 180 B per chunk sits under typical ATT MTU."""
+    if _server is None:
+        return
+    data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+    begin = bytearray(5)
+    begin[0] = CAM_OP_BEGIN
+    begin[1:5] = len(data).to_bytes(4, "big")
+    _publish(CAMERA_STATUS_CHAR_UUID, begin)
+    chunk = 180
+    for i in range(0, len(data), chunk):
+        frame = bytearray([CAM_OP_CHUNK]) + data[i:i + chunk]
+        _publish(CAMERA_STATUS_CHAR_UUID, frame)
+    _publish(CAMERA_STATUS_CHAR_UUID, bytearray([CAM_OP_COMMIT]))
+
+
+def _set_cam_status(**fields) -> None:
+    global _cam_status
+    _cam_status = {**_cam_status, **fields}
+    _cam_send({"t": "status", "d": _cam_status})
+
+
+class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
+    """aiortc video track pulling RGB frames from Picamera2. 640x480 @ 15fps
+    keeps CPU reasonable on a Pi 4 and bandwidth under BLE-signaled WebRTC's
+    default WiFi path limits."""
+    kind = "video"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.camera = Picamera2()
+        cfg = self.camera.create_video_configuration(
+            main={"size": (640, 480), "format": "RGB888"},
+        )
+        self.camera.configure(cfg)
+        self.camera.start()
+        self._pts = 0
+        self._time_base = fractions.Fraction(1, 15)
+
+    async def recv(self):
+        arr = self.camera.capture_array("main")
+        frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+        self._pts += 1
+        frame.pts = self._pts
+        frame.time_base = self._time_base
+        return frame
+
+    def stop(self) -> None:
+        try:
+            self.camera.stop()
+        except Exception:
+            pass
+        super().stop()
+
+
+async def _cam_handle_message(msg: dict) -> None:
+    """Signaling messages from the browser. t=offer creates a new pc; answer
+    is sent back via camera-status notify. t=ice adds a candidate. t=stop
+    tears down. All branches tolerant of malformed input."""
+    global _cam_pc, _cam_track
+    t = msg.get("t")
+    d = msg.get("d") or {}
+    try:
+        if t == "offer":
+            if _cam_pc is not None:
+                await _cam_pc.close()
+            _cam_pc = RTCPeerConnection()
+            _cam_track = _PiCameraTrack()
+            _cam_pc.addTrack(_cam_track)
+
+            @_cam_pc.on("iceconnectionstatechange")
+            async def _on_ice_state() -> None:
+                _set_cam_status(st=f"ice-{_cam_pc.iceConnectionState}")
+                if _cam_pc.iceConnectionState in ("failed", "closed"):
+                    await _cam_teardown()
+
+            await _cam_pc.setRemoteDescription(
+                RTCSessionDescription(sdp=d["sdp"], type=d["type"])
+            )
+            answer = await _cam_pc.createAnswer()
+            await _cam_pc.setLocalDescription(answer)
+            _cam_send({"t": "answer", "d": {
+                "sdp": _cam_pc.localDescription.sdp,
+                "type": _cam_pc.localDescription.type,
+            }})
+            _set_cam_status(st="answered")
+        elif t == "ice" and _cam_pc is not None:
+            # aiortc's addIceCandidate accepts a dict-derived candidate.
+            cand = RTCIceCandidate(
+                sdpMid=d.get("sdpMid"),
+                sdpMLineIndex=d.get("sdpMLineIndex"),
+                candidate=d.get("candidate", ""),
+            )
+            await _cam_pc.addIceCandidate(cand)
+        elif t == "stop":
+            await _cam_teardown()
+    except Exception as e:
+        log.warning("camera signal error: %s", e)
+        _set_cam_status(st="error", err=str(e)[:120])
+
+
+async def _cam_teardown() -> None:
+    global _cam_pc, _cam_track
+    if _cam_track is not None:
+        try: _cam_track.stop()
+        except Exception: pass
+        _cam_track = None
+    if _cam_pc is not None:
+        try: await _cam_pc.close()
+        except Exception: pass
+        _cam_pc = None
+    _set_cam_status(st="idle")
+
+
+def _cam_handle_write(data: bytearray) -> None:
+    """Inbound signaling chunks from the browser. Same protocol as OTA."""
+    global _cam_buf, _cam_expected
+    if not data:
+        return
+    op = data[0]
+    if op == CAM_OP_BEGIN:
+        if len(data) < 5:
+            return
+        _cam_expected = int.from_bytes(bytes(data[1:5]), "big")
+        _cam_buf = bytearray()
+    elif op == CAM_OP_CHUNK:
+        _cam_buf.extend(data[1:])
+    elif op == CAM_OP_COMMIT:
+        try:
+            msg = json.loads(bytes(_cam_buf).decode("utf-8"))
+        except Exception as e:
+            log.warning("camera signal: parse error %s", e)
+            _cam_buf = bytearray()
+            _cam_expected = 0
+            return
+        _cam_buf = bytearray()
+        _cam_expected = 0
+        _schedule(_cam_handle_message(msg))
+    elif op == CAM_OP_STOP:
+        _schedule(_cam_handle_message({"t": "stop"}))
+
+
 async def _motor_watchdog_task() -> None:
     interval_s = 0.1
     window_s = MOTOR_WATCHDOG_MS / 1000.0
@@ -337,6 +519,10 @@ def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
         return _json_bytes(FW_INFO)
     if uuid == MOTOR_CHAR_UUID:
         return bytearray([_motor_left & 0xff, _motor_right & 0xff])
+    if uuid == CAMERA_STATUS_CHAR_UUID:
+        # Initial read: return empty (the chunked protocol means no single
+        # value makes sense here). Status lands via notify on state changes.
+        return bytearray()
     return characteristic.value
 
 
@@ -369,6 +555,10 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
         return
     if uuid == MOTOR_CHAR_UUID:
         _motor_handle_write(value)
+        return
+    if uuid == CAMERA_SIGNAL_CHAR_UUID:
+        _cam_handle_write(value)
+        return
 
 
 def _init_wifi_radio() -> None:
@@ -454,6 +644,26 @@ async def main() -> None:
         bytearray([0, 0]),
         GATTAttributePermissions.readable | GATTAttributePermissions.writeable,
     )
+
+    if _camera_available:
+        # Camera chars are strictly additive. If picamera2 / aiortc aren't
+        # installed, they're absent from the service — the dashboard probes
+        # with getCharacteristic and falls through quietly.
+        await _server.add_new_characteristic(
+            SERVICE_UUID, CAMERA_SIGNAL_CHAR_UUID,
+            GATTCharacteristicProperties.write,
+            bytearray(),
+            GATTAttributePermissions.writeable,
+        )
+        await _server.add_new_characteristic(
+            SERVICE_UUID, CAMERA_STATUS_CHAR_UUID,
+            GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify,
+            bytearray(),
+            GATTAttributePermissions.readable,
+        )
+        log.info("camera: available (picamera2 + aiortc loaded)")
+    else:
+        log.info("camera: unavailable — install picamera2, aiortc, and av to enable")
 
     await _server.start()
     log.info("Advertising on service %s", SERVICE_UUID)
