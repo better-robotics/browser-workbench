@@ -19,7 +19,7 @@ First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip.
 
 After that, the Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics whenever a network is wanted. The SD card holds no credentials.
 
-Developers: the wheels + template that `prepare.html` consumes are published under `public/firmware/pi_robot/` by `make publish-pi-firmware`. Run it after firmware changes, then commit + push so the browser tool serves the new set.
+Developers: the wheels + template that `prepare.html` consumes live under `public/firmware/pi_robot/`. CI refreshes them automatically on any push touching `firmware/**` (see `.github/workflows/build-firmware.yml`). Run `make publish-pi-firmware` locally only if you want to test the artifacts before pushing.
 
 ## Manual run (development)
 

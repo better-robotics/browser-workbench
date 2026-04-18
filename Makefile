@@ -5,7 +5,7 @@ PORT        ?= $(shell ls /dev/cu.usbserial-* /dev/cu.usbmodem* 2>/dev/null | he
 SKETCH      ?= esp32_robot
 BUILD_DIR   := /tmp/esp32-$(SKETCH)-build
 PUBLISH_DIR := public/firmware/bins
-BOOT_APP0   := $(shell find ~/Library/Arduino15/packages/esp32 -name boot_app0.bin 2>/dev/null | sort -V | tail -1)
+BOOT_APP0   := $(shell find ~/Library/Arduino15 ~/.arduino15 -name boot_app0.bin 2>/dev/null | sort -V | tail -1)
 MONITOR      = arduino-cli monitor --port "$(PORT)" --config baudrate=115200,dtr=off,rts=off
 
 .PHONY: help setup compile flash monitor flash-monitor preview publish publish-firmware publish-pi-firmware
@@ -26,6 +26,9 @@ help:
 	@echo "  \033[36mpublish-firmware\033[0m    Stage ESP32 bins in public/firmware/bins/ for web flashing + ESP32 OTA"
 	@echo "  \033[36mpublish-pi-firmware\033[0m Stage Pi firmware + wheels in public/firmware/pi_robot/ for SD-prep + Pi OTA"
 	@echo "  \033[36mpublish\033[0m             Both publish targets — run before pushing to deploy"
+	@echo ""
+	@echo "\033[2mpublish-* also run automatically in CI on firmware/** changes. Only needed locally\033[0m"
+	@echo "\033[2mif you want to test the published artifacts before pushing.\033[0m"
 	@echo ""
 
 setup:

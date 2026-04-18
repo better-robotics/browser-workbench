@@ -1,0 +1,57 @@
+name: Build firmware
+
+# Trigger on firmware source changes or when the workflow itself is updated.
+# `paths` filter keeps CI from running on its own commits back to public/ —
+# publish-* outputs live there, and firmware/** is the authoritative source.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - 'Makefile'
+      - '.github/workflows/build-firmware.yml'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | BINDIR=/usr/local/bin sudo sh
+
+      - name: Install ESP32 Arduino core
+        run: |
+          arduino-cli core update-index \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32 \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Publish ESP32 firmware
+        run: make publish-firmware
+
+      - name: Publish Pi firmware + wheels
+        run: make publish-pi-firmware
+
+      - name: Commit published artifacts
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/firmware/
+          if git diff --staged --quiet; then
+            echo 'No artifact changes — nothing to publish.'
+          else
+            git commit -m 'CI: publish firmware [skip ci]'
+            git push
+          fi
