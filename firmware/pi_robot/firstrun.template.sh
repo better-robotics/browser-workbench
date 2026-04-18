@@ -56,13 +56,20 @@ done
 note user_created "$USER_NAME"
 
 # --- SSH ---
-install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
-printf '%s\n' "$SSH_KEY" > "/home/$USER_NAME/.ssh/authorized_keys"
-chmod 600 "/home/$USER_NAME/.ssh/authorized_keys"
-chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.ssh/authorized_keys"
-systemctl enable ssh
-systemctl start ssh
-note ssh_enabled
+# SSH key is optional. When skipped, the Pi has no external shell-recovery
+# path — all debug/control goes through BLE + the dashboard. If something
+# goes wrong beyond BLE's reach, recovery means re-imaging the card.
+if [ -n "$SSH_KEY" ]; then
+  install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
+  printf '%s\n' "$SSH_KEY" > "/home/$USER_NAME/.ssh/authorized_keys"
+  chmod 600 "/home/$USER_NAME/.ssh/authorized_keys"
+  chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.ssh/authorized_keys"
+  systemctl enable ssh
+  systemctl start ssh
+  note ssh_enabled
+else
+  note ssh_skipped
+fi
 
 # --- USB gadget network (durable SSH-over-USB debug channel) ---
 # usb0 comes up when the Pi is plugged into a host via USB-C. NM assigns it

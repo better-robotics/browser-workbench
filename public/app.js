@@ -1424,10 +1424,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const password = $("prep-password").value;
     const sshKey   = $("prep-sshkey").value.trim();
 
-    if (!password || !sshKey) {
-      prepLog("Need both sudo password and SSH key.", "err");
+    if (!password) {
+      prepLog("Sudo password required.", "err");
       $("prep-go-btn").disabled = false;
       return;
+    }
+    if (!sshKey) {
+      prepLog("No SSH key — recovery will require re-flashing the SD card.", "err");
+      // non-fatal: continue without an ssh_authorized_keys step.
     }
 
     try {

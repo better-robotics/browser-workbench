@@ -427,23 +427,28 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .settings-title { font-weight: 500; margin-bottom: 2px; }
 
 .caps-list { display: flex; flex-direction: column; gap: 8px; }
-/* .field label has display:block at higher specificity, so we match it
-   here to override cleanly without !important. */
-.field .cap-row {
+.caps-list .cap-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  cursor: pointer;
-  margin: 0;
-  color: var(--ink);
   font-size: 14px;
 }
-.field .cap-row input[type="checkbox"] { margin: 0; flex: none; }
-.field .cap-row span { display: inline-flex; align-items: center; gap: 6px; }
-.field .cap-row input[type="number"] {
+.caps-list .cap-row input[type="checkbox"] { margin: 0; flex: none; }
+/* Override .field label's block / muted / margin rules inside a cap-row. */
+.caps-list .cap-row label {
+  display: inline;
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  flex: 1 1 auto;  /* take remaining horizontal space so the pin input floats right */
+}
+.caps-list .cap-row .cap-suffix { color: var(--ink-muted); font-size: 13px; flex: none; }
+.caps-list .cap-row input[type="number"] {
   width: 56px;
   padding: 2px 6px;
   font-size: 13px;
+  flex: none;
 }
 
 .modal-header {
