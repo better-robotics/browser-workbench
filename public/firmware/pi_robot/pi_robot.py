@@ -353,9 +353,14 @@ async def _apply_bundle(bundle: dict) -> None:
     _set_ota_status("done", n=len(_ota_buffer), total=_ota_size)
     _ota_buffer = bytearray()
     await asyncio.sleep(0.5)  # let the notify flush
-    restart = manifest.get("restart")
-    if restart:
-        subprocess.Popen(["systemctl", "restart", f"{restart}.service"])
+    if manifest.get("reboot"):
+        # Kernel module changes (cmdline.txt swaps) only take effect on
+        # reboot. systemd user-session changes don't. "reboot: true" in the
+        # manifest is the explicit signal that the user's expectation is
+        # "after OTA, fully restart the Pi."
+        subprocess.Popen(["systemctl", "reboot"])
+    elif manifest.get("restart"):
+        subprocess.Popen(["systemctl", "restart", f"{manifest['restart']}.service"])
 
 
 async def _ota_commit() -> None:
