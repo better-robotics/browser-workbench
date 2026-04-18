@@ -361,9 +361,26 @@
   const encodeJson = (obj) => new TextEncoder().encode(JSON.stringify(obj));
 
   const $ = (id) => document.getElementById(id);
+  // Adjacent-duplicate coalescing: streaming events (OTA progress, WiFi
+  // status notifies) fire many times with the same rounded value. Instead
+  // of appending each one we rewrite the newest line with a (xN) counter,
+  // same shape as syslog's "last message repeated N times".
+  let _lastLogMsg = null;
+  let _lastLogCount = 0;
   const log = (msg) => {
+    const el = $("log");
     const now = new Date().toLocaleTimeString();
-    $("log").textContent = `[${now}] ${msg}\n` + $("log").textContent;
+    const existing = el.textContent;
+    if (msg === _lastLogMsg) {
+      _lastLogCount++;
+      const newline = existing.indexOf("\n");
+      const tail = newline >= 0 ? existing.slice(newline) : "";
+      el.textContent = `[${now}] ${msg} (×${_lastLogCount})` + tail;
+    } else {
+      _lastLogMsg = msg;
+      _lastLogCount = 1;
+      el.textContent = `[${now}] ${msg}\n` + existing;
+    }
   };
 
   const STORAGE_KEY = "better-robotics:known";
