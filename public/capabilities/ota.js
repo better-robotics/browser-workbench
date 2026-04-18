@@ -77,14 +77,11 @@ export async function updateFirmware(id) {
     return;
   }
 
-  // Bundle path: robot advertises bundle-ota in fw-info. Ships pi_robot.py
-  // plus any helper scripts / systemd units / etc. declared in the manifest.
-  const useBundle =
-    entry.fwInfo?.caps?.includes("bundle-ota") && entry.fwInfo?.bundle_url;
-
-  let bytes;
-  if (useBundle) {
+  // Pi path: bundle-only OTA. Fetches the manifest, base64-bundles all
+  // declared files, streams one JSON blob.
+  if (entry.fwInfo?.bundle_url) {
     logFor(entry, `fetching bundle (${entry.fwInfo.bundle_url})…`);
+    let bytes;
     try {
       const bundle = await buildBundle(entry);
       bytes = new TextEncoder().encode(JSON.stringify(bundle));
@@ -108,9 +105,15 @@ export async function updateFirmware(id) {
     return;
   }
 
-  // Legacy single-file path (ESP32, or older Pi firmware without bundle-ota).
-  const fetchUrl = entry.fwInfo?.url || "firmware/pi_robot/pi_robot.py";
+  // ESP32 path: single-binary OTA via URL-trigger (when WiFi is joined) or
+  // BLE-stream fallback. Pis no longer expose `url` — only ESP32 does.
+  const fetchUrl = entry.fwInfo?.url;
+  if (!fetchUrl) {
+    logFor(entry, "no firmware source (fw-info missing url / bundle_url)");
+    return;
+  }
   logFor(entry, `fetching ${fetchUrl}…`);
+  let bytes;
   try {
     const resp = await fetch(fetchUrl, { cache: "no-cache" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

@@ -55,14 +55,9 @@ ADMIN_OP_RESTART = 0x01
 
 FW_INFO = {
     "type": "pi",
-    # Legacy single-file OTA target — still supported so older dashboards
-    # can update the firmware.
-    "url": "firmware/pi_robot/pi_robot.py",
-    # Bundle OTA — ships multiple files in one transfer (firmware + helper
-    # scripts + systemd units). Dashboard fetches the manifest, builds a
-    # JSON bundle, streams over the same chunked OTA protocol. Commit path
-    # sniffs the payload shape.
-    "caps": ["bundle-ota"],
+    # Bundle-only OTA. Dashboard fetches the manifest, builds a JSON bundle
+    # (firmware + helper scripts + systemd units), streams over the chunked
+    # OTA protocol; Pi applies atomically and reboots per the manifest.
     "bundle_url": "firmware/pi_robot/ota-manifest.json",
 }
 
@@ -91,7 +86,6 @@ MOTOR_WATCHDOG_MS = 500
 #                 change connection state.)
 
 SCAN_MAX = 10      # Bounded so the full JSON fits in one ATT read.
-OTA_TARGET = "/home/pi/better-robotics/firmware/pi_robot/pi_robot.py"
 
 # Capability config. Written by the browser's Customize-card flow onto the
 # boot partition. Declares which capabilities this physical robot actually has —
@@ -371,35 +365,13 @@ async def _ota_commit() -> None:
             _set_ota_status("failed", err=f"size mismatch {len(_ota_buffer)} != {_ota_size}")
             _ota_buffer = bytearray()
             return
-        # Sniff payload shape: bundle-OTA is a JSON object starting with
-        # {"manifest":…. Anything else is treated as single-file Python
-        # source for legacy compatibility.
-        head = bytes(_ota_buffer[:12])
-        if head.startswith(b'{"manifest":'):
-            try:
-                bundle = json.loads(_ota_buffer.decode("utf-8"))
-            except Exception as e:
-                _set_ota_status("failed", err=f"bundle json: {e}"[:120])
-                _ota_buffer = bytearray()
-                return
-            await _apply_bundle(bundle)
-            return
-
-        # Legacy: single-file pi_robot.py update.
         try:
-            ast.parse(bytes(_ota_buffer))
-        except SyntaxError as e:
-            _set_ota_status("failed", err=f"SyntaxError: {e}"[:120])
+            bundle = json.loads(_ota_buffer.decode("utf-8"))
+        except Exception as e:
+            _set_ota_status("failed", err=f"bundle json: {e}"[:120])
             _ota_buffer = bytearray()
             return
-        tmp = OTA_TARGET + ".new"
-        with open(tmp, "wb") as f:
-            f.write(_ota_buffer)
-        os.replace(tmp, OTA_TARGET)
-        _set_ota_status("done", n=len(_ota_buffer), total=_ota_size)
-        _ota_buffer = bytearray()
-        await asyncio.sleep(0.5)
-        subprocess.Popen(["systemctl", "restart", "pi-robot.service"])
+        await _apply_bundle(bundle)
     except Exception as e:
         _set_ota_status("failed", err=str(e)[:120])
 
