@@ -67,7 +67,7 @@ Commit + push when ready. CI rebuilds firmware artifacts on every change under `
 
 ## Further reading
 
-- [**Hardware guide**](docs/hardware.md) — recommended boards, board-specific knobs, driver notes.
+- [**Hardware guide**](HARDWARE.md) — recommended boards, board-specific knobs, driver notes.
 - [**Pi firmware**](firmware/pi_robot/README.md) — BLE service spec, SD-card prep details, Bookworm/Trixie troubleshooting.
 
 ## Browser support

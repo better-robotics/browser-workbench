@@ -54,6 +54,19 @@ sudo systemctl enable --now pi-robot
 
 Same pattern as the ESP32 variant: add new characteristics inside the existing service. Motors, sensors, and encoders become additional characteristics that the dashboard discovers on connect. The service UUID stays the same, so a Pi robot and an ESP32 robot look identical to users.
 
+## Optional: Pi Camera (WebRTC)
+
+If a Pi Camera Module is attached and the optional deps are installed, the firmware advertises two extra characteristics (`camera-signal`, `camera-status`) and the dashboard shows a Camera section with a live video feed.
+
+```bash
+sudo apt install -y python3-picamera2 ffmpeg
+pip install aiortc av
+```
+
+The firmware auto-detects the stack: if any import fails, the camera characteristics simply aren't registered and the dashboard doesn't show a camera UI. No camera = no behavior change.
+
+Signaling (SDP/ICE) flows over BLE using a chunked opcode protocol (begin, chunk, commit) symmetric to OTA. Once the WebRTC PeerConnection is established, video frames flow directly over the ICE-negotiated path (LAN direct when possible).
+
 ## Troubleshooting
 
 Hard-won gotchas from getting first boot to actually work on Pi OS Trixie. Check these first if something fails.

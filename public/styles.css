@@ -308,6 +308,16 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 }
 .motor-sliders input[type="range"] { flex: 1; accent-color: var(--accent); }
 
+.robot-camera {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: #000;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+}
+
 .empty-state { text-align: center; padding: 32px 24px; }
 .empty-state .empty-title { font-size: 15px; font-weight: 500; margin-bottom: 4px; }
 .empty-state .empty-sub { color: var(--ink-muted); font-size: 13px; margin-bottom: 20px; }

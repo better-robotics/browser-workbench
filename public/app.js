@@ -7,6 +7,8 @@ const OTA_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96";
 const OTA_STATUS_CHAR_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97";
 const FW_INFO_CHAR_UUID     = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98";
 const MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99";
+const CAMERA_SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a";  // write: SDP/ICE chunks in
+const CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b";  // read+notify: SDP/ICE chunks out + status
 
 const decodeJson = (dv) => {
   try {
@@ -123,6 +125,12 @@ function makeEntry(id, name) {
     otaDataChar: null, otaStatusChar: null, otaStatus: { st: "idle" }, fwInfo: null,
     motorChar: null, motorLeft: 0, motorRight: 0,
     motorSending: false, motorPending: null,
+    // Camera (optional). cameraSignalChar/cameraStatusChar present → robot
+    // advertises WebRTC camera. cameraPc/cameraStream non-null while a
+    // session is live; cameraRecvBuf assembles chunked inbound signaling.
+    cameraSignalChar: null, cameraStatusChar: null,
+    cameraPc: null, cameraStream: null,
+    cameraRecvBuf: null, cameraState: "idle",
     lastEvent: null,
     // DOM node for this card. Owned by render()/renderEntry(); null until
     // first mounted. Holding it per-entry is the foundation for the future
@@ -391,6 +399,18 @@ async function connect(id) {
     } catch {
       entry.motorChar = null;
     }
+
+    // Camera (optional). Missing chars = robot has no camera stack.
+    try {
+      entry.cameraSignalChar = await service.getCharacteristic(CAMERA_SIGNAL_CHAR_UUID);
+      entry.cameraStatusChar = await service.getCharacteristic(CAMERA_STATUS_CHAR_UUID);
+      await entry.cameraStatusChar.startNotifications();
+      entry.cameraStatusChar.addEventListener("characteristicvaluechanged", (e) => {
+        handleCameraChunk(entry, new Uint8Array(e.target.value.buffer));
+      });
+    } catch {
+      entry.cameraSignalChar = null;
+    }
   } catch (err) {
     entry.status = "error";
     logFor(entry, `connect failed: ${err.message}`);
@@ -416,6 +436,10 @@ function onDisconnected(id) {
   entry.fwInfo = null;
   entry.motorChar = null;
   entry.motorLeft = entry.motorRight = 0;
+  entry.cameraSignalChar = entry.cameraStatusChar = null;
+  if (entry.cameraPc) { try { entry.cameraPc.close(); } catch {} entry.cameraPc = null; }
+  entry.cameraStream = null;
+  entry.cameraState = "idle";
   renderEntry(entry);
 }
 
@@ -611,6 +635,132 @@ async function updateFromFile(id) {
     }
   });
   input.click();
+}
+
+// WebRTC camera session. Signaling (SDP + ICE) rides over two BLE chars using
+// the same chunked protocol as OTA: 0x01 begin [size], 0x02 chunk, 0x03 commit,
+// 0x04 stop. The browser is the offerer; the Pi answers with its PiCamera track.
+// Once the PeerConnection transitions to connected, video frames flow over the
+// WebRTC ICE path (LAN direct when possible, relay otherwise) — BLE is only
+// the signaling channel, never the media channel.
+const CAM_OP_BEGIN  = 0x01;
+const CAM_OP_CHUNK  = 0x02;
+const CAM_OP_COMMIT = 0x03;
+const CAM_OP_STOP   = 0x04;
+const CAM_CHUNK_BYTES = 180;
+
+async function sendCameraSignal(entry, msg) {
+  const bytes = new TextEncoder().encode(JSON.stringify(msg));
+  const ch = entry.cameraSignalChar;
+  if (!ch) return;
+  const begin = new Uint8Array(5);
+  begin[0] = CAM_OP_BEGIN;
+  new DataView(begin.buffer).setUint32(1, bytes.length, false);
+  await ch.writeValueWithResponse(begin);
+  for (let i = 0; i < bytes.length; i += CAM_CHUNK_BYTES) {
+    const slice = bytes.subarray(i, Math.min(i + CAM_CHUNK_BYTES, bytes.length));
+    const frame = new Uint8Array(slice.length + 1);
+    frame[0] = CAM_OP_CHUNK;
+    frame.set(slice, 1);
+    await ch.writeValueWithResponse(frame);
+  }
+  await ch.writeValueWithResponse(new Uint8Array([CAM_OP_COMMIT]));
+}
+
+function handleCameraChunk(entry, data) {
+  if (data.length === 0) return;
+  const op = data[0];
+  if (op === CAM_OP_BEGIN) {
+    entry.cameraRecvBuf = [];
+  } else if (op === CAM_OP_CHUNK) {
+    if (entry.cameraRecvBuf) entry.cameraRecvBuf.push(data.subarray(1));
+  } else if (op === CAM_OP_COMMIT) {
+    if (!entry.cameraRecvBuf) return;
+    const total = entry.cameraRecvBuf.reduce((n, c) => n + c.length, 0);
+    const merged = new Uint8Array(total);
+    let off = 0;
+    for (const c of entry.cameraRecvBuf) { merged.set(c, off); off += c.length; }
+    entry.cameraRecvBuf = null;
+    let msg;
+    try { msg = JSON.parse(new TextDecoder().decode(merged)); }
+    catch { return; }
+    handleCameraMessage(entry, msg);
+  }
+}
+
+async function handleCameraMessage(entry, msg) {
+  if (msg.t === "status") {
+    entry.cameraState = msg.d?.st || "idle";
+    renderEntry(entry);
+    return;
+  }
+  if (msg.t === "answer" && entry.cameraPc) {
+    try {
+      await entry.cameraPc.setRemoteDescription(
+        new RTCSessionDescription({ sdp: msg.d.sdp, type: msg.d.type })
+      );
+    } catch (err) {
+      logFor(entry, `camera answer error: ${err.message}`);
+    }
+  }
+}
+
+async function startCamera(id) {
+  const entry = state.devices.get(id);
+  if (!entry || !entry.cameraSignalChar) return;
+  if (entry.cameraPc) return;
+  entry.cameraState = "starting";
+  renderEntry(entry);
+  const pc = new RTCPeerConnection();
+  entry.cameraPc = pc;
+  pc.addTransceiver("video", { direction: "recvonly" });
+  pc.ontrack = (e) => {
+    entry.cameraStream = e.streams[0];
+    const video = entry.node?.querySelector(`video[data-cam-id="${id}"]`);
+    if (video) video.srcObject = entry.cameraStream;
+  };
+  pc.onicecandidate = async (e) => {
+    if (!e.candidate) return;
+    try {
+      await sendCameraSignal(entry, {
+        t: "ice",
+        d: {
+          candidate: e.candidate.candidate,
+          sdpMid: e.candidate.sdpMid,
+          sdpMLineIndex: e.candidate.sdpMLineIndex,
+        },
+      });
+    } catch {}
+  };
+  pc.onconnectionstatechange = () => {
+    entry.cameraState = `pc-${pc.connectionState}`;
+    renderEntry(entry);
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+      stopCamera(id);
+    }
+  };
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await sendCameraSignal(entry, {
+      t: "offer",
+      d: { sdp: offer.sdp, type: offer.type },
+    });
+    logFor(entry, "camera offer sent");
+  } catch (err) {
+    logFor(entry, `camera start failed: ${err.message}`);
+    stopCamera(id);
+  }
+}
+
+async function stopCamera(id) {
+  const entry = state.devices.get(id);
+  if (!entry) return;
+  try { await entry.cameraSignalChar?.writeValueWithResponse(new Uint8Array([CAM_OP_STOP])); } catch {}
+  if (entry.cameraPc) { try { entry.cameraPc.close(); } catch {} entry.cameraPc = null; }
+  entry.cameraStream = null;
+  entry.cameraState = "idle";
+  renderEntry(entry);
 }
 
 // Gamepad drive. The first connected Standard-layout gamepad drives the
@@ -903,6 +1053,22 @@ function renderEntry(entry) {
         </div>
       ` : ""}
     ` : ""}
+    ${connected && entry.cameraSignalChar ? `
+      <div class="robot-controls">
+        <div class="row">
+          <div>
+            <div class="label">Camera</div>
+            <div class="meta">${escapeHtml(entry.cameraState || "idle")}</div>
+          </div>
+          ${entry.cameraPc
+            ? `<button class="secondary sm" data-action="camera-stop">Stop</button>`
+            : `<button class="secondary sm" data-action="camera-start">Start</button>`}
+        </div>
+        ${entry.cameraPc ? `
+          <video class="robot-camera" data-cam-id="${entry.id}" autoplay playsinline muted></video>
+        ` : ""}
+      </div>
+    ` : ""}
     ${entry.lastEvent ? `
       <div class="last-event">${escapeHtml(entry.lastEvent)}</div>
     ` : ""}
@@ -929,8 +1095,17 @@ function renderEntry(entry) {
         entry.node.querySelector('[data-action="motor-right"]').value = 0;
         sendMotors(id, 0, 0);
       }
+      else if (action === "camera-start") startCamera(id);
+      else if (action === "camera-stop")  stopCamera(id);
     });
   });
+  // After innerHTML rebuild, rebind the live video element to its MediaStream.
+  // Without this, pausing/resuming the camera section would drop the stream
+  // visibly even though the PeerConnection is still receiving frames.
+  if (entry.cameraStream) {
+    const video = entry.node.querySelector(`video[data-cam-id="${entry.id}"]`);
+    if (video) video.srcObject = entry.cameraStream;
+  }
   updateHeaderActions();
 }
 
