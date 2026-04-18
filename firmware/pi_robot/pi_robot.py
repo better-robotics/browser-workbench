@@ -96,10 +96,14 @@ OTA_OP_CHUNK = 0x02
 OTA_OP_COMMIT = 0x03
 
 # Camera opcodes share the OTA pattern: begin-stream, chunk, commit, stop.
-CAM_OP_BEGIN  = 0x01
-CAM_OP_CHUNK  = 0x02
-CAM_OP_COMMIT = 0x03
-CAM_OP_STOP   = 0x04
+# Plus install — a single-byte op that triggers an in-process apt+pip fetch
+# of the camera stack on a Pi that declared camera support but doesn't yet
+# have picamera2/aiortc installed. One-click camera enable from the dashboard.
+CAM_OP_BEGIN   = 0x01
+CAM_OP_CHUNK   = 0x02
+CAM_OP_COMMIT  = 0x03
+CAM_OP_STOP    = 0x04
+CAM_OP_INSTALL = 0x05
 
 # Optional camera stack. Gated on config: if CAMERA_ENABLED is False we skip
 # the imports entirely. "auto" attempts import and tolerates failure — a Pi
@@ -142,7 +146,11 @@ _cam_pc = None
 _cam_track = None
 _cam_buf: bytearray = bytearray()
 _cam_expected: int = 0
-_cam_status: dict = {"st": "idle"}
+# "uninstalled" → stack absent, dashboard offers install.
+# "installing"  → in-progress (step + log fields).
+# "idle"        → stack loaded, ready for an offer.
+_cam_status: dict = {"st": "idle" if _camera_available else "uninstalled"}
+_cam_installing: bool = False
 
 
 def device_name() -> str:
@@ -368,10 +376,70 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         super().stop()
 
 
+async def _run_install_cmd(label: str, argv: list[str]) -> int:
+    _set_cam_status(st="installing", step=label)
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    while True:
+        line = await proc.stdout.readline()
+        if not line:
+            break
+        text = line.decode(errors="replace").strip()
+        if text:
+            _set_cam_status(st="installing", step=label, log=text[:160])
+    return await proc.wait()
+
+
+async def _cam_install() -> None:
+    """Install picamera2 + aiortc + av on demand. Triggered by CAM_OP_INSTALL
+    write from the dashboard. On success, restart the service so the new
+    imports load and the camera chars become functional."""
+    global _cam_installing
+    if _camera_available:
+        _set_cam_status(st="idle")
+        return
+    if _cam_installing:
+        return
+    _cam_installing = True
+    try:
+        rc = await _run_install_cmd("apt update", ["apt-get", "update"])
+        if rc != 0:
+            _set_cam_status(st="install_failed", err=f"apt update rc={rc}")
+            return
+        rc = await _run_install_cmd(
+            "apt install",
+            ["apt-get", "install", "-y",
+             "python3-picamera2", "ffmpeg", "libsrtp2-dev"],
+        )
+        if rc != 0:
+            _set_cam_status(st="install_failed", err=f"apt install rc={rc}")
+            return
+        rc = await _run_install_cmd(
+            "pip install",
+            ["pip", "install", "--break-system-packages", "aiortc", "av"],
+        )
+        if rc != 0:
+            _set_cam_status(st="install_failed", err=f"pip install rc={rc}")
+            return
+        _set_cam_status(st="installed", step="restarting service")
+        await asyncio.sleep(2)  # let the notify flush before we die
+        subprocess.Popen(["systemctl", "restart", "pi-robot"])
+    except Exception as e:
+        _set_cam_status(st="install_failed", err=str(e)[:160])
+    finally:
+        _cam_installing = False
+
+
 async def _cam_handle_message(msg: dict) -> None:
     """Signaling messages from the browser. t=offer creates a new pc; answer
     is sent back via camera-status notify. t=ice adds a candidate. t=stop
     tears down. All branches tolerant of malformed input."""
+    if not _camera_available:
+        if msg.get("t") != "stop":
+            _set_cam_status(st="uninstalled", err="camera stack not installed")
+        return
     global _cam_pc, _cam_track
     t = msg.get("t")
     d = msg.get("d") or {}
@@ -453,6 +521,8 @@ def _cam_handle_write(data: bytearray) -> None:
         _schedule(_cam_handle_message(msg))
     elif op == CAM_OP_STOP:
         _schedule(_cam_handle_message({"t": "stop"}))
+    elif op == CAM_OP_INSTALL:
+        _schedule(_cam_install())
 
 
 async def _motor_watchdog_task() -> None:
@@ -665,10 +735,11 @@ async def main() -> None:
             GATTAttributePermissions.readable | GATTAttributePermissions.writeable,
         )
 
-    if _camera_available:
-        # Camera chars are strictly additive. If picamera2 / aiortc aren't
-        # installed, they're absent from the service — the dashboard probes
-        # with getCharacteristic and falls through quietly.
+    if CAMERA_ENABLED is not False:
+        # Register whenever camera is allowed by config — even without the
+        # stack installed. That way the dashboard can send CAM_OP_INSTALL to
+        # trigger on-demand install; after install the service restarts, the
+        # imports succeed, and WebRTC signaling becomes functional.
         await _server.add_new_characteristic(
             SERVICE_UUID, CAMERA_SIGNAL_CHAR_UUID,
             GATTCharacteristicProperties.write,
@@ -681,9 +752,11 @@ async def main() -> None:
             bytearray(),
             GATTAttributePermissions.readable,
         )
-        log.info("camera: available (picamera2 + aiortc loaded)")
+        log.info("camera: %s (stack %s)",
+                 "ready" if _camera_available else "install-on-demand",
+                 "loaded" if _camera_available else "not installed")
     else:
-        log.info("camera: unavailable — install picamera2, aiortc, and av to enable")
+        log.info("camera: disabled in pi-robot.conf")
 
     await _server.start()
     log.info("Advertising on service %s", SERVICE_UUID)

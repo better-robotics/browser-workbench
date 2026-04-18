@@ -130,7 +130,7 @@ function makeEntry(id, name) {
     // session is live; cameraRecvBuf assembles chunked inbound signaling.
     cameraSignalChar: null, cameraStatusChar: null,
     cameraPc: null, cameraStream: null,
-    cameraRecvBuf: null, cameraState: "idle",
+    cameraRecvBuf: null, cameraStatus: null,
     lastEvent: null,
     // DOM node for this card. Owned by render()/renderEntry(); null until
     // first mounted. Holding it per-entry is the foundation for the future
@@ -444,7 +444,7 @@ function onDisconnected(id) {
   entry.cameraSignalChar = entry.cameraStatusChar = null;
   if (entry.cameraPc) { try { entry.cameraPc.close(); } catch {} entry.cameraPc = null; }
   entry.cameraStream = null;
-  entry.cameraState = "idle";
+  entry.cameraStatus = { st: "idle" };
   renderEntry(entry);
 }
 
@@ -648,10 +648,11 @@ async function updateFromFile(id) {
 // Once the PeerConnection transitions to connected, video frames flow over the
 // WebRTC ICE path (LAN direct when possible, relay otherwise) — BLE is only
 // the signaling channel, never the media channel.
-const CAM_OP_BEGIN  = 0x01;
-const CAM_OP_CHUNK  = 0x02;
-const CAM_OP_COMMIT = 0x03;
-const CAM_OP_STOP   = 0x04;
+const CAM_OP_BEGIN   = 0x01;
+const CAM_OP_CHUNK   = 0x02;
+const CAM_OP_COMMIT  = 0x03;
+const CAM_OP_STOP    = 0x04;
+const CAM_OP_INSTALL = 0x05;
 const CAM_CHUNK_BYTES = 180;
 
 async function sendCameraSignal(entry, msg) {
@@ -695,7 +696,7 @@ function handleCameraChunk(entry, data) {
 
 async function handleCameraMessage(entry, msg) {
   if (msg.t === "status") {
-    entry.cameraState = msg.d?.st || "idle";
+    entry.cameraStatus = msg.d || { st: "idle" };
     renderEntry(entry);
     return;
   }
@@ -714,7 +715,7 @@ async function startCamera(id) {
   const entry = state.devices.get(id);
   if (!entry || !entry.cameraSignalChar) return;
   if (entry.cameraPc) return;
-  entry.cameraState = "starting";
+  entry.cameraStatus = { st: "starting" };
   renderEntry(entry);
   const pc = new RTCPeerConnection();
   entry.cameraPc = pc;
@@ -738,7 +739,7 @@ async function startCamera(id) {
     } catch {}
   };
   pc.onconnectionstatechange = () => {
-    entry.cameraState = `pc-${pc.connectionState}`;
+    entry.cameraStatus = { st: `pc-${pc.connectionState}` };
     renderEntry(entry);
     if (pc.connectionState === "failed" || pc.connectionState === "closed") {
       stopCamera(id);
@@ -758,13 +759,29 @@ async function startCamera(id) {
   }
 }
 
+async function installCamera(id) {
+  const entry = state.devices.get(id);
+  if (!entry?.cameraSignalChar) return;
+  if (!confirm(
+    "Install camera support on this Pi?\n\n" +
+    "Downloads ~100MB (picamera2 + aiortc + av). Takes 1-3 min on a Pi 4. " +
+    "The Pi needs internet access (WiFi joined) for the install to succeed."
+  )) return;
+  try {
+    await entry.cameraSignalChar.writeValueWithResponse(new Uint8Array([CAM_OP_INSTALL]));
+    logFor(entry, "camera install requested");
+  } catch (err) {
+    logFor(entry, `camera install error: ${err.message}`);
+  }
+}
+
 async function stopCamera(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
   try { await entry.cameraSignalChar?.writeValueWithResponse(new Uint8Array([CAM_OP_STOP])); } catch {}
   if (entry.cameraPc) { try { entry.cameraPc.close(); } catch {} entry.cameraPc = null; }
   entry.cameraStream = null;
-  entry.cameraState = "idle";
+  entry.cameraStatus = { st: "idle" };
   renderEntry(entry);
 }
 
@@ -1080,22 +1097,37 @@ function renderEntry(entry) {
         </div>
       ` : ""}
     ` : ""}
-    ${connected && entry.cameraSignalChar ? `
-      <div class="robot-controls">
-        <div class="row">
-          <div>
-            <div class="label">Camera</div>
-            <div class="meta">${escapeHtml(entry.cameraState || "idle")}</div>
+    ${connected && entry.cameraSignalChar ? (() => {
+      const s = entry.cameraStatus || { st: "idle" };
+      const label = s.step
+        ? `${s.st} — ${s.step}`
+        : (s.err ? `${s.st} — ${s.err}` : s.st);
+      let action = "";
+      if (s.st === "uninstalled" || s.st === "install_failed") {
+        action = `<button class="secondary sm" data-action="camera-install">Install camera support</button>`;
+      } else if (s.st === "installing" || s.st === "installed") {
+        action = `<button class="secondary sm" disabled>Installing…</button>`;
+      } else if (entry.cameraPc) {
+        action = `<button class="secondary sm" data-action="camera-stop">Stop</button>`;
+      } else {
+        action = `<button class="secondary sm" data-action="camera-start">Start</button>`;
+      }
+      return `
+        <div class="robot-controls">
+          <div class="row">
+            <div>
+              <div class="label">Camera</div>
+              <div class="meta">${escapeHtml(label)}</div>
+            </div>
+            ${action}
           </div>
-          ${entry.cameraPc
-            ? `<button class="secondary sm" data-action="camera-stop">Stop</button>`
-            : `<button class="secondary sm" data-action="camera-start">Start</button>`}
+          ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
+          ${entry.cameraPc ? `
+            <video class="robot-camera" data-cam-id="${entry.id}" autoplay playsinline muted></video>
+          ` : ""}
         </div>
-        ${entry.cameraPc ? `
-          <video class="robot-camera" data-cam-id="${entry.id}" autoplay playsinline muted></video>
-        ` : ""}
-      </div>
-    ` : ""}
+      `;
+    })() : ""}
     ${entry.lastEvent ? `
       <div class="last-event">${escapeHtml(entry.lastEvent)}</div>
     ` : ""}
@@ -1122,8 +1154,9 @@ function renderEntry(entry) {
         entry.node.querySelector('[data-action="motor-right"]').value = 0;
         sendMotors(id, 0, 0);
       }
-      else if (action === "camera-start") startCamera(id);
-      else if (action === "camera-stop")  stopCamera(id);
+      else if (action === "camera-start")   startCamera(id);
+      else if (action === "camera-stop")    stopCamera(id);
+      else if (action === "camera-install") installCamera(id);
     });
   });
   // After innerHTML rebuild, rebind the live video element to its MediaStream.
