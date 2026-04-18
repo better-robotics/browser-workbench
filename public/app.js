@@ -1007,17 +1007,18 @@ function renderEntry(entry) {
   entry.node.innerHTML = `
     <div class="row">
       <div>
-        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}</div>
+        <button class="name-trigger" data-action="menu" aria-label="More actions for ${escapeHtml(name)}">
+          <span class="dot${dotClass}"></span>
+          <span>${escapeHtml(name)}</span>
+          <span class="caret" aria-hidden="true">▾</span>
+        </button>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
       </div>
-      <div style="display: flex; gap: 4px;">
-        ${connected
-          ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
-          : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
-              connecting ? "…" : (entry.device ? "Connect" : "Pair")
-            }</button>`}
-        <button class="icon" data-action="menu" aria-label="More actions">⋯</button>
-      </div>
+      ${connected
+        ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
+        : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
+            connecting ? "…" : (entry.device ? "Connect" : "Pair")
+          }</button>`}
     </div>
     ${connected ? `
       <div class="robot-controls row">
@@ -1127,9 +1128,9 @@ function openMenu(triggerBtn, id) {
   menuTargetId = id;
   const menu = $("robot-menu");
   const rect = triggerBtn.getBoundingClientRect();
-  // Position below-right of trigger, nudging left if it would overflow viewport.
+  // Position below, left-aligned with the name trigger, clamped into viewport.
   const menuWidth = 220;
-  const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+  const left = Math.min(rect.left, window.innerWidth - menuWidth - 8);
   menu.style.top = `${rect.bottom + 6}px`;
   menu.style.left = `${Math.max(8, left)}px`;
   if (menu.showPopover) menu.showPopover();
