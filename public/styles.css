@@ -133,10 +133,10 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 }
 .overlay-action {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
+  bottom: 6px;
+  right: 6px;
   min-height: unset;
-  padding: 4px 12px;
+  padding: 4px 8px;
   font-size: 11px;
   font-weight: 400;
   line-height: 1.4;
@@ -221,7 +221,12 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .setup-grid .card { margin-bottom: 0; }
 @media (max-width: 520px) { .setup-grid { grid-template-columns: 1fr; } }
 .setup-item { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.setup-item button { margin-top: 4px; }
+/* Primary CTA anchors to the bottom of each setup card so buttons align
+   across cards regardless of how much description or helper text sits above. */
+.setup-item > esp-web-install-button,
+.setup-item > button:not(.help-hint) {
+  margin-top: auto;
+}
 
 .help-hint {
   background: transparent;

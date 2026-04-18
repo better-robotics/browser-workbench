@@ -30,12 +30,12 @@
     <section class="card setup-item">
       <div class="label">Flash an ESP32</div>
       <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
+      <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
       <esp-web-install-button manifest="firmware/manifest.json">
         <button slot="activate" class="secondary">Flash firmware</button>
         <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
         <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
       </esp-web-install-button>
-      <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
     </section>
     <section class="card setup-item">
       <div class="label">Customize a Pi SD card</div>
