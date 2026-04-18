@@ -80,12 +80,14 @@ p.lede { color: var(--ink-muted); margin: 0 0 32px; max-width: 640px; }
 .name-trigger:hover { color: var(--accent); }
 .name-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .name-trigger .caret {
+  width: 10px;
+  height: 6px;
   color: var(--ink-muted);
-  font-size: 10px;
-  opacity: 0.45;
-  transition: opacity 0.15s;
+  opacity: 0.55;
+  transition: opacity 0.15s, transform 0.15s;
+  margin-left: 2px;
 }
-.name-trigger:hover .caret { opacity: 1; }
+.name-trigger:hover .caret { opacity: 1; color: var(--accent); }
 .meta {
   color: var(--ink-muted);
   font-size: 13px;

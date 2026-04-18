@@ -1010,7 +1010,7 @@ function renderEntry(entry) {
         <button class="name-trigger" data-action="menu" aria-label="More actions for ${escapeHtml(name)}">
           <span class="dot${dotClass}"></span>
           <span>${escapeHtml(name)}</span>
-          <span class="caret" aria-hidden="true">▾</span>
+          <svg class="caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1 L5 5 L9 1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
       </div>
