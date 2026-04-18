@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Better Robotics</title>
   <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <style>
     :root {
       --bg: #f5f5f7;
@@ -214,6 +215,64 @@
       line-height: 1.5;
       margin-bottom: 16px;
     }
+    .label-modal {
+      border: none;
+      border-radius: var(--radius);
+      padding: 24px;
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      min-width: 320px;
+    }
+    .label-modal::backdrop { background: rgba(0,0,0,0.3); }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    .qr-box {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+    .qr-box svg { width: 240px; height: 240px; }
+    .label-url {
+      text-align: center;
+      margin-top: 12px;
+      font-family: "SF Mono", ui-monospace, Menlo, monospace;
+      font-size: 12px;
+      color: var(--ink-muted);
+      word-break: break-all;
+    }
+    .modal-footer {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+    .robot.highlight {
+      background: #fff8e1;
+      border-radius: 8px;
+      padding: 16px 12px;
+      transition: background 1.5s;
+    }
+    @media print {
+      body > main, #robot-menu { display: none !important; }
+      .label-modal {
+        display: block;
+        position: static;
+        box-shadow: none;
+        border: none;
+      }
+      .label-modal::backdrop { display: none; }
+      .modal-header button, .modal-footer { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -266,8 +325,22 @@
 </main>
 
 <div id="robot-menu" class="menu" popover="auto">
+  <button class="menu-item" id="menu-label">Show label</button>
   <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
 </div>
+
+<dialog id="label-modal" class="label-modal">
+  <div class="modal-header">
+    <div class="label" id="label-title">Robot label</div>
+    <button class="icon" id="label-close" aria-label="Close">×</button>
+  </div>
+  <div class="qr-box" id="qr-box"></div>
+  <div class="label-url" id="label-url"></div>
+  <div class="modal-footer">
+    <button class="secondary sm" id="label-copy">Copy URL</button>
+    <button class="secondary sm" id="label-print">Print</button>
+  </div>
+</dialog>
 <script>
   const SERVICE_UUID          = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
   const LED_CHAR_UUID         = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
@@ -646,6 +719,38 @@
     menuTargetId = null;
   }
 
+  function robotUrl(name) {
+    return `${location.origin}${location.pathname}?robot=${encodeURIComponent(name)}`;
+  }
+
+  function openLabel(id) {
+    const entry = state.devices.get(id);
+    if (!entry) return;
+    const url = robotUrl(entry.name);
+    $("label-title").textContent = entry.name;
+    $("label-url").textContent = url;
+    const qr = qrcode(0, "M");
+    qr.addData(url);
+    qr.make();
+    $("qr-box").innerHTML = qr.createSvgTag({ scalable: true, margin: 0 });
+    $("label-modal").showModal();
+  }
+
+  function highlightKnownRobotFromUrl() {
+    const hinted = new URLSearchParams(location.search).get("robot");
+    if (!hinted) return;
+    const entry = [...state.devices.values()].find(e => e.name === hinted);
+    if (!entry) return;
+    // Flash the card so the user sees which robot the URL refers to.
+    requestAnimationFrame(() => {
+      const card = [...$("robot-list").children].find(el => el.querySelector(".label")?.textContent === hinted);
+      if (!card) return;
+      card.classList.add("highlight");
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => card.classList.remove("highlight"), 1500);
+    });
+  }
+
   function wifiSummary(entry) {
     const { st, ssid, err } = entry.wifiStatus || {};
     if (st === "joined")  return `Connected to ${ssid || "network"}`;
@@ -667,6 +772,21 @@
     $("scan-btn").addEventListener("click", scanForNew);
     $("empty-scan-btn").addEventListener("click", scanForNew);
 
+    $("menu-label").addEventListener("click", () => {
+      const id = menuTargetId;
+      closeMenu();
+      if (id) openLabel(id);
+    });
+    $("label-close").addEventListener("click", () => $("label-modal").close());
+    $("label-copy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("label-url").textContent);
+        $("label-copy").textContent = "Copied";
+        setTimeout(() => $("label-copy").textContent = "Copy URL", 1500);
+      } catch {}
+    });
+    $("label-print").addEventListener("click", () => window.print());
+
     $("menu-forget").addEventListener("click", () => {
       const id = menuTargetId;
       if (!id) return;
@@ -679,7 +799,7 @@
       }
     });
 
-    loadPaired();
+    loadPaired().then(highlightKnownRobotFromUrl);
   });
 </script>
 </body>
