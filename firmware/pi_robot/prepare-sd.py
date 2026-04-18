@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 """Generate firstrun.sh + stage firmware + wheels on a mounted Pi SD card.
 
-Reads values from env vars, substitutes them into firstrun.template.sh,
-writes to $BOOTFS/firstrun.sh, downloads aarch64 Python wheels into
-$BOOTFS/wheels/, copies pi_robot firmware into $BOOTFS/betterpi/, and
-patches cmdline.txt so systemd runs firstrun on first boot.
-
-The staged artifacts let the Pi install offline — no WiFi, no captive
-portal, no GH-Pages roundtrip. After firstrun completes, pi_robot runs
-as a systemd service advertising BLE; the dashboard onboards WiFi from
-there via the BLE wifi-scan/wifi-join characteristics.
+Substitutes values into firstrun.template.sh, downloads aarch64 Python
+wheels into $BOOTFS/wheels/, copies pi_robot firmware into
+$BOOTFS/betterpi/, and patches cmdline.txt so systemd runs firstrun on
+first boot. All artifacts are local to the card — the Pi installs
+offline; home WiFi is onboarded later over BLE from the dashboard.
 
 Env vars (required):
     USER_PASS   — sudo password for the Pi user
@@ -18,12 +14,10 @@ Env vars (optional):
     HOSTNAME        (default: betterpi)
     USER_NAME       (default: pi)
     SSH_KEY_PATH    (default: ~/.ssh/id_ed25519.pub)
-    DASHBOARD_URL   (default: https://neevs.io/better-robotics/)
     BOOTFS          (default: /Volumes/bootfs)
 """
 
 import os
-import secrets
 import shutil
 import subprocess
 import sys
@@ -36,15 +30,15 @@ SYSTEMD_RUN = (
     " systemd.unit=kernel-command-line.target"
 )
 
-# Explicit transitive deps: pip's resolver picks macOS-era bleak variants when
-# run from a Mac even with --platform flags, so we enumerate the Linux chain.
-# Keep in sync if bless or bleak add new runtime deps.
-WHEEL_PACKAGES = ["bless", "bleak", "dbus-fast", "async-timeout", "gpiozero"]
+# Explicit Linux/aarch64 dep chain. pip's resolver picks macOS-era bleak
+# variants when run from a Mac even with --platform flags, so we enumerate.
+# - bless     needs bleak + dbus-next (Linux path)
+# - bleak     needs dbus-fast + typing-extensions (Python<3.12)
+# - gpiozero  comes from the Bookworm-preinstalled python3-gpiozero; the venv
+#             uses --system-site-packages so no pip copy is needed.
+WHEEL_PACKAGES = ["bless", "bleak", "dbus-fast", "dbus-next", "typing-extensions"]
 WHEEL_PLATFORM = "manylinux2014_aarch64"
 WHEEL_PY = "311"  # Pi OS Bookworm ships Python 3.11
-
-# python3-lgpio is preinstalled on Pi OS Bookworm; the venv is created with
-# --system-site-packages so gpiozero finds it without a pip install.
 
 
 def sh_single_quote(value: str) -> str:
@@ -97,13 +91,11 @@ def main() -> int:
     print("Downloading wheels…")
     stage_wheels(bootfs / "wheels")
 
-    room = "betterpi-" + secrets.token_hex(4)
     replacements = {
-        "HOSTNAME":    os.environ.get("HOSTNAME", "betterpi"),
-        "USER_NAME":   os.environ.get("USER_NAME", "pi"),
-        "USER_PASS":   os.environ["USER_PASS"],
-        "SSH_KEY":     ssh_key,
-        "SIGNAL_ROOM": room,
+        "HOSTNAME":  os.environ.get("HOSTNAME", "betterpi"),
+        "USER_NAME": os.environ.get("USER_NAME", "pi"),
+        "USER_PASS": os.environ["USER_PASS"],
+        "SSH_KEY":   ssh_key,
     }
     content = template
     for k, v in replacements.items():
@@ -126,13 +118,11 @@ def main() -> int:
     line = line + SYSTEMD_RUN + "\n"
     cmdline_path.write_text(line)
 
-    dashboard = os.environ.get("DASHBOARD_URL", "https://neevs.io/better-robotics/")
-    setup_url = f"{dashboard}?setup={room}"
     print(f"Wrote {bootfs / 'firstrun.sh'}")
     print(f"Patched {cmdline_path}")
     print()
-    print(f"Signal room: {room}")
-    print(f"Open this to watch setup live: {setup_url}")
+    print("Boot the Pi. After ~2 min, it advertises BetterRobot-XXXX over BLE.")
+    print("To check progress, pop the card back into the Mac and read firstrun.status.")
     return 0
 
 
