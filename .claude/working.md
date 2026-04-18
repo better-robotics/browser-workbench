@@ -20,12 +20,14 @@ Last updated: 2026-04-18 (per-card render, wider layout, setup collapse, scout f
 - **Shipped mitigations:** setFollowRedirects, 20s timeout, free-heap logging in the failure message so we can confirm memory pressure next attempt.
 - **Couldn't ship:** `setBufferSizes(rx, tx)` — the API went away in ESP32 Arduino 3.x (WiFiClientSecure → NetworkClientSecure).
 - **BLE-stream fallback still active** — dashboard auto-retries over BLE after 8s silence, so users aren't stuck.
-- **Most promising next move (from scout):** migrate BLE stack to NimBLE. Default in arduino-esp32 3.3.0+ already; materially smaller RAM footprint than Bluedroid. Likely frees the headroom mbedTLS needs for the TLS handshake to complete on CAM-MB. Pin to 3.3.8+ for the signed-OTA fix.
+- **Corrected NimBLE framing (verified 2026-04-18 from primary sources):** NimBLE is NOT the default on ESP32 WROOM/CAM in arduino-esp32 3.3.x — only on newer SoCs (S3/C3/C6) that lack Bluedroid support. Built-in `BLEDevice.h` stays Bluedroid-backed on WROOM/CAM; our current sketch compiles unchanged on 3.3.8. A NimBLE migration on CAM requires switching to the separate `h2zero/NimBLE-Arduino` library (include + class-name rewrite) — not a recompile. The "CAM NimBLE instability" concern from an earlier scan was unverifiable from primary sources; treat it as unknown, not blocking. ~100KB memory savings from NimBLE is still the right direction for CAM-MB's TLS pressure problem, just more work than we thought.
+- **Pinned arduino-esp32 3.3.8** in Makefile + CI — 3.3.6/3.3.7 silently bypass signed-OTA verification (PR #12425).
 - **Heap logging stays** — load-bearing until the next on-device test confirms whether pressure is the cause.
-- **Other next moves if NimBLE doesn't resolve it:**
-  1. Run the HTTPS fetch in a dedicated FreeRTOS task (separate stack, can allocate larger buffers without stealing from BLE).
-  2. Alternative: signal/WebSocket transport (different tradeoff — still TLS).
-  3. Accept BLE fallback as good enough for CAM-MB (S3/C6 are recommended hardware; CAM-MB quirks may not be worth fighting indefinitely).
+- **Next moves, in priority order:**
+  1. **Accept BLE fallback** as the CAM-MB story (10 min vs 10 sec is a cost, not a failure). Doc it as "expected on CAM" so users don't hunt a ghost. Lowest-effort resolution.
+  2. **FreeRTOS-task HTTPS fetch** — separate stack for the download, doesn't steal from BLE. Keeps Bluedroid. ~2 hr work.
+  3. **NimBLE migration via `h2zero/NimBLE-Arduino`** — real code rewrite, ~100KB relief. Validate on S3/C6 first (stable NimBLE territory), then try on CAM. Half-day work plus on-device iteration.
+  4. Signal/WebSocket transport — still TLS, doesn't solve the memory problem.
 
 ### 2. Would a Service Worker improve the architecture? (open question)
 - **Yes for:** offline dashboard (cache static assets + firmware bins so pairing+basic use works without internet, OTA keeps working after a WiFi drop), PWA installability (Add to Home Screen for classroom/demo iPads and Android), faster repeat visits.

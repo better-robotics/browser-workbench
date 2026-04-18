@@ -33,7 +33,9 @@ jobs:
         run: |
           arduino-cli core update-index \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32 \
+          # Pin 3.3.8+ — 3.3.6/3.3.7 silently bypass signed-OTA verification
+          # when installSignature() is called before begin() (PR #12425).
+          arduino-cli core install esp32:esp32@3.3.8 \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
       - name: Publish ESP32 firmware

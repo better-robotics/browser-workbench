@@ -35,7 +35,9 @@ setup:
 	@command -v brew >/dev/null || (echo "Install Homebrew first: https://brew.sh" && exit 1)
 	@command -v arduino-cli >/dev/null || brew install arduino-cli
 	arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-	arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+	# Pin 3.3.8+ — 3.3.6/3.3.7 silently bypass signed-OTA verification
+	# when installSignature() is called before begin() (arduino-esp32 PR #12425).
+	arduino-cli core install esp32:esp32@3.3.8 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 	@echo ""
 	@echo "If no /dev/cu.* port appears when the board is plugged in:"
 	@echo "  • ESP32-S3 (recommended) — native USB, no driver needed. Appears as /dev/cu.usbmodem*."
