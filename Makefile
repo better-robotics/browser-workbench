@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 FQBN        ?= esp32:esp32:esp32cam:PartitionScheme=min_spiffs
-PORT        ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -1)
+PORT        ?= $(shell ls /dev/cu.usbserial-* /dev/cu.usbmodem* 2>/dev/null | head -1)
 SKETCH      ?= esp32_robot
 BUILD_DIR   := /tmp/esp32-$(SKETCH)-build
 PUBLISH_DIR := public/firmware/bins
@@ -35,21 +35,21 @@ setup:
 	arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 	arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 	@echo ""
-	@echo "If no /dev/cu.usbserial-* port appears when the ESP32-CAM-MB is plugged in,"
-	@echo "your board uses a CP210x (Silicon Labs) chip and needs its driver:"
-	@echo "  https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers"
-	@echo "Allow it in System Settings > Privacy & Security before flashing."
-	@echo "Boards with FTDI (FT232R) chips use Apple's built-in driver — no install needed."
+	@echo "If no /dev/cu.* port appears when the board is plugged in:"
+	@echo "  • ESP32-S3 (recommended) — native USB, no driver needed. Appears as /dev/cu.usbmodem*."
+	@echo "  • CP210x (Silicon Labs) bridge — install https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers"
+	@echo "    and allow in System Settings > Privacy & Security."
+	@echo "  • FT232R (FTDI) bridge — Apple's built-in driver works, nothing to install."
 
 compile:
 	arduino-cli compile --fqbn "$(FQBN)" --build-path "$(BUILD_DIR)" firmware/$(SKETCH)
 
 flash: compile
-	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-*. Is it plugged in?" && exit 1)
+	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*. Is it plugged in?" && exit 1)
 	arduino-cli upload --fqbn "$(FQBN)" --port "$(PORT)" --input-dir "$(BUILD_DIR)" firmware/$(SKETCH)
 
 monitor:
-	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-*" && exit 1)
+	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*" && exit 1)
 	$(MONITOR)
 
 flash-monitor: flash monitor

@@ -70,15 +70,24 @@ Chrome opens at `http://localhost:8080`. Click **Scan**, pick your ESP32, toggle
 
 ## Hardware
 
-Firmware and published binaries target the **ESP32-CAM-MB** (AI Thinker ESP32-CAM module on the MB programmer carrier). Specifically:
+### Recommended: ESP32-S3 with native USB
 
-- **`LED_PIN = 33`** — the red onboard LED on the camera module, active-low. Other boards may not have an LED at that pin.
-- **FQBN `esp32:esp32:esp32cam:PartitionScheme=min_spiffs`** — dual 1.9 MB app slots (A/B) plus a 128 KB SPIFFS. OTA-capable so future Bluetooth firmware updates don't require USB.
-- The bins in `public/firmware/bins/` are compiled against that FQBN. Flashing them onto a different ESP32 board will probably boot, but the LED won't respond and the partition table will be CAM-specific.
+For new builds, pick an **ESP32-S3 board with native USB** — ESP32-S3-CAM, Freenove ESP32-S3-WROOM dev kit, or any DevKitC-S3. The S3 exposes USB CDC directly from the chip, so Web Serial talks straight to it on macOS, Windows, and Linux with **no drivers to install**. Same Arduino core, same BLE stack, same firmware with minor board-knob changes (below).
 
-To target a different ESP32 board, edit `FQBN` in the Makefile and `LED_PIN` in `firmware/esp32_ble_led/esp32_ble_led.ino`, then rerun `make publish-firmware`.
+### Legacy: ESP32-CAM-MB
 
-**USB-serial chip:** the ESP32-CAM-MB ships with either CP210x (Silicon Labs) or FT232R (FTDI). macOS has the FTDI driver built in, but CP210x requires a [one-time driver install](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers). Either works.
+The published binaries currently target the **ESP32-CAM-MB** (AI Thinker ESP32-CAM + MB programmer carrier) — the original development hardware. Its USB-UART bridge is CP210x (Silicon Labs) or FT232R (FTDI). macOS has the FTDI driver built in; CP210x requires a [one-time kernel extension install](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers). Works, but it's the friction the S3 recommendation is meant to sidestep.
+
+### Board-specific knobs
+
+Two variables need to match your board:
+
+- **`FQBN`** in `Makefile` — `esp32:esp32:esp32cam:PartitionScheme=min_spiffs` for CAM-MB; for S3, something like `esp32:esp32:esp32s3:PartitionScheme=min_spiffs,USBMode=default,CDCOnBoot=cdc` (run `arduino-cli board listall` for exact identifiers on your core version).
+- **`LED_PIN`** in `firmware/esp32_robot/esp32_robot.ino` — GPIO 33 active-low on CAM-MB. S3 boards vary; many use a WS2812 neopixel on GPIO 48, which needs a different driver entirely.
+
+`min_spiffs` is load-bearing across both: its dual 1.9 MB app partitions are what OTA needs to stage an update without wiping the running image.
+
+After changing either, `make publish-firmware` rebuilds and stages the new binary.
 
 ## Browser support
 
