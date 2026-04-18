@@ -89,27 +89,23 @@
   <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
 </div>
 
-<dialog id="settings-modal" class="label-modal">
+<dialog id="settings-modal" class="settings-modal">
   <div class="modal-header">
     <div class="label">Settings</div>
     <button class="icon" id="settings-close" aria-label="Close">×</button>
   </div>
-  <div class="field">
-    <label style="display: flex; align-items: center; gap: 10px;">
-      <input type="checkbox" id="setting-passive-scan">
-      <span>
-        Passive BLE scan (experimental)
-        <div class="meta" id="setting-passive-scan-status"></div>
-      </span>
+  <div class="settings-item">
+    <input type="checkbox" id="setting-passive-scan">
+    <label for="setting-passive-scan">
+      <div class="settings-title">Passive BLE scan (experimental)</div>
+      <div class="meta" id="setting-passive-scan-status"></div>
     </label>
   </div>
-  <div class="field">
-    <label style="display: flex; align-items: center; gap: 10px;">
-      <input type="checkbox" id="setting-voice">
-      <span>
-        Voice commands (experimental)
-        <div class="meta" id="setting-voice-status"></div>
-      </span>
+  <div class="settings-item">
+    <input type="checkbox" id="setting-voice">
+    <label for="setting-voice">
+      <div class="settings-title">Voice commands (experimental)</div>
+      <div class="meta" id="setting-voice-status"></div>
     </label>
   </div>
 </dialog>

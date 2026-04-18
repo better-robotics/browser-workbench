@@ -367,7 +367,7 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 }
 
 /* modals */
-.label-modal, .prepare-dialog {
+.label-modal, .prepare-dialog, .settings-modal {
   border: none;
   border-radius: var(--radius);
   padding: 24px;
@@ -375,9 +375,22 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   color: var(--ink);
   box-shadow: 0 20px 60px rgba(0,0,0,0.2);
 }
-.label-modal::backdrop, .prepare-dialog::backdrop { background: rgba(0,0,0,0.3); }
-.label-modal { min-width: 320px; }
+.label-modal::backdrop, .prepare-dialog::backdrop, .settings-modal::backdrop { background: rgba(0,0,0,0.3); }
+.label-modal { width: min(400px, calc(100vw - 32px)); }
 .prepare-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }
+.settings-modal { width: min(440px, calc(100vw - 32px)); }
+.settings-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.settings-item:first-of-type { border-top: none; }
+.settings-item input[type="checkbox"] { margin: 2px 0 0 0; }
+.settings-item label { cursor: pointer; }
+.settings-title { font-weight: 500; margin-bottom: 2px; }
 
 .modal-header {
   display: flex;
