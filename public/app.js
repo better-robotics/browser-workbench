@@ -82,7 +82,7 @@ const SETTINGS_KEY = "better-robotics:settings";
 // presence of the underlying browser API — turning on something Chrome
 // can't deliver is a no-op, not a crash.
 const settings = Object.assign(
-  { passiveScan: false },
+  { passiveScan: false, voice: false },
   JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
 );
 function saveSettings() {
@@ -668,6 +668,73 @@ function startGamepadLoop() {
   _gamepadRafHandle = requestAnimationFrame(gamepadTick);
 }
 
+// Voice commands (experimental). Uses webkitSpeechRecognition — Chrome's
+// speech-to-text path goes through Google's cloud service, which bends the
+// "no network" story. Strictly opt-in via Settings. Grammar is intentionally
+// tiny so we can match with case-insensitive string tests instead of a
+// parser — scales poorly past a dozen commands, but fits the current verbs.
+let _recognition = null;
+function resolveRobotByName(fragment) {
+  const norm = (s) => s.toLowerCase().replace(/[\s-]/g, "");
+  const needle = norm(fragment);
+  return [...state.devices.values()].find(e => norm(e.name).includes(needle))
+    || [...state.devices.values()].find(e => norm(e.name).endsWith(needle.slice(-4)));
+}
+function dispatchVoice(transcript) {
+  const t = transcript.toLowerCase().trim();
+  log(`voice heard: "${transcript}"`);
+  if (/\b(connect all|join all)\b/.test(t)) return connectAll();
+  if (/\b(stop|halt|emergency|e.?stop)\b/.test(t)) {
+    for (const e of state.devices.values()) {
+      if (e.motorChar && e.status === "connected") sendMotors(e.id, 0, 0);
+    }
+    return;
+  }
+  const ledOn = t.match(/\b(l.?e.?d|light)\s+on(?:\s+(\w[\w-]*))?/);
+  if (ledOn) {
+    const target = ledOn[1] ? resolveRobotByName(ledOn[1]) : null;
+    const candidates = target ? [target] : [...state.devices.values()].filter(e => e.ledChar);
+    for (const e of candidates) if (!e.ledOn) toggleLed(e.id);
+    return;
+  }
+  const ledOff = t.match(/\b(l.?e.?d|light)\s+off(?:\s+(\w[\w-]*))?/);
+  if (ledOff) {
+    const target = ledOff[1] ? resolveRobotByName(ledOff[1]) : null;
+    const candidates = target ? [target] : [...state.devices.values()].filter(e => e.ledChar);
+    for (const e of candidates) if (e.ledOn) toggleLed(e.id);
+    return;
+  }
+  log("voice: no match");
+}
+function startVoice() {
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Rec) { log("Voice unavailable — SpeechRecognition missing"); return; }
+  if (_recognition) return;
+  _recognition = new Rec();
+  _recognition.continuous = true;
+  _recognition.interimResults = false;
+  _recognition.lang = "en-US";
+  _recognition.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) dispatchVoice(e.results[i][0].transcript);
+    }
+  };
+  _recognition.onerror = (e) => log(`voice error: ${e.error}`);
+  _recognition.onend = () => {
+    // Chrome auto-stops after silence; auto-resume if user still wants it.
+    if (_recognition && settings.voice) { try { _recognition.start(); } catch {} }
+  };
+  try { _recognition.start(); } catch (err) { log(`voice start failed: ${err.message}`); }
+  $("voice-btn").classList.add("listening");
+}
+function stopVoice() {
+  if (!_recognition) return;
+  _recognition.onend = null;
+  try { _recognition.stop(); } catch {}
+  _recognition = null;
+  $("voice-btn").classList.remove("listening");
+}
+
 async function sendMotors(id, left, right) {
   const entry = state.devices.get(id);
   if (!entry || !entry.motorChar) return;
@@ -983,6 +1050,31 @@ document.addEventListener("DOMContentLoaded", () => {
     settings.passiveScan = passiveCheckbox.checked;
     saveSettings();
   });
+  // Voice commands: show mic only when enabled AND a recognizer is present.
+  // Chrome's speech-to-text uses a cloud backend; we flag that in the status.
+  const voiceCheckbox = $("setting-voice");
+  const voiceStatus = $("setting-voice-status");
+  const voiceAvailable = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  voiceCheckbox.checked = settings.voice && voiceAvailable;
+  voiceStatus.textContent = voiceAvailable
+    ? "Commands: connect all · stop · LED on/off <name>. Chrome routes speech-to-text through Google's cloud."
+    : "Unavailable — no SpeechRecognition in this browser.";
+  if (!voiceAvailable) voiceCheckbox.disabled = true;
+  const applyVoice = () => {
+    const on = settings.voice && voiceAvailable;
+    $("voice-btn").hidden = !on;
+    if (!on) stopVoice();
+  };
+  applyVoice();
+  voiceCheckbox.addEventListener("change", () => {
+    settings.voice = voiceCheckbox.checked;
+    saveSettings();
+    applyVoice();
+  });
+  $("voice-btn").addEventListener("click", () => {
+    if (_recognition) stopVoice(); else startVoice();
+  });
+
   $("settings-btn").addEventListener("click", () => $("settings-modal").showModal());
   $("settings-close").addEventListener("click", () => $("settings-modal").close());
 
