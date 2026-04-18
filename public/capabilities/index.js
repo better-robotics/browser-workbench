@@ -9,8 +9,9 @@ import { motors, setRender as setMotorsRender } from "./motors.js";
 import { wifi,   setRender as setWifiRender }   from "./wifi.js";
 import { ota,    setRender as setOtaRender }    from "./ota.js";
 import { camera, setRender as setCameraRender } from "./camera.js";
+import { admin,  setRender as setAdminRender }  from "./admin.js";
 
-export const ALL = [led, motors, wifi, ota, camera];
+export const ALL = [led, motors, wifi, ota, camera, admin];
 
 export function setCapabilityRenderer(fn) {
   setLedRender(fn);
@@ -18,4 +19,5 @@ export function setCapabilityRenderer(fn) {
   setWifiRender(fn);
   setOtaRender(fn);
   setCameraRender(fn);
+  setAdminRender(fn);
 }

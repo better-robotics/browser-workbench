@@ -12,6 +12,7 @@ import {
 } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
+import { restartService } from "./capabilities/admin.js";
 import { initGamepad } from "./gamepad.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
@@ -438,6 +439,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = menuTargetId;
     closeMenu();
     if (id) updateFromFile(id);
+  });
+  $("menu-restart").addEventListener("click", () => {
+    const id = menuTargetId;
+    closeMenu();
+    if (id) restartService(id);
   });
   $("label-close").addEventListener("click", () => $("label-modal").close());
   $("label-copy").addEventListener("click", async () => {
