@@ -1,16 +1,23 @@
 # Current working model — better-robotics
 
-Last updated: 2026-04-18 (per-card render, wider layout, setup collapse, scout findings folded in)
+Last updated: 2026-04-18 (3-plane architecture named; bundle OTA + USB recovery + xterm.js + capability config landed)
 
 ## Project shape (stable — don't re-question unless new evidence)
 
-- **BLE is the control plane** (always on, always available). Carries commands, telemetry, state, OTA triggers.
-- **WiFi is the data plane** (optional, onboarded over BLE). Carries anything too big for BLE — large OTA payloads, video, cloud calls. Robots work fully without it.
-- Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi, OTA, fw-info) are characteristics inside it. `fw-info` reports `{type, url}` so the dashboard knows where to fetch firmware from.
-- Actuator characteristics (motor, future servos/pumps/relays) ship with a built-in watchdog — every write resets a timer, silence reverts to safe default. That's the answer to "what happens when the channel drops?"
+The architecture is **three independent planes**:
+
+- **Control plane — BLE.** Always on. Commands, telemetry, state, ops (install, restart, inspect). The browser's pairing UI is the gatekeeper; no credentials cross the air.
+- **Data plane — WiFi.** Optional, onboarded over BLE. Large OTA payloads, video streams, cloud calls. Robots work fully without it.
+- **Recovery plane — USB.** Last-resort. Composite gadget (ECM ethernet + ACM serial) runs under `usb-gadget.service`, independent of pi-robot firmware. Dashboard exposes a real xterm.js terminal over the ACM endpoint — works even when BLE and WiFi are dead.
+
+Other invariants:
+- Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi, OTA, camera, admin) are characteristics inside it. `fw-info` reports `{type, url, caps, bundle_url}` so the dashboard picks the right data plane per-robot and picks between legacy single-file OTA vs bundle OTA automatically.
+- **Capability presence is config-driven on Pi** via `/boot/firmware/pi-robot.conf`. Unwired LEDs don't show up; missing motor drivers don't show up. The dashboard renders only what's advertised.
+- Actuator characteristics (motor, future servos/pumps/relays) ship with a built-in watchdog — every write resets a timer, silence reverts to safe default.
 - Dashboard is the brain; firmware lives on GH Pages and updates via OTA. No server in the critical path.
-- Browser-only SPA. Chrome/Edge required (Web Bluetooth, File System Access API).
-- **Dashboard render is per-entry.** `state.devices: Map<id, entry>`; each entry owns its DOM node via `entry.node`. `renderEntry(entry)` rebuilds one card; `render()` reconciles the list (add/remove/order). A characteristic notify for robot A never touches robot B's DOM. This is also the foundation for the future LLM-orchestrator direction — `get_robot_state(id)` and per-entry state-push map cleanly onto it.
+- **Browser is ES-module-organized.** Capability registry (`public/capabilities/*.js`) + shared infra (`ble.js`, `state.js`, `log.js`, `settings.js`, `dom.js`) + input modules (`gamepad.js`, `voice.js`) + recovery (`recovery.js`) + prepare (`prepare.js`). `app.js` is ~490 lines of orchestration.
+- **Dashboard render is per-entry.** `state.devices: Map<id, entry>`; each entry owns its DOM node via `entry.node`. `renderEntry(entry)` rebuilds one card; `render()` reconciles the list (add/remove/order). A characteristic notify for robot A never touches robot B's DOM.
+- Chrome/Edge required (Web Bluetooth, Web Serial, File System Access API).
 
 ## Pending, roughly ranked
 
@@ -62,7 +69,14 @@ Last updated: 2026-04-18 (per-card render, wider layout, setup collapse, scout f
 - **Don't copy from hatch:** behavioral-trust ledger (overkill for single-user dashboard), multi-bridge primary/secondary election (only needed for multi-client orchestration).
 
 ## Recently landed (context for what's "done")
-- **Per-card render foundation.** `entry.node` owns the card DOM; `renderEntry(entry)` scopes innerHTML rebuild to one card; `render()` handles list-level changes only. Sets up the entry-addressable state shape the future LLM-orchestrator will drive tools against.
+- **Recovery plane: USB-CDC-ACM + xterm.js.** Pi runs composite USB gadget (ECM + ACM) via `usb-gadget.service` (independent of pi-robot). Dashboard has a Recovery console menu item that dynamic-loads xterm.js over a Web Serial connection to `/dev/cu.usbmodem*`. Real terminal — Ctrl+C, ANSI escapes, arrows, selection all work.
+- **Bundle OTA.** Multi-file updates in one BLE transfer. Manifest at `firmware/pi_robot/ota-manifest.json` declares files + modes + post_install commands + reboot. Pi's `_apply_bundle` validates, stages to `.new` paths, atomic-renames, runs hooks, reboots. Legacy single-file OTA still works for backward compat (pi sniffs payload shape at commit). Dest-path whitelist prevents a malformed manifest from writing to arbitrary locations.
+- **Install-on-demand for camera.** Admin-style BLE opcode → Pi runs apt+pip in background with progress streamed back via camera-status notify. No SSH needed for optional dep install. Uses sys.executable (venv's python) to avoid PEP 668 externally-managed Python errors.
+- **Admin characteristic.** `Restart service` menu item → ADMIN_OP_RESTART opcode → Pi runs `systemctl restart pi-robot`. Soft-stuck recovery without USB or SSH.
+- **Capability config on Pi.** `/boot/firmware/pi-robot.conf` declares `led_enabled`, `led_pin`, `motors_enabled`, `camera_enabled`. Firmware gates characteristic registration on config. Dashboard Customize-card flow writes the config based on checkboxes.
+- **Consistent modal close behavior.** `wireDialogOutsideClick()` helper in dom.js. Every `<dialog>` closes on backdrop click (Escape is native). Popover `robot-menu` has explicit click + Escape listeners at document level.
+- **Browser refactor (stages 1–3).** app.js went from 1440-line monolith to 490 lines of orchestration + capability registry + input modules. Adding a capability = one new file + one line in registry.
+- **Per-card render foundation.** `entry.node` owns the card DOM; `renderEntry(entry)` scopes innerHTML rebuild to one card; `render()` handles list-level changes only.
 - **Wider layout.** `main` max-width 1200px; `#robot-list` is `repeat(auto-fill, minmax(360px, 1fr))` — stacks on phone, side-by-side on laptop. Setup-grid capped at 800px so two onboarding cards don't stretch across a wide page. `h1`/`p.lede` capped at 640px for readability.
 - **Collapsible setup section.** `<details id="setup-section">` with "Set up new hardware" as the `<summary>`; folded by default when robots exist, expanded when the list is empty. Session's user toggle persists (render doesn't force-reset).
 - **Dashboard visual compression pass.** Log is now a three-column grid (time · name · msg) with name-dedup across bursts; system-level log lines (no robot name) span the message into the name slot; status dot moved left of the robot name; "Connected" / "Not connected" text dropped (dot + button carry it); redundant connecting/connected/disconnected log lines removed; dead `_debug_log` wifi-scan instrumentation in pi_robot.py removed; watchdog-rationale comments tightened to one sentence at each declaration; `makeEntry()` factory shared between `entryFor` and `loadPaired` hydration.

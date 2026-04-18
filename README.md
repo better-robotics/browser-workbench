@@ -18,22 +18,26 @@ BLE avoids the problem entirely:
 
 ## Architecture
 
-Two channels, each doing what it's best at:
+Three planes, each independent, each doing what it's best at:
 
-- **BLE — control plane.** Always on. Commands, telemetry, state changes, update triggers. Low bandwidth (~1–3 Mbps) but reliable and network-free. The browser's pairing UI is the gatekeeper; no credentials cross the air.
-- **WiFi — data plane, optional.** Onboarded via BLE when a robot wants it. Large OTA payloads, video streams, cloud ML. Robots work fully without it.
+- **Control plane — BLE.** Always on. Commands, telemetry, state changes, ops (install deps, restart service, inspect logs). Low bandwidth (~1–3 Mbps) but reliable and network-free. The browser's pairing UI is the gatekeeper; no credentials cross the air.
+- **Data plane — WiFi, optional.** Onboarded via BLE when a robot needs it. Large OTA payloads, video streams, cloud ML. Robots work fully without it.
+- **Recovery plane — USB, last-resort.** The Pi exposes a composite USB gadget (ECM ethernet + ACM serial) over its USB-C port. Works when both BLE and WiFi are dead or the firmware is crashing, because the gadget runs under its own systemd unit independent of the robot firmware. The dashboard exposes a real xterm.js terminal over this channel (no SSH client needed).
 
 ```
-┌──────────────────┐      BLE GATT (always on)       ┌──────────────────┐
-│  Chrome browser  │ ◄──────────────────────────────► │  Robot firmware  │
-│  (Web Bluetooth) │   commands · state · triggers    │  (ESP32 or Pi)   │
-└──────────────────┘                                  └──────────────────┘
-          ▲                                                     ▲
-          └───────────── WiFi (data plane, optional) ───────────┘
-                  large OTA · video · cloud calls
+┌──────────────────┐         BLE GATT (always on)          ┌──────────────────┐
+│  Chrome browser  │ ◄────────────────────────────────────► │  Robot firmware  │
+│  (Web Bluetooth) │   commands · state · ops · triggers    │  (ESP32 or Pi)   │
+└──────────────────┘                                        └──────────────────┘
+          ▲                                                           ▲
+          ├─────────── WiFi (data plane, optional) ────────────────── ┤
+          │         large OTA · video · cloud calls                   │
+          │                                                           │
+          └─────── USB-C (recovery plane, last-resort, Pi only) ───── ┘
+                    ECM ethernet · ACM serial console
 ```
 
-Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi config, OTA, fw-info) are characteristics inside it. Adding a capability means adding a characteristic — not a new protocol. A `fw-info` characteristic reports the robot's type and where to fetch updates, so the dashboard routes firmware through BLE or WiFi per-robot automatically.
+Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi, OTA, camera, admin) are characteristics inside it. Adding a capability means adding a characteristic — not a new protocol. A `fw-info` characteristic reports the robot's type and where to fetch updates, so the dashboard routes firmware through BLE or WiFi per-robot automatically. Capability presence is configurable per-robot via `/boot/firmware/pi-robot.conf` on Pi — unwired LEDs don't show up as dashboard controls.
 
 **Safety on disconnect.** Actuator characteristics (motor, servo, pump, relay — anything mechanical) ship with a watchdog built into the firmware. Every write resets a timer; if no write lands within the window, the firmware reverts to a safe default on its own. The architecture's answer to "what if the operator walks away?" — silence itself is the trigger for the safe state, not a redundant radio.
 
@@ -63,7 +67,13 @@ Commit + push when ready. CI rebuilds firmware artifacts on every change under `
 
 - `firmware/esp32_robot/` — ESP32 firmware (LED, WiFi onboarding, OTA, motors).
 - `firmware/pi_robot/` — Raspberry Pi firmware (Python + `bless`). Same service UUID and characteristic UUIDs as the ESP32 — indistinguishable from the dashboard's side. [Details + troubleshooting](firmware/pi_robot/README.md).
-- `public/index.html`, `public/app.js`, `public/styles.css` — the dashboard. Single-page app; the Customize-card dialog is a `<dialog>` inside `index.html`.
+- `public/` — the dashboard. ES modules:
+  - `app.js` — orchestration
+  - `capabilities/` — one file per BLE-backed capability (led, motors, wifi, ota, camera, admin)
+  - `ble.js`, `state.js`, `log.js`, `settings.js`, `dom.js` — shared infrastructure
+  - `gamepad.js`, `voice.js` — browser-input modules
+  - `prepare.js` — SD card customization dialog
+  - `recovery.js` — xterm.js USB serial console
 
 ## Further reading
 
@@ -76,7 +86,7 @@ Web Bluetooth works in Chrome, Edge, and Opera on desktop and Android. Not Safar
 
 ## Status
 
-End-to-end loop works on Pi 4 and ESP32-CAM-MB hardware: pair over BLE, toggle LED, onboard WiFi, OTA firmware, drive motors with a safe-by-construction watchdog, print QR labels per robot. Multi-robot pairing landed. Control/data channel split validated in code. Next: more capabilities on top of the same protocol shape.
+End-to-end loop works on Pi 4 and ESP32-CAM-MB hardware: pair over BLE, toggle LED, onboard WiFi, OTA firmware (single-file or multi-file bundle), drive motors with a safe-by-construction watchdog, print QR labels, WebRTC camera streaming (install-on-demand over BLE), in-browser xterm.js recovery console over USB-CDC-ACM. Multi-robot pairing landed. Three-plane architecture validated in code. Next: more capabilities on top of the same protocol shape.
 
 ## License
 

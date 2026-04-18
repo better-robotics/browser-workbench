@@ -16,6 +16,15 @@ The published binaries currently target the **ESP32-CAM-MB** (AI Thinker ESP32-C
 
 Tested on **Pi 4 Model B**. Bluetooth radio built in. Pi OS Bookworm (Python 3.11) or Trixie (Python 3.13) — the dashboard's Customize-card flow stages wheels for both.
 
+### Recovery plane (USB-C)
+
+The Pi boots with a **composite USB gadget** (ECM ethernet + ACM serial) under `usb-gadget.service`, independent of the main firmware service. Plug USB-C from the Pi into your laptop:
+
+- **ECM ethernet** — Pi appears at `10.55.0.1`; `ssh pi@10.55.0.1` works with the sudo password you set in Customize card.
+- **ACM serial** — Pi appears as `/dev/cu.usbmodem*`; the dashboard's ⋯ → **Recovery console** menu item opens a full xterm.js terminal over this. Works even when BLE and WiFi are both dead, because the gadget is a kernel-level service that runs before `pi-robot` and doesn't depend on it.
+
+Requires a USB-C **data** cable (not charge-only). The Pi 4's USB-C port is the only gadget-capable port — USB-A ports on the top edge are hosts and won't work for this.
+
 ## Board-specific knobs
 
 Two variables need to match your ESP32 board:
