@@ -289,6 +289,15 @@ async def _check_current_wifi() -> None:
 
 async def _wifi_join_task(ssid: str, password: str) -> None:
     _set_status("joining", ssid=ssid)
+    # A prior failed attempt can leave a half-configured NM profile; the next
+    # join reuses it and trips on "802-11-wireless-security.key-mgmt: property
+    # is missing." Delete any stale profile for this SSID before connecting.
+    # rc is ignored — "no connection with name" is the expected success path.
+    del_proc = await asyncio.create_subprocess_exec(
+        "nmcli", "connection", "delete", ssid,
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+    )
+    await del_proc.wait()
     cmd = ["nmcli", "dev", "wifi", "connect", ssid]
     if password:
         cmd += ["password", password]
