@@ -9,7 +9,8 @@
   "post_install": [
     "systemctl daemon-reload",
     "systemctl enable usb-gadget.service",
-    "systemctl enable serial-getty@ttyGS0.service"
+    "systemctl enable serial-getty@ttyGS0.service",
+    "sed -i 's/modules-load=dwc2,g_ether/modules-load=dwc2,libcomposite/' /boot/firmware/cmdline.txt"
   ],
-  "restart": "pi-robot"
+  "reboot": true
 }
