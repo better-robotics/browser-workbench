@@ -556,19 +556,70 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 }
 
 .wifi-list {
-  margin-top: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
   border-top: 1px dashed var(--line);
-  padding-top: 8px;
 }
 .wifi-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .wifi-row:last-child { border-bottom: none; }
+.wifi-row.joined {
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-radius: 6px;
+  border-bottom-color: transparent;
+}
+
+.wifi-text { flex: 1; min-width: 0; }
+.wifi-ssid {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wifi-meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+.wifi-row.joined .wifi-meta { color: var(--success); }
+
+/* Signal bars: 4 vertical bars, weak→strong. "off" rect stays in flow so
+   the column width is constant row-to-row — list scans visually clean. */
+.wifi-bars { width: 16px; height: 12px; flex-shrink: 0; color: var(--ink); }
+.wifi-bars .wifi-bar.on  { fill: currentColor; }
+.wifi-bars .wifi-bar.off { fill: currentColor; opacity: 0.18; }
+
+.wifi-lock { width: 12px; height: 14px; fill: var(--ink-muted); flex-shrink: 0; }
+.wifi-check { width: 14px; height: 14px; fill: var(--success); flex-shrink: 0; }
+.wifi-status-tag { display: inline-flex; align-items: center; }
+
+.wifi-empty {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+/* Small spinner — Scan button + empty-list wait state. */
+.wifi-spinner {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wifi-spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+@keyframes wifi-spin { to { transform: rotate(360deg); } }
 
 .setup-grid {
   display: grid;

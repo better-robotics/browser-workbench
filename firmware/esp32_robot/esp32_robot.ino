@@ -184,11 +184,17 @@ static void publishScan() {
   WiFi.scanDelete();
 }
 
+static unsigned long scanStartedAt = 0;
 static void startScan() {
-  if (wifiPhase != PHASE_IDLE) return;
+  if (wifiPhase != PHASE_IDLE) {
+    Serial.printf("scan ignored — wifiPhase=%d (busy)\n", (int)wifiPhase);
+    return;
+  }
   WiFi.scanDelete();
-  WiFi.scanNetworks(true);  // async; client knows it's scanning by having just
-  wifiPhase = PHASE_SCANNING;  // triggered the read — notify fires when done.
+  int rc = WiFi.scanNetworks(true);  // async; client knows it's scanning by
+  wifiPhase = PHASE_SCANNING;        // having just triggered the read.
+  scanStartedAt = millis();
+  Serial.printf("wifi scan started (rc=%d, free heap=%u)\n", rc, ESP.getFreeHeap());
 }
 
 static void startJoin(const String& ssid, const String& pass) {
@@ -722,8 +728,21 @@ void loop() {
   if (wifiPhase == PHASE_SCANNING) {
     int n = WiFi.scanComplete();
     if (n >= 0 || n == WIFI_SCAN_FAILED) {
+      Serial.printf("wifi scan complete: n=%d after %lu ms\n", n, millis() - scanStartedAt);
       if (n >= 0) publishScan();
       wifiPhase = PHASE_IDLE;
+    } else if (millis() - scanStartedAt > 25000) {
+      // Failsafe: classic ESP32 with BLE active occasionally never reports
+      // scan-complete. Don't leave the state machine wedged forever.
+      Serial.printf("wifi scan abandoned after 25s (n=%d) — releasing state\n", n);
+      WiFi.scanDelete();
+      wifiPhase = PHASE_IDLE;
+      // Publish empty list so the dashboard's notify listener clears its
+      // "scanning…" UI rather than waiting for its own 20s timeout.
+      if (wifiScanChar) {
+        wifiScanChar->setValue((uint8_t*)"[]", 2);
+        wifiScanChar->notify();
+      }
     }
   } else if (wifiPhase == PHASE_JOINING) {
     wl_status_t s = WiFi.status();

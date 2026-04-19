@@ -2,13 +2,17 @@
 //   { name: "wifi", type: "wifi-scan",
 //     chars: { scan: "…d93", join: "…d94", status: "…d95" } }
 // Three-char protocol: scan (read + notify list), join (write {s,p}),
-// status (read + notify {st, ssid, err}).
+// status (read + notify {st, ssid, err, ip?}).
 import { UUIDS_BY_CAP, decodeJson, encodeJson } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
+
+// Classic ESP32 shares the radio between BLE and WiFi; a scan can take
+// 5-10s. 20s gives generous headroom; longer than that = real failure.
+const SCAN_TIMEOUT_MS = 20000;
 
 function summarize(status) {
   const { st, ssid, err, ip } = status || {};
@@ -18,24 +22,55 @@ function summarize(status) {
   return "Not configured";
 }
 
+// Inline 4-bar signal strength glyph. r is 0-100. Always renders 4 bars,
+// fills the lower N based on strength so a weak network still looks like
+// a valid signal indicator (not blank space).
+function signalBars(r) {
+  const bars = r > 75 ? 4 : r > 50 ? 3 : r > 25 ? 2 : 1;
+  let svg = `<svg class="wifi-bars" viewBox="0 0 16 12" aria-label="signal strength ${bars}/4">`;
+  for (let i = 0; i < 4; i++) {
+    const h = 3 + i * 3;
+    const cls = i < bars ? "wifi-bar on" : "wifi-bar off";
+    svg += `<rect class="${cls}" x="${i * 4}" y="${12 - h}" width="3" height="${h}"/>`;
+  }
+  return svg + "</svg>";
+}
+
+const LOCK_SVG = `<svg class="wifi-lock" viewBox="0 0 12 14" aria-label="secured"><path d="M3 6V4a3 3 0 0 1 6 0v2h.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5H3zm1 0h4V4a2 2 0 1 0-4 0v2z"/></svg>`;
+const CHECK_SVG = `<svg class="wifi-check" viewBox="0 0 14 14" aria-label="connected"><path d="M5.5 10.4 2.6 7.5l-.9.9 3.8 3.8 7.6-7.6-.9-.9z"/></svg>`;
+
 export function makeWifiScanCap(schema) {
   const { name } = schema;
   const chars = schema.chars || UUIDS_BY_CAP[name];
-  const scanField    = `${name}ScanChar`;
-  const joinField    = `${name}JoinChar`;
-  const statusField  = `${name}StatusChar`;
-  const statusState  = `${name}Status`;
+  const scanField     = `${name}ScanChar`;
+  const joinField     = `${name}JoinChar`;
+  const statusField   = `${name}StatusChar`;
+  const statusState   = `${name}Status`;
   const networksField = `${name}Networks`;
   const scanningField = `${name}Scanning`;
+  const scanTimerField = `${name}ScanTimer`;
+  const scanStartedField = `${name}ScanStartedAt`;
   const actionScan = `${name}-scan`;
   const actionJoin = `${name}-join`;
   const label = name.length <= 3 ? name.toUpperCase()
     : name[0].toUpperCase() + name.slice(1);
 
+  function clearScanTimer(entry) {
+    if (entry[scanTimerField]) {
+      clearTimeout(entry[scanTimerField]);
+      entry[scanTimerField] = null;
+    }
+  }
+
   async function scan(entry) {
     if (!entry[scanField]) return;
+    clearScanTimer(entry);
     entry[scanningField] = true;
+    entry[scanStartedField] = Date.now();
     renderEntry(entry);
+    // Trigger the scan via read; results land via notify (set up in probe()).
+    // The read returns whatever's currently cached on the firmware side, which
+    // is why we don't clear `scanning` here — fresh results arrive later.
     try {
       const v = await entry[scanField].readValue();
       const cached = decodeJson(v);
@@ -47,7 +82,18 @@ export function makeWifiScanCap(schema) {
       entry[scanningField] = false;
       logFor(entry, `${name} scan failed: ${err.message}`);
       renderEntry(entry);
+      return;
     }
+    // Failsafe: if notify never arrives (silent firmware failure, BLE/WiFi
+    // contention on classic ESP32), surface a clear timeout instead of an
+    // infinite spinner.
+    entry[scanTimerField] = setTimeout(() => {
+      if (!entry[scanningField]) return;
+      entry[scanningField] = false;
+      entry[scanTimerField] = null;
+      logFor(entry, `${name} scan timed out (${SCAN_TIMEOUT_MS / 1000}s) — try again`);
+      renderEntry(entry);
+    }, SCAN_TIMEOUT_MS);
   }
 
   async function join(entry, ssid, secured) {
@@ -72,6 +118,8 @@ export function makeWifiScanCap(schema) {
       [statusState]: { st: "idle" },
       [networksField]: null,
       [scanningField]: false,
+      [scanTimerField]: null,
+      [scanStartedField]: 0,
     }),
 
     async probe(entry, service) {
@@ -91,6 +139,7 @@ export function makeWifiScanCap(schema) {
         entry[scanField].addEventListener("characteristicvaluechanged", (e) => {
           entry[networksField] = decodeJson(e.target.value) || [];
           entry[scanningField] = false;
+          clearScanTimer(entry);
           renderEntry(entry);
         });
       } catch {
@@ -102,24 +151,40 @@ export function makeWifiScanCap(schema) {
       entry[scanField] = entry[joinField] = entry[statusField] = null;
       entry[networksField] = null;
       entry[scanningField] = false;
+      clearScanTimer(entry);
     },
 
     renderSection(entry) {
       if (entry.status !== "connected" || !entry[scanField]) return "";
       const networks = entry[networksField];
       const scanning = entry[scanningField];
+      const status = entry[statusState] || {};
+      const joinedSsid = status.st === "joined" ? status.ssid : null;
       const nets = networks && networks.length ? `
-        <div class="wifi-list">
-          ${networks.map(n => `
-            <div class="wifi-row">
-              <div>
-                <div>${escapeHtml(n.s)}</div>
-                <div class="meta">${n.r} · ${n.p ? "secured" : "open"}</div>
-              </div>
-              <button class="secondary sm" data-action="${actionJoin}" data-ssid="${escapeHtml(n.s)}" data-secured="${n.p ? 1 : 0}">Join</button>
-            </div>
-          `).join("")}
-        </div>
+        <ul class="wifi-list">
+          ${networks.map(n => {
+            const isJoined = n.s === joinedSsid;
+            const meta = isJoined
+              ? "Connected"
+              : n.p ? "Secured" : "Open";
+            const action = isJoined
+              ? `<span class="wifi-status-tag">${CHECK_SVG}</span>`
+              : `<button class="secondary sm" data-action="${actionJoin}" data-ssid="${escapeHtml(n.s)}" data-secured="${n.p ? 1 : 0}">Join</button>`;
+            return `
+              <li class="wifi-row${isJoined ? " joined" : ""}">
+                ${signalBars(n.r)}
+                <div class="wifi-text">
+                  <div class="wifi-ssid">${escapeHtml(n.s)}</div>
+                  <div class="wifi-meta">${escapeHtml(meta)}</div>
+                </div>
+                ${n.p ? LOCK_SVG : ""}
+                ${action}
+              </li>
+            `;
+          }).join("")}
+        </ul>
+      ` : scanning ? `
+        <div class="wifi-empty"><span class="wifi-spinner"></span> Looking for networks…</div>
       ` : "";
       return `
         <div class="robot-controls row">
@@ -128,7 +193,7 @@ export function makeWifiScanCap(schema) {
             <div class="meta">${escapeHtml(summarize(entry[statusState]))}</div>
           </div>
           <button class="secondary sm" data-action="${actionScan}" ${scanning ? "disabled" : ""}>
-            ${scanning ? "Scanning…" : "Scan"}
+            ${scanning ? `<span class="wifi-spinner"></span> Scanning…` : "Scan"}
           </button>
         </div>
         ${nets}
