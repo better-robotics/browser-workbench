@@ -92,6 +92,8 @@ let currentId = null;
 let editMode = false;
 let editConfig = null;   // parsed pi-robot.conf contents
 let awaitingConfig = false;
+let awaitingTimer = null;
+const CONFIG_RESPONSE_TIMEOUT_MS = 6000;
 
 function claimsFromConfig(cfg) {
   // Build a claims map identical to claimsFromEntry but from the live conf
@@ -251,6 +253,24 @@ function beginEdit(id) {
   awaitingConfig = true;
   $("pinout-body").innerHTML = `<div class="meta">Loading current config…</div>`;
   getConfig(id);
+  // Don't leave the dialog stuck on "Loading…" forever if the response
+  // doesn't arrive (BLE glitch, firmware without the verb, etc.). Surface
+  // a clear error and a way out.
+  clearTimeout(awaitingTimer);
+  awaitingTimer = setTimeout(() => {
+    if (!awaitingConfig || currentId !== id) return;
+    awaitingConfig = false;
+    $("pinout-body").innerHTML = `
+      <div class="meta" style="color: var(--danger);">
+        No response from robot (timed out). Connection may have glitched —
+        close this dialog and reopen once the card shows "connected".
+      </div>
+      <div class="row" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="secondary sm" id="pinout-retry-btn">Retry</button>
+      </div>
+    `;
+    $("pinout-retry-btn")?.addEventListener("click", () => beginEdit(id));
+  }, CONFIG_RESPONSE_TIMEOUT_MS);
 }
 
 async function saveEdit(entry) {
@@ -289,12 +309,16 @@ export function initPinout() {
     editMode = false;
     editConfig = null;
     awaitingConfig = false;
+    clearTimeout(awaitingTimer);
+    awaitingTimer = null;
     currentId = null;
   });
   // ops-response from the Pi lands here when a get-config was requested.
   onOpsResponse("get-config", (entry, msg) => {
     if (!awaitingConfig || entry.id !== currentId) return;
     awaitingConfig = false;
+    clearTimeout(awaitingTimer);
+    awaitingTimer = null;
     try {
       editConfig = msg.text ? JSON.parse(msg.text) : {};
     } catch {

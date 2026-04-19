@@ -746,6 +746,19 @@ def _ops_respond(payload: dict) -> None:
     _publish(OPS_RESPONSE_CHAR_UUID, bytearray([0x03]))
 
 
+async def _get_config_task() -> None:
+    """Returns /boot/firmware/pi-robot.conf bytes so the dashboard can render
+    the current pin setup and write back an edited version."""
+    try:
+        with open(CONFIG_PATH) as f:
+            text = f.read()
+        _ops_respond({"op": "get-config", "text": text})
+    except FileNotFoundError:
+        _ops_respond({"op": "get-config", "text": "{}"})
+    except Exception as e:
+        _ops_respond({"op": "get-config", "err": str(e)[:120]})
+
+
 async def _get_log(lines: int, unit: str) -> None:
     lines = max(1, min(lines, 500))
     try:
@@ -890,16 +903,11 @@ def _ops_handle_write(data: bytearray) -> None:
         unit = str(args.get("unit") or "pi-robot")
         _schedule(_get_log(lines, unit))
     elif op == "get-config":
-        # Returns /boot/firmware/pi-robot.conf bytes so the dashboard can
-        # render the current pin setup and write back an edited version.
-        try:
-            with open(CONFIG_PATH) as f:
-                text = f.read()
-            _ops_respond({"op": "get-config", "text": text})
-        except FileNotFoundError:
-            _ops_respond({"op": "get-config", "text": "{}"})
-        except Exception as e:
-            _ops_respond({"op": "get-config", "err": str(e)[:120]})
+        # Schedule on the asyncio loop rather than running inline in the BLE
+        # callback thread. _ops_respond fires multiple chunked notifies via
+        # _publish, and running that alongside the concurrent telemetry task
+        # from the callback thread glitched BlueZ enough to drop the link.
+        _schedule(_get_config_task())
     else:
         log.warning("ops: unknown op %r", op)
 
