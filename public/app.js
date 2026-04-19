@@ -810,11 +810,15 @@ document.addEventListener("DOMContentLoaded", () => {
   $("setup-close").addEventListener("click", () => $("setup-dialog").close());
 
   // Assistant mascot stays visible at all times; clicking it toggles the speech-bubble panel.
-  $("assistant-bubble").addEventListener("click", () => {
-    const panel = $("assistant-panel");
-    if (panel.open) panel.close(); else panel.show();
+  // While the panel is open its content is a message from the bot, so mirror onto `.speaking`.
+  const bubble = $("assistant-bubble");
+  const panel = $("assistant-panel");
+  const setSpeaking = (on) => bubble.classList.toggle("speaking", on);
+  bubble.addEventListener("click", () => {
+    if (panel.open) { panel.close(); setSpeaking(false); }
+    else { panel.show(); setSpeaking(true); }
   });
-  $("assistant-close").addEventListener("click", () => $("assistant-panel").close());
+  $("assistant-close").addEventListener("click", () => { panel.close(); setSpeaking(false); });
 
   initGamepad();
   initVoice({ connectAll });
