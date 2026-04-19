@@ -729,7 +729,15 @@ void loop() {
     int n = WiFi.scanComplete();
     if (n >= 0 || n == WIFI_SCAN_FAILED) {
       Serial.printf("wifi scan complete: n=%d after %lu ms\n", n, millis() - scanStartedAt);
-      if (n >= 0) publishScan();
+      if (n >= 0) {
+        publishScan();
+      } else if (wifiScanChar) {
+        // WIFI_SCAN_FAILED — notify empty so the dashboard clears its
+        // "scanning…" spinner promptly instead of waiting for its own
+        // 20s failsafe.
+        wifiScanChar->setValue((uint8_t*)"[]", 2);
+        wifiScanChar->notify();
+      }
       wifiPhase = PHASE_IDLE;
     } else if (millis() - scanStartedAt > 25000) {
       // Failsafe: classic ESP32 with BLE active occasionally never reports

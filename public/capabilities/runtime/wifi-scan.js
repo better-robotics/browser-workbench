@@ -160,6 +160,12 @@ export function makeWifiScanCap(schema) {
       const scanning = entry[scanningField];
       const status = entry[statusState] || {};
       const joinedSsid = status.st === "joined" ? status.ssid : null;
+      // Three distinct list states:
+      //   networks=[...non-empty]       → render the list
+      //   scanning=true                 → spinner + "Looking…"
+      //   networks=[] (empty array)     → "No networks found" (we did scan,
+      //                                    firmware just returned nothing)
+      //   networks=null (never scanned) → nothing
       const nets = networks && networks.length ? `
         <ul class="wifi-list">
           ${networks.map(n => {
@@ -185,6 +191,8 @@ export function makeWifiScanCap(schema) {
         </ul>
       ` : scanning ? `
         <div class="wifi-empty"><span class="wifi-spinner"></span> Looking for networks…</div>
+      ` : Array.isArray(networks) ? `
+        <div class="wifi-empty">No networks found — try again?</div>
       ` : "";
       return `
         <div class="robot-controls row">
