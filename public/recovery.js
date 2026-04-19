@@ -9,10 +9,10 @@ let _reader = null;
 let _writer = null;
 let _term = null;
 let _fit = null;
+let _resizeObs = null;
 let _xtermModule = null;
 
 function setStatus(msg) { $("recovery-status").textContent = msg; }
-function refitTerm() { try { _fit?.fit(); } catch {} }
 
 async function ensureXtermLoaded() {
   if (_xtermModule) return _xtermModule;
@@ -61,8 +61,20 @@ async function connect() {
   _fit = new FitAddon();
   _term.loadAddon(_fit);
   _term.open(container);
-  _fit.fit();
-  window.addEventListener("resize", refitTerm);
+  // Defer fit one frame so the dialog's open-animation layout has resolved.
+  // Without this, FitAddon measures a mid-transition container and picks too
+  // few rows; when the container later reaches full size, xterm pads by
+  // inserting rows at the TOP of the main buffer, which shoves all previous
+  // content (getty banner, login prompt) to the bottom of the viewport —
+  // that's the "cut / empty top" rendering we were seeing.
+  await new Promise(r => requestAnimationFrame(r));
+  try { _fit.fit(); } catch {}
+  _resizeObs = new ResizeObserver(() => {
+    const r = container.getBoundingClientRect();
+    if (r.width < 10 || r.height < 10) return;  // ignore closing-dialog zero boxes
+    try { _fit?.fit(); } catch {}
+  });
+  _resizeObs.observe(container);
   _term.focus();
 
   _term.onData(async (data) => {
@@ -91,7 +103,8 @@ async function disconnect() {
   try { _writer?.releaseLock(); } catch {}
   try { await _port?.close(); } catch {}
   _reader = _writer = _port = null;
-  window.removeEventListener("resize", refitTerm);
+  _resizeObs?.disconnect();
+  _resizeObs = null;
   _fit?.dispose();
   _fit = null;
   _term?.dispose();
