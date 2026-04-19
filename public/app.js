@@ -15,6 +15,7 @@ import { initPinout, openPinoutDialog } from "./pinout.js";
 import { initGamepad } from "./gamepad.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
+import { initAuthUI } from "./auth.js";
 
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
@@ -636,6 +637,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initPrepare();
   initRecovery();
   initPinout();
+  initAuthUI();
 
   loadPaired().then(() => {
     highlightKnownRobotFromUrl();

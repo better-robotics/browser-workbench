@@ -101,6 +101,17 @@
       <div class="meta">Stored in this browser only. Used for robot labels and logs.</div>
     </div>
   </section>
+  <div class="settings-item key-row">
+    <div>
+      <div class="settings-title">Dashboard key</div>
+      <div class="meta" id="key-fingerprint">—</div>
+      <div class="meta" style="margin-top: 4px;">Authorizes SSH + BLE ops on robots you prepare.</div>
+    </div>
+    <div class="key-actions">
+      <button class="secondary sm" id="key-copy-pub">Copy public</button>
+      <button class="secondary sm" id="key-download">Download SSH key</button>
+    </div>
+  </div>
   <div class="settings-item">
     <input type="checkbox" id="setting-passive-scan">
     <label for="setting-passive-scan">
@@ -170,18 +181,20 @@
   </div>
   <div class="field">
     <label for="prep-username">Username</label>
-    <input id="prep-username" value="pi">
+    <input id="prep-username" value="robot">
   </div>
   <div class="field">
-    <label for="prep-password">Sudo password</label>
+    <label for="prep-password">Sudo password (optional)</label>
     <input id="prep-password" type="password" autocomplete="new-password">
+    <div class="meta" style="margin-top: 4px;">Leave blank for SSH-key-only login. You can set a password later with <code>passwd</code>.</div>
   </div>
   <div class="field">
-    <label for="prep-sshkey">SSH public key</label>
+    <label for="prep-sshkey">SSH public keys</label>
     <div class="field-overlay">
-      <textarea id="prep-sshkey" rows="2" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
+      <textarea id="prep-sshkey" rows="3" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
       <button type="button" class="overlay-action" id="prep-sshkey-load">Upload</button>
     </div>
+    <div class="meta" style="margin-top: 4px;">Pre-filled with your dashboard key. Add more lines to authorize other keys, or edit to replace.</div>
   </div>
   <div class="field">
     <label>Capabilities</label>
