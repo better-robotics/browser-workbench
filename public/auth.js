@@ -130,6 +130,89 @@ export async function exportOpenSshPrivateKey() {
   return `-----BEGIN OPENSSH PRIVATE KEY-----\n${wrapped}\n-----END OPENSSH PRIVATE KEY-----\n`;
 }
 
+// Inverse of exportOpenSshPrivateKey. Parses an unencrypted OpenSSH ed25519
+// private key file and returns {seed (32 bytes), pubkey (32 bytes)}. Rejects
+// anything else — other ciphers, other keytypes, passphrase-protected files.
+function parseOpenSshPrivateKey(pem) {
+  const m = pem.match(/-----BEGIN OPENSSH PRIVATE KEY-----\s+([\s\S]+?)\s+-----END OPENSSH PRIVATE KEY-----/);
+  if (!m) throw new Error("not an OpenSSH private key (missing PEM header)");
+  const buf = Uint8Array.from(atob(m[1].replace(/\s+/g, "")), c => c.charCodeAt(0));
+  const MAGIC = "openssh-key-v1\0";
+  if (new TextDecoder().decode(buf.subarray(0, MAGIC.length)) !== MAGIC) {
+    throw new Error("bad magic");
+  }
+  let off = MAGIC.length;
+  const readU32 = () => {
+    const v = ((buf[off] << 24) | (buf[off+1] << 16) | (buf[off+2] << 8) | buf[off+3]) >>> 0;
+    off += 4;
+    return v;
+  };
+  const readStr = () => {
+    const n = readU32();
+    const s = buf.subarray(off, off + n);
+    off += n;
+    return s;
+  };
+  const ciphername = new TextDecoder().decode(readStr());
+  const kdfname    = new TextDecoder().decode(readStr());
+  readStr();  // kdfoptions
+  if (ciphername !== "none" || kdfname !== "none") {
+    throw new Error("passphrase-protected keys aren't supported — strip with `ssh-keygen -p`");
+  }
+  const nkeys = readU32();
+  if (nkeys !== 1) throw new Error(`expected 1 key, got ${nkeys}`);
+  readStr();  // outer pubkey blob — we read the inner pubkey from the private section instead.
+  const section = readStr();
+
+  let poff = 0;
+  const pU32 = () => {
+    const v = ((section[poff] << 24) | (section[poff+1] << 16) | (section[poff+2] << 8) | section[poff+3]) >>> 0;
+    poff += 4;
+    return v;
+  };
+  const pStr = () => {
+    const n = pU32();
+    const s = section.subarray(poff, poff + n);
+    poff += n;
+    return s;
+  };
+  const check1 = pU32(), check2 = pU32();
+  if (check1 !== check2) throw new Error("checkint mismatch (corrupt key?)");
+  const keytype = new TextDecoder().decode(pStr());
+  if (keytype !== "ssh-ed25519") throw new Error(`only ssh-ed25519 supported; got ${keytype}`);
+  const pubkey  = pStr();  // 32 bytes
+  const privkey = pStr();  // 64 bytes: seed || pubkey
+  if (pubkey.length !== 32 || privkey.length !== 64) throw new Error("bad ed25519 key sizes");
+  return { seed: new Uint8Array(privkey.subarray(0, 32)), pubkey: new Uint8Array(pubkey) };
+}
+
+// Ed25519 PKCS8 DER = 16-byte fixed prefix + 32-byte seed. Web Crypto takes
+// PKCS8 for private key import; no toolchain needed.
+const ED25519_PKCS8_PREFIX = new Uint8Array([
+  0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+]);
+
+async function importFromOpenSsh(pem) {
+  const { seed, pubkey } = parseOpenSshPrivateKey(pem);
+  const pkcs8 = new Uint8Array(ED25519_PKCS8_PREFIX.length + 32);
+  pkcs8.set(ED25519_PKCS8_PREFIX, 0);
+  pkcs8.set(seed, ED25519_PKCS8_PREFIX.length);
+  const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name: "Ed25519" }, true, ["sign"]);
+  const publicKey  = await crypto.subtle.importKey("raw", pubkey,  { name: "Ed25519" }, true, ["verify"]);
+  const record = { publicKey, privateKey, createdAt: Date.now() };
+  await idbPut(KEY_ID, record);
+  _cached = record;
+  return record;
+}
+
+async function regenerate() {
+  const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  const record = { publicKey: kp.publicKey, privateKey: kp.privateKey, createdAt: Date.now() };
+  await idbPut(KEY_ID, record);
+  _cached = record;
+  return record;
+}
+
 function downloadBlob(filename, text, mime = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
   const a = document.createElement("a");
@@ -139,13 +222,13 @@ function downloadBlob(filename, text, mime = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export async function initAuthUI() {
-  await loadOrGenerate();
-  const fp = await fingerprint();
+async function renderKeyUI() {
+  const fp  = await fingerprint();
   const pub = await pubkeySsh();
   $("key-fingerprint").textContent = fp;
-
-  $("key-copy-pub").addEventListener("click", async () => {
+  // `.onclick =` replaces any prior handler, so re-render after import /
+  // regenerate doesn't stack listeners that closed over a stale pub/fp.
+  $("key-copy-pub").onclick = async () => {
     try {
       await navigator.clipboard.writeText(pub);
       const btn = $("key-copy-pub");
@@ -153,12 +236,37 @@ export async function initAuthUI() {
       btn.textContent = "Copied";
       setTimeout(() => { btn.textContent = prev; }, 1500);
     } catch {}
+  };
+  $("key-download").onclick = async () => {
+    downloadBlob("id_better_robotics", await exportOpenSshPrivateKey());
+  };
+}
+
+export async function initAuthUI() {
+  await loadOrGenerate();
+  await renderKeyUI();
+
+  $("key-import").addEventListener("click", () => {
+    if (!confirm("Replace dashboard key? Every robot enrolled with the current key will need to be re-enrolled.")) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pem,.key,text/plain";
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      try {
+        await importFromOpenSsh(await file.text());
+        await renderKeyUI();
+      } catch (err) {
+        alert(`Import failed: ${err.message}`);
+      }
+    });
+    input.click();
   });
 
-  $("key-download").addEventListener("click", async () => {
-    // OpenSSH format; place in ~/.ssh/id_better_robotics with mode 600.
-    // Public key is available via the Copy-public button next to it, so we
-    // skip downloading the .pub — avoids Chrome's multi-file-download prompt.
-    downloadBlob("id_better_robotics", await exportOpenSshPrivateKey());
+  $("key-regenerate").addEventListener("click", async () => {
+    if (!confirm("Generate a new dashboard key? Every robot enrolled with the current key will need to be re-enrolled.")) return;
+    await regenerate();
+    await renderKeyUI();
   });
 }
