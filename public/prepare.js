@@ -1,4 +1,5 @@
 import { $ } from "./dom.js";
+import { pubkeySsh } from "./auth.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
 const FIRMWARE_FILES  = [
@@ -78,19 +79,11 @@ async function runPrepare() {
   $("prep-progress").innerHTML = "";
 
   const hostname = $("prep-hostname").value.trim() || "betterpi";
-  const username = $("prep-username").value.trim() || "pi";
+  const username = $("prep-username").value.trim() || "robot";
   const password = $("prep-password").value;
   const sshKey   = $("prep-sshkey").value.trim();
 
-  if (!password) {
-    prepLog("Sudo password required.", "err");
-    $("prep-go-btn").disabled = false;
-    return;
-  }
-  if (!sshKey) {
-    prepLog("No SSH key — recovery will require re-flashing the SD card.", "err");
-    // non-fatal: continue without an ssh_authorized_keys step.
-  }
+  // Password optional: firstrun skips chpasswd when empty (SSH-key-only login).
 
   try {
     prepLog("Validating SD card…");
@@ -129,6 +122,9 @@ async function runPrepare() {
     });
     await writeFile(dirHandle, "firstrun.sh", firstrun);
 
+    prepLog("Writing dashboard.pub…");
+    await writeFile(dirHandle, "dashboard.pub", (await pubkeySsh()) + "\n");
+
     // Absent → firmware defaults all-on for backward compat with pre-config Pis.
     prepLog("Writing pi-robot.conf…");
     const piConfig = {
@@ -158,7 +154,16 @@ async function runPrepare() {
   }
 }
 
-function openDialog() { $("prepare-dialog").showModal(); }
+async function openDialog() {
+  // Guarantee the dashboard key is present in the textarea on open, without
+  // clobbering anything the user pasted or saved from a previous prep.
+  const dashKey = await pubkeySsh();
+  const ta = $("prep-sshkey");
+  if (!ta.value.includes(dashKey)) {
+    ta.value = ta.value.trim() ? `${dashKey}\n${ta.value.trim()}` : dashKey;
+  }
+  $("prepare-dialog").showModal();
+}
 function closeDialog() { $("prepare-dialog").close(); }
 
 export function initPrepare() {
