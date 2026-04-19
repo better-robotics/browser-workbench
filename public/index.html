@@ -267,13 +267,34 @@
   </div>
 </dialog>
 
-<button id="assistant-bubble" class="assistant-bubble" aria-label="Open assistant"><svg class="icon-svg"><use href="icons.svg#icon-bot"/></svg></button>
+<button id="assistant-bubble" class="assistant-bubble" aria-label="Open Pip">
+  <!-- Inlined (not `<use>`) so CSS keyframes can target the .robot-eyes/.robot-antenna
+       classes — external stylesheets can't cross the shadow boundary of a `<use>` ref. -->
+  <svg class="icon-svg robot-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Spark sits above the tip of the straight antenna — only shows when it's perked up. -->
+    <path class="robot-spark" d="M12 1v1.5 M11.25 1.75h1.5"/>
+    <!-- Three antenna variants; CSS toggles which is visible. Straight is a touch
+         taller than the bent ones — reads as "alert" when it perks up. -->
+    <g class="robot-antenna">
+      <path class="robot-antenna-l" d="M12 8V4H8"/>
+      <path class="robot-antenna-s" d="M12 8V2"/>
+      <path class="robot-antenna-r" d="M12 8V4H16"/>
+    </g>
+    <rect width="16" height="12" x="4" y="8" rx="2"/>
+    <path d="M2 14h2"/>
+    <path d="M20 14h2"/>
+    <g class="robot-eyes">
+      <path class="robot-eye robot-eye-l" d="M9 13v2"/>
+      <path class="robot-eye robot-eye-r" d="M15 13v2"/>
+    </g>
+  </svg>
+</button>
 <dialog id="assistant-panel" class="assistant-panel">
   <div class="modal-header">
-    <div class="label">Assistant</div>
+    <div class="label">Pip</div>
     <button class="icon" id="assistant-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="meta" style="margin: 0;">Hi! I can help you set up, build, and control your robots. (Content coming soon.)</p>
+  <p id="assistant-message" class="meta" style="margin: 0;">Hi — I'm Pip. I'll pipe up when there's something worth knowing.</p>
 </dialog>
 </body>
 </html>

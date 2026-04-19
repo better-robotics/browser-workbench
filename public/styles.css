@@ -744,6 +744,138 @@ dialog[open]::backdrop { opacity: 1; }
 /* Amber while the bot is the one talking — dialog opened by the bot, or chat reply in flight. */
 .assistant-bubble.speaking { color: var(--duke-persimmon); }
 
+/* Living behavior — idle loop ported from robot-studio. ~8s cycle of mostly
+   rest with occasional blinks + glances + antenna bobs. Inspired by Buddy's
+   idle sequence. Scoped to .assistant-bubble so the classes stay safe to reuse.
+   Eyes use step-end so blinks/glances SNAP (discrete Buddy feel); antenna
+   interpolates smoothly because physical objects don't teleport. */
+.assistant-bubble .robot-eyes {
+  animation: robot-idle 8s step-end infinite;
+  transform-origin: 12px 14px;
+}
+/* Antenna is three stacked paths (bent-left, straight, bent-right); exactly one
+   is visible at a time. Opacity-swapping avoids the mechanical feel of rotating
+   an L-shape through an arc. */
+.assistant-bubble .robot-antenna-l { opacity: 1; }
+.assistant-bubble .robot-antenna-s,
+.assistant-bubble .robot-antenna-r { opacity: 0; }
+/* Idle: briefly straightens during the fidget beat (same window as the spark). */
+.assistant-bubble .robot-antenna-l { animation: antenna-l-idle 8s step-end infinite; }
+.assistant-bubble .robot-antenna-s { animation: antenna-s-idle 8s step-end infinite; }
+@keyframes antenna-l-idle {
+  0%, 100% { opacity: 1; }
+  58%      { opacity: 0; }
+  67%      { opacity: 1; }
+}
+@keyframes antenna-s-idle {
+  0%, 100% { opacity: 0; }
+  58%      { opacity: 1; }
+  67%      { opacity: 0; }
+}
+/* Spark above the antenna flashes during the fidget beat — second layer of life
+   beyond eye/antenna motion, same trick as Buddy's `*` sprite accent. */
+.assistant-bubble .robot-spark {
+  opacity: 0;
+  animation: spark-flash 8s step-end infinite;
+}
+@keyframes spark-flash {
+  0%, 56%, 67%, 100% { opacity: 0; }
+  60%                { opacity: 1; }
+  63%                { opacity: 0.5; }
+}
+@keyframes robot-idle {
+   0%  { transform: scaleY(1)    translateX(0); }
+  32%  { transform: scaleY(1)    translateX(0); }
+  34%  { transform: scaleY(0.15) translateX(0); }   /* blink */
+  37%  { transform: scaleY(1)    translateX(0); }
+  56%  { transform: scaleY(1)    translateX(0); }
+  59%  { transform: scaleY(1)    translateX(0.8px); } /* glance right */
+  66%  { transform: scaleY(1)    translateX(0.8px); }
+  69%  { transform: scaleY(1)    translateX(0); }
+  78%  { transform: scaleY(1)    translateX(0); }
+  80%  { transform: scaleY(0.15) translateX(0); }   /* blink */
+  83%  { transform: scaleY(1)    translateX(0); }
+  91%  { transform: scaleY(1)    translateX(0); }
+  93%  { transform: scaleY(1)    translateX(-0.6px); } /* glance left */
+  96%  { transform: scaleY(1)    translateX(-0.6px); }
+  98%  { transform: scaleY(1)    translateX(0); }
+  100% { transform: scaleY(1)    translateX(0); }
+}
+/* Occasional right-eye wink. 12s cycle drifts against the 8s idle (lcm 24s)
+   so it lands at different beats over time instead of metronome-locking. */
+.assistant-bubble .robot-eye-r {
+  animation: robot-wink 12s step-end infinite;
+  transform-origin: 15px 14px;
+}
+@keyframes robot-wink {
+  0%, 38%, 44%, 100% { transform: scaleY(1); }
+  40%                { transform: scaleY(0.15); }
+}
+
+/* Speaking — glance + blink cadence on the eyes, gentle antenna sway.
+   No full spin on the antenna: reads mechanical on a 2D head icon. */
+.assistant-bubble.speaking .robot-eyes {
+  animation: robot-speak-eyes 2.4s step-end infinite;
+}
+/* Speaking: antenna cycles left → straight → right → straight at ~300ms each.
+   Path-swap instead of rotation — a "|" doesn't mind swinging sides, an "L" does. */
+.assistant-bubble.speaking .robot-antenna-l { animation: antenna-l-speak 1.2s step-end infinite; }
+.assistant-bubble.speaking .robot-antenna-s { animation: antenna-s-speak 1.2s step-end infinite; }
+.assistant-bubble.speaking .robot-antenna-r { animation: antenna-r-speak 1.2s step-end infinite; }
+/* Idle wink + spark both quiet down while the bot is talking — the speak rhythm is the only voice. */
+.assistant-bubble.speaking .robot-eye-r { animation: none; }
+.assistant-bubble.speaking .robot-spark { animation: none; opacity: 0; }
+
+@keyframes robot-speak-eyes {
+  0%, 50%, 100% { transform: scaleY(1)   translateX(0); }
+  20%           { transform: scaleY(1)   translateX(0.4px); }
+  28%           { transform: scaleY(0.2) translateX(0.4px); }
+  32%           { transform: scaleY(1)   translateX(0.4px); }
+  70%           { transform: scaleY(1)   translateX(-0.4px); }
+  78%           { transform: scaleY(0.2) translateX(-0.4px); }
+  82%           { transform: scaleY(1)   translateX(-0.4px); }
+}
+@keyframes antenna-l-speak {
+  0%, 100% { opacity: 1; }
+  25%      { opacity: 0; }
+}
+@keyframes antenna-s-speak {
+  0%, 100% { opacity: 0; }
+  25%      { opacity: 1; }
+  50%      { opacity: 0; }
+  75%      { opacity: 1; }
+}
+@keyframes antenna-r-speak {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
+  75%      { opacity: 0; }
+}
+
+/* Auto-dismiss fade for bot-initiated (spontaneous) messages — Buddy bubbles
+   show for 20 ticks / 10s with the last 6 ticks / 3s as fade-out. Manual
+   user-opens don't get `.fading`, so they stay until closed. */
+.assistant-panel.fading {
+  opacity: 0;
+  transition: opacity 3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-bubble .robot-eyes,
+  .assistant-bubble .robot-eye-r,
+  .assistant-bubble .robot-spark,
+  .assistant-bubble .robot-antenna-l,
+  .assistant-bubble .robot-antenna-s,
+  .assistant-bubble .robot-antenna-r { animation: none; }
+  .assistant-bubble .robot-spark,
+  .assistant-bubble .robot-antenna-s,
+  .assistant-bubble .robot-antenna-r { opacity: 0; }
+  .assistant-bubble.speaking .robot-eyes,
+  .assistant-bubble.speaking .robot-antenna-l,
+  .assistant-bubble.speaking .robot-antenna-s,
+  .assistant-bubble.speaking .robot-antenna-r { animation: none; }
+  .assistant-panel.fading { transition: none; }
+}
+
 .assistant-panel {
   position: fixed;
   right: 20px;
