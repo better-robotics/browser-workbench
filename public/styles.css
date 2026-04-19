@@ -345,6 +345,28 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   border-top: 1px dashed var(--line);
 }
 .robot.highlight { background: #fff8e1; transition: background 1.5s; }
+
+/* Top-level robot state (installing, rebooting, …). Live = pulsing accent
+   dot; sticky (remembered across a disconnect) = static muted dot. */
+.robot-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.robot-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: robot-state-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.robot-state.sticky::before { animation: none; background: var(--ink-muted); }
+@keyframes robot-state-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .last-event {
   margin-top: 12px;
   padding-top: 8px;

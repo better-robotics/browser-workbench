@@ -36,6 +36,12 @@ export function makeEntry(id, name) {
     lastEvent: null,
     capSchema: null,
     runtimeCaps: [],
+    // Top-level "what is this robot doing" — populated from robot-status char
+    // when present. Held after disconnect (as stickyStatus) so a drop that
+    // followed 'rebooting' renders as "was rebooting", not a mystery.
+    robotStatus: null,
+    stickyStatus: null,
+    stickyStatusTimer: null,
     node: null,
   };
 }

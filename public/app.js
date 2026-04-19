@@ -1,4 +1,4 @@
-import { SERVICE_UUID, FW_INFO_CHAR_UUID, decodeJson } from "./ble.js";
+import { SERVICE_UUID, FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID, decodeJson } from "./ble.js";
 import { $, escapeHtml } from "./dom.js";
 import { log, logFor, setLogRenderer } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
@@ -190,6 +190,24 @@ async function connect(id) {
       entry.capSchema = null;
     }
 
+    // robot-status: a top-level "what am I doing" notify channel. Optional —
+    // older firmware / ESP32 don't expose it, and the card still works fine
+    // without it.
+    try {
+      const statusChar = await service.getCharacteristic(ROBOT_STATUS_CHAR_UUID);
+      entry.robotStatus = decodeJson(await statusChar.readValue()) || null;
+      await statusChar.startNotifications();
+      statusChar.addEventListener("characteristicvaluechanged", (e) => {
+        entry.robotStatus = decodeJson(e.target.value) || null;
+        renderEntry(entry);
+      });
+    } catch {
+      entry.robotStatus = null;
+    }
+    // Fresh connection clears any sticky disconnect status.
+    if (entry.stickyStatusTimer) { clearTimeout(entry.stickyStatusTimer); entry.stickyStatusTimer = null; }
+    entry.stickyStatus = null;
+
     entry.runtimeCaps = [];
     const schemaLog = (entry.capSchema || []).map(c =>
       RUNTIMES[c.type] ? c.name : `${c.name}(no runtime for ${c.type})`
@@ -226,6 +244,18 @@ function onDisconnected(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
   entry.status = "idle";
+  // Remember the last-known status for 30s so 'rebooting' → disconnect reads
+  // as "was rebooting" on the card instead of an unexplained drop.
+  if (entry.robotStatus) {
+    entry.stickyStatus = entry.robotStatus;
+    if (entry.stickyStatusTimer) clearTimeout(entry.stickyStatusTimer);
+    entry.stickyStatusTimer = setTimeout(() => {
+      entry.stickyStatus = null;
+      entry.stickyStatusTimer = null;
+      renderEntry(entry);
+    }, 30000);
+  }
+  entry.robotStatus = null;
   for (const cap of CAPABILITIES) cap.cleanup(entry);
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];
@@ -341,6 +371,15 @@ function renderEntry(entry) {
     ...CAPABILITIES.map(c => c.renderSection(entry)),
     ...(entry.runtimeCaps || []).map(c => c.renderSection(entry)),
   ].join("");
+  const liveStatus = entry.robotStatus;
+  const sticky = !liveStatus ? entry.stickyStatus : null;
+  const stateHtml = (() => {
+    const s = liveStatus || sticky;
+    if (!s || s.st === "ready") return "";
+    const prefix = sticky ? "was " : "";
+    const text = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
+    return `<div class="robot-state${sticky ? " sticky" : ""}">${escapeHtml(text)}</div>`;
+  })();
   entry.node.innerHTML = `
     <div class="row">
       <div>
@@ -356,6 +395,7 @@ function renderEntry(entry) {
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>
     </div>
+    ${stateHtml}
     ${sections}
     ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
   `;
