@@ -1,5 +1,13 @@
 export const $ = (id) => document.getElementById(id);
 
+// Unique-query cache bust. `cache: "no-cache"` on fetch triggers a
+// revalidation, not a forced refetch — GH Pages CDN's "still fresh" reply
+// keeps the cached bytes. A novel query string is the only reliable bypass.
+// Rule: any fetch targeting `firmware/*` (OTA bundles, binaries, prep assets)
+// must go through this.
+export const freshUrl = (path) =>
+  `${path}${path.includes("?") ? "&" : "?"}v=${Date.now()}`;
+
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

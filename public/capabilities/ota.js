@@ -5,6 +5,7 @@ import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson,
 } from "../ble.js";
+import { freshUrl } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
 
@@ -75,18 +76,11 @@ async function streamOtaBytes(entry, bytes) {
 
 async function buildBundle(entry, manifestUrl) {
   manifestUrl = manifestUrl || entry.fwInfo?.bundle_url;
-  // Query-string cache-bust beats Cache-Control: unique URL bypasses the GH
-  // Pages CDN as well as the browser cache. Otherwise a freshly-published
-  // manifest can be served stale for a minute after CI finishes.
-  const busted = `${manifestUrl}${manifestUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
-  const manifest = await (await fetch(busted, { cache: "no-cache" })).json();
+  const manifest = await (await fetch(freshUrl(manifestUrl), { cache: "no-cache" })).json();
   const files = {};
   for (const spec of manifest.files || []) {
     const src = spec.src;
-    // Cache-bust alongside the manifest fetch above — CDN can still serve
-    // stale individual files even after a fresh manifest.
-    const url = `firmware/pi_robot/${src}?v=${Date.now()}`;
-    const buf = await (await fetch(url, { cache: "no-cache" })).arrayBuffer();
+    const buf = await (await fetch(freshUrl(`firmware/pi_robot/${src}`), { cache: "no-cache" })).arrayBuffer();
     // Chunked to avoid stack overflow from spreading into String.fromCharCode.
     const bytes = new Uint8Array(buf);
     let bin = "";
@@ -143,12 +137,10 @@ export async function updateFirmware(id) {
     logFor(entry, "no firmware source (fw-info missing url / bundle_url)");
     return;
   }
-  // Cache-bust both the dashboard fetch AND the URL handed to the ESP32 for
-  // URL-trigger. GH Pages CDN was serving stale bins even with cache:no-cache
-  // (which triggers revalidation, not a forced refetch). Unique query string
-  // is the only reliable bypass. Same pattern as prepare.js and the Pi
-  // manifest fetch inside buildBundle above.
-  const bustedUrl = `${fetchUrl}${fetchUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
+  // Cache-bust applied to both the dashboard fetch AND the URL handed to the
+  // ESP32 for URL-trigger — we want both to skip the CDN cache so a freshly-
+  // published bin actually lands.
+  const bustedUrl = freshUrl(fetchUrl);
   logFor(entry, `fetching ${fetchUrl}…`);
   let bytes;
   try {

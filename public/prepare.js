@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $, freshUrl } from "./dom.js";
 import { pubkeySsh } from "./auth.js";
 import { ensurePassword } from "./passwords.js";
 
@@ -46,14 +46,8 @@ async function readTextFile(dir, name) {
   } catch { return null; }
 }
 
-// Cache-bust: SD-prep must always fetch the latest firmware off Pages.
-// Browser/CDN cache has bitten us hard — a stale pi_robot.py on a newly
-// prepped SD card can't self-repair via OTA (chicken-and-egg).
-function bust(url) {
-  return `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
-}
 async function fetchBlob(url) {
-  const r = await fetch(bust(url), { cache: "no-cache" });
+  const r = await fetch(freshUrl(url), { cache: "no-cache" });
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
   return r.blob();
 }
@@ -105,7 +99,7 @@ async function runPrepare() {
     }
 
     prepLog("Fetching firstrun template…");
-    const template = await (await fetch(bust(`${FIRMWARE_URL}/firstrun.template.sh`), { cache: "no-cache" })).text();
+    const template = await (await fetch(freshUrl(`${FIRMWARE_URL}/firstrun.template.sh`), { cache: "no-cache" })).text();
 
     prepLog("Fetching firmware files…");
     const betterpi = await ensureDir(dirHandle, "betterpi");
@@ -115,7 +109,7 @@ async function runPrepare() {
     }
 
     prepLog("Fetching wheels manifest…");
-    const manifest = await (await fetch(bust(`${FIRMWARE_URL}/wheels/manifest.json`), { cache: "no-cache" })).json();
+    const manifest = await (await fetch(freshUrl(`${FIRMWARE_URL}/wheels/manifest.json`), { cache: "no-cache" })).json();
     const wheels = await ensureDir(dirHandle, "wheels");
     for await (const entry of wheels.values()) {
       if (entry.kind === "file") await wheels.removeEntry(entry.name).catch(() => {});
