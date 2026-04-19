@@ -489,6 +489,17 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
 
     def __init__(self) -> None:
         super().__init__()
+        # Probe libcamera first — Picamera2() raises "list index out of range"
+        # deep inside if no camera is detected, which is unhelpful to the user.
+        # Surface a clear "no camera detected" instead so the actual cause
+        # (loose ribbon, wrong CAM port, libcamera not seeing hardware) gets
+        # reported rather than a cryptic internal error.
+        cams = Picamera2.global_camera_info()
+        if not cams:
+            raise RuntimeError(
+                "no camera detected by libcamera — check ribbon cable seating, "
+                "CAM port (Pi 5 has CAM0/CAM1), and `libcamera-hello --list-cameras`"
+            )
         self.camera = Picamera2()
         cfg = self.camera.create_video_configuration(
             main={"size": (640, 480), "format": "RGB888"},
