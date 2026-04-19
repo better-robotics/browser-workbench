@@ -48,6 +48,9 @@ CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
 # Ops channel — JSON-command surface. Format: single write of utf-8 JSON like
 # {"op": "restart-service"} or {"op": "install-pkg", "args": {"name":"camera"}}.
 OPS_CHAR_UUID           = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
+# Robot-status: top-level "what is this robot doing right now" channel,
+# complementing per-capability statuses. JSON {st, msg?}. Notify + read.
+ROBOT_STATUS_CHAR_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9d"
 
 # Capability schema — built at startup from config. Types name a UI/data
 # shape (toggle, signed-pair, wifi-scan, bundle-ota, webrtc-installable,
@@ -197,6 +200,8 @@ _motor_left: int = 0
 _motor_right: int = 0
 _motor_last_write_at: float = 0.0
 
+_robot_status: dict = {"st": "ready"}
+
 _cam_pc = None
 _cam_track = None
 _cam_buf: bytearray = bytearray()
@@ -236,6 +241,17 @@ def _publish(char_uuid: str, value: bytearray) -> None:
     if ch is not None:
         ch.value = value
     _server.update_value(SERVICE_UUID, char_uuid)
+
+
+def _set_robot_status(st: str, msg: str | None = None) -> None:
+    """Top-level robot state. Published on notify so the dashboard can render
+    'rebooting in 2s' instead of a mystery disconnect."""
+    global _robot_status
+    _robot_status = {"st": st}
+    if msg:
+        _robot_status["msg"] = msg
+    _publish(ROBOT_STATUS_CHAR_UUID, _json_bytes(_robot_status))
+    log.info("robot-status → %s", _robot_status)
 
 
 def _set_status(st: str, ssid: str | None = None, err: str | None = None) -> None:
@@ -331,6 +347,7 @@ async def _apply_bundle(bundle: dict) -> None:
     Atomicity across files is best-effort — there's a small window between
     renames; good enough for our update cadence."""
     global _ota_buffer
+    _set_robot_status("installing", "applying bundle")
     manifest = bundle.get("manifest") or {}
     blobs    = bundle.get("files") or {}
     files    = manifest.get("files") or []
@@ -391,8 +408,10 @@ async def _apply_bundle(bundle: dict) -> None:
     if manifest.get("reboot"):
         # Kernel module changes (cmdline.txt swaps) only take effect on reboot.
         # A service restart won't pick them up.
+        _set_robot_status("rebooting", "post-install")
         subprocess.Popen(["systemctl", "reboot"])
     elif manifest.get("restart"):
+        _set_robot_status("restarting", f"post-install → {manifest['restart']}")
         subprocess.Popen(["systemctl", "restart", f"{manifest['restart']}.service"])
 
 
@@ -613,6 +632,20 @@ async def _cam_install() -> None:
         _cam_installing = False
 
 
+async def _delayed_system_action(kind: str) -> None:
+    """Announce the upcoming disconnect on robot-status before firing the
+    action, so the dashboard can show 'was rebooting' instead of a blank drop.
+    The 2s pause is just enough for the BLE notify to flush."""
+    if kind == "reboot":
+        _set_robot_status("rebooting", "in 2s")
+        await asyncio.sleep(2)
+        subprocess.Popen(["systemctl", "reboot"])
+    elif kind == "restart-service":
+        _set_robot_status("restarting", "service restart in 2s")
+        await asyncio.sleep(2)
+        subprocess.Popen(["systemctl", "restart", "pi-robot.service"])
+
+
 def _ops_handle_write(data: bytearray) -> None:
     """Single-write JSON command channel. Message: {"op": "...", "args":{}}.
     Ops:
@@ -629,12 +662,12 @@ def _ops_handle_write(data: bytearray) -> None:
     args = msg.get("args") or {}
     if op == "restart-service":
         log.info("ops: restart-service")
-        subprocess.Popen(["systemctl", "restart", "pi-robot.service"])
+        _schedule(_delayed_system_action("restart-service"))
     elif op == "reboot":
         # Needed when a kernel-owned resource is stuck (camera CSI, wedged
         # USB gadget) and a service restart can't clear it.
         log.info("ops: reboot")
-        subprocess.Popen(["systemctl", "reboot"])
+        _schedule(_delayed_system_action("reboot"))
     elif op == "install-pkg":
         name = args.get("name")
         if name == "camera":
@@ -813,6 +846,8 @@ def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
         return _json_bytes(_ota_status)
     if uuid == FW_INFO_CHAR_UUID:
         return _json_bytes(FW_INFO)
+    if uuid == ROBOT_STATUS_CHAR_UUID:
+        return _json_bytes(_robot_status)
     if uuid == MOTOR_CHAR_UUID:
         return bytearray([_motor_left & 0xff, _motor_right & 0xff])
     if uuid == CAMERA_STATUS_CHAR_UUID:
@@ -970,6 +1005,12 @@ async def main() -> None:
         GATTCharacteristicProperties.write,
         bytearray(),
         GATTAttributePermissions.writeable,
+    )
+    await _server.add_new_characteristic(
+        SERVICE_UUID, ROBOT_STATUS_CHAR_UUID,
+        GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify,
+        _json_bytes(_robot_status),
+        GATTAttributePermissions.readable,
     )
 
     await _server.start()
