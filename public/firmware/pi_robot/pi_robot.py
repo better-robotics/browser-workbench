@@ -54,29 +54,22 @@ OPS_CHAR_UUID           = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
 # command). `pin` / `pins` declare physical GPIO header positions for the
 # dashboard's pinout view.
 def _build_caps() -> list:
+    # Schema stays LEAN — BLE char reads are capped at the ATT MTU (~180 B
+    # on macOS/Chrome), so carrying full UUIDs per capability blows past it
+    # and the dashboard gets truncated JSON. The dashboard maps capability
+    # name → char UUIDs via its own constants (see public/ble.js).
     caps: list[dict] = []
     if LED_ENABLED:
-        caps.append({"name": "led", "char": LED_CHAR_UUID, "type": "toggle",
+        caps.append({"name": "led", "type": "toggle",
                      "pin": LED_PIN, "pin_mode": "out"})
     if MOTORS_ENABLED:
-        caps.append({"name": "motors", "char": MOTOR_CHAR_UUID,
-                     "type": "signed-pair", "range": [-100, 100], "unit": "pct",
-                     "pins": MOTORS_PINS, "pin_mode": "pwm"})
-    caps.append({"name": "wifi",
-                 "chars": {"scan": WIFI_SCAN_CHAR_UUID,
-                           "join": WIFI_JOIN_CHAR_UUID,
-                           "status": WIFI_STATUS_CHAR_UUID},
-                 "type": "wifi-scan"})
-    caps.append({"name": "ota",
-                 "chars": {"data": OTA_DATA_CHAR_UUID,
-                           "status": OTA_STATUS_CHAR_UUID},
-                 "type": "bundle-ota"})
+        caps.append({"name": "motors", "type": "signed-pair",
+                     "range": [-100, 100], "pins": MOTORS_PINS, "pin_mode": "pwm"})
+    caps.append({"name": "wifi", "type": "wifi-scan"})
+    caps.append({"name": "ota", "type": "bundle-ota"})
     if CAMERA_ENABLED is not False:
-        caps.append({"name": "camera",
-                     "chars": {"signal": CAMERA_SIGNAL_CHAR_UUID,
-                               "status": CAMERA_STATUS_CHAR_UUID},
-                     "type": "webrtc-installable"})
-    caps.append({"name": "ops", "char": OPS_CHAR_UUID, "type": "command"})
+        caps.append({"name": "camera", "type": "webrtc-installable"})
+    caps.append({"name": "ops", "type": "command"})
     return caps
 
 

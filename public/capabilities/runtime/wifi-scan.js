@@ -3,7 +3,7 @@
 //     chars: { scan: "…d93", join: "…d94", status: "…d95" } }
 // Three-char protocol: scan (read + notify list), join (write {s,p}),
 // status (read + notify {st, ssid, err}).
-import { decodeJson, encodeJson } from "../../ble.js";
+import { UUIDS_BY_CAP, decodeJson, encodeJson } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 
@@ -19,7 +19,8 @@ function summarize(status) {
 }
 
 export function makeWifiScanCap(schema) {
-  const { name, chars } = schema;
+  const { name } = schema;
+  const chars = schema.chars || UUIDS_BY_CAP[name];
   const scanField    = `${name}ScanChar`;
   const joinField    = `${name}JoinChar`;
   const statusField  = `${name}StatusChar`;

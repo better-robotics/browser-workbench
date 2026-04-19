@@ -1,6 +1,7 @@
 // Expected schema shape:
 //   { name: "ops", char: "…d9c", type: "command" }
 // Op-name vocabulary must match the Pi's `_ops_handle_write` dispatcher.
+import { UUIDS_BY_CAP } from "../../ble.js";
 import { logFor } from "../../log.js";
 import { state } from "../../state.js";
 
@@ -61,7 +62,8 @@ export async function installPackage(id, name, opts = {}) {
 }
 
 export function makeCommandCap(schema) {
-  const { name, char } = schema;
+  const { name } = schema;
+  const char = schema.char || UUIDS_BY_CAP[name];
   const charField = `${name}Char`;
   return {
     name,

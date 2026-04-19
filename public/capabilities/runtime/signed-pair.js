@@ -3,6 +3,7 @@
 //     range: [-100, 100], unit?: "pct", labels?: {left: "L", right: "R"} }
 // Write path is drop-intermediate-values (latest-intent-wins) because sliders
 // fire faster than BLE writes can complete.
+import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { log, logFor } from "../../log.js";
 import { state } from "../../state.js";
@@ -37,7 +38,8 @@ export async function setPairValue(entry, capName, left, right) {
 }
 
 export function makeSignedPairCap(schema) {
-  const { name, char } = schema;
+  const { name } = schema;
+  const char = schema.char || UUIDS_BY_CAP[name];
   const range = schema.range || [-100, 100];
   const labels = schema.labels || { left: "L", right: "R" };
   const charField = `${name}Char`;

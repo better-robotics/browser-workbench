@@ -2,6 +2,7 @@
 //   { name: "led", char: "…d92", type: "toggle" }
 // State lives on `entry[<name>Char]` (BLE handle) and `entry[<name>On]` (bool);
 // anything reading `entry.ledOn` from the previous hand-written LED module keeps working.
+import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 
@@ -25,7 +26,8 @@ export async function toggleCapValue(entry, capName) {
 }
 
 export function makeToggleCap(schema) {
-  const { name, char } = schema;
+  const { name } = schema;
+  const char = schema.char || UUIDS_BY_CAP[name];
   const charField = `${name}Char`;
   const onField = `${name}On`;
   const action = `toggle-${name}`;
