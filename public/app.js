@@ -416,13 +416,10 @@ function renderEntry(entry) {
   const typeBadge = entry.fwType
     ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())}</span>`
     : "";
-  const versionBadge = entry.fwInfo?.version
-    ? `<span class="version-badge" title="Firmware commit">${escapeHtml(entry.fwInfo.version)}</span>`
-    : "";
   entry.node.innerHTML = `
     <div class="row">
       <div>
-        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}${versionBadge}</div>
+        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}</div>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
       </div>
       <div style="display: flex; gap: 4px;">
@@ -478,6 +475,17 @@ function openMenu(triggerBtn, id) {
   }
   if (isOpen) menu.hidePopover();  // switching robots — reopen at new position
   menuTargetId = id;
+  // Diagnostic metadata (firmware commit SHA) lives here rather than on the
+  // card face — only relevant when you're about to act on the robot.
+  const entry = state.devices.get(id);
+  const header = $("robot-menu-header");
+  const version = entry?.fwInfo?.version;
+  if (version) {
+    header.textContent = `Firmware ${version}`;
+    header.hidden = false;
+  } else {
+    header.hidden = true;
+  }
   const rect = triggerBtn.getBoundingClientRect();
   // Position below-right of trigger, nudging left if it would overflow viewport.
   const menuWidth = 220;
