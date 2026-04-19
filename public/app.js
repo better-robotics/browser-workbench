@@ -178,9 +178,13 @@ async function connect(id) {
     // Read fw-info before cap probes — it carries the capability schema.
     try {
       const info = await service.getCharacteristic(FW_INFO_CHAR_UUID);
-      entry.fwInfo = decodeJson(await info.readValue());
+      const raw = await info.readValue();
+      const rawText = new TextDecoder().decode(raw);
+      logFor(entry, `fw-info: ${rawText.slice(0, 200)}`);
+      entry.fwInfo = decodeJson(raw);
       entry.capSchema = entry.fwInfo?.caps || null;
-    } catch {
+    } catch (err) {
+      logFor(entry, `fw-info read failed: ${err.message}`);
       entry.fwInfo = null;
       entry.capSchema = null;
     }
