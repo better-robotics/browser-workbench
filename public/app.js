@@ -43,12 +43,22 @@ function telemetryHtml(entry) {
 
 // Registry for ops-response dispatch. Modules that send an ops verb expecting
 // a response register a handler keyed by msg.op; the chunked decoder in
-// connect() calls the matching handler when a response arrives.
-const opsResponseHandlers = {};
-export function onOpsResponse(op, fn) { opsResponseHandlers[op] = fn; }
+// connect() calls every matching handler when a response arrives. Multiple
+// listeners per op so persistent subscribers (pinout) coexist with one-shot
+// waiters (pip-tools). onOpsResponse returns an unregister fn.
+const opsResponseHandlers = {};  // op → Array<fn>
+export function onOpsResponse(op, fn) {
+  (opsResponseHandlers[op] ||= []).push(fn);
+  return () => {
+    const arr = opsResponseHandlers[op] || [];
+    const idx = arr.indexOf(fn);
+    if (idx >= 0) arr.splice(idx, 1);
+  };
+}
 function handleOpsResponse(entry, msg) {
-  const fn = opsResponseHandlers[msg.op];
-  if (fn) fn(entry, msg);
+  for (const fn of opsResponseHandlers[msg.op] || []) {
+    try { fn(entry, msg); } catch {}
+  }
 }
 
 // Dashboard's own fingerprint. Cached sync so renderEntry can compare

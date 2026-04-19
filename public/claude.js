@@ -55,3 +55,63 @@ export async function ask(userText, { system, maxTokens = 200 } = {}) {
     return null;
   }
 }
+
+// Multi-turn loop that handles Anthropic's tool-use protocol. Sends `messages`
+// + `tools`, executes any tool_use blocks via the caller-provided executor,
+// loops until Claude returns a text-only reply (stop_reason !== "tool_use") or
+// we hit maxIterations. Returns the final text, "" if Claude chose silence,
+// or null on transport failure.
+export async function askWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024 } = {}) {
+  const convo = [...messages];
+  for (let i = 0; i < maxIterations; i++) {
+    const res = await bridgeRequest({
+      type: "proxy", provider: "claude", path: "/v1/messages", method: "POST",
+      body: {
+        model: MODEL,
+        max_tokens: maxTokens,
+        system,
+        messages: convo,
+        tools,
+        stream: false,
+      },
+    });
+    if (!res || res.error) return null;
+    if (res.status < 200 || res.status >= 300) return null;
+    let json;
+    try { json = JSON.parse(res.body); } catch { return null; }
+
+    convo.push({ role: "assistant", content: json.content });
+
+    if (json.stop_reason !== "tool_use") {
+      const text = (json.content || [])
+        .filter(b => b.type === "text")
+        .map(b => b.text)
+        .join("\n")
+        .trim();
+      return text;  // may be "" — caller decides what to do with silence
+    }
+
+    // Execute each tool_use block; pack all results into one user turn.
+    const toolUses = json.content.filter(b => b.type === "tool_use");
+    const toolResults = [];
+    for (const tu of toolUses) {
+      try {
+        const result = await executor(tu.name, tu.input);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: JSON.stringify(result),
+        });
+      } catch (err) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: JSON.stringify({ error: String(err.message || err) }),
+          is_error: true,
+        });
+      }
+    }
+    convo.push({ role: "user", content: toolResults });
+  }
+  return "(reached max tool turns without a final answer — ask again)";
+}

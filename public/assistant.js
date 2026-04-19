@@ -1,5 +1,6 @@
 import { $ } from "./dom.js";
-import { ask } from "./claude.js";
+import { ask, askWithTools } from "./claude.js";
+import { TOOLS, executor } from "./pip-tools.js";
 
 // Auto-dismiss timings match Buddy: 10s total show, fade begins at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -19,6 +20,13 @@ const PIP_SYSTEM = [
   "VOICE: terse, specific, concrete — a colleague leaning over the user's shoulder,",
   "not a tour guide. Under 140 chars unprompted, under 200 when answering a question.",
   "",
+  "TOOLS: in chat, you can inspect and control the user's robots through tool calls.",
+  "When a question depends on real robot state — 'how's the camera bot?', 'why isn't",
+  "the Pi advertising?', 'show me its log', 'restart the service' — call the right",
+  "tool BEFORE answering. Don't guess robot ids or names; list_robots first if unsure.",
+  "If the user references 'the robot' / 'it' and only one is connected, infer it.",
+  "If a tool returns { error: ... }, surface it briefly — don't fabricate around it.",
+  "",
   "RULES:",
   "- NEVER restate what the panel already shows on screen. The user can read.",
   "- Offer a gotcha, war-story, exact command, or symptom→cause — something they",
@@ -26,7 +34,7 @@ const PIP_SYSTEM = [
   "- Prefer specifics (file paths, service names, flag values) over generalities.",
   "- No emoji, no sign-off, no preamble, no 'great question'.",
   "- If a tip would be generic or obvious, reply with an empty string. Silence beats noise.",
-  "- When chatting: if you don't know, say so in one line rather than guessing.",
+  "- When chatting: if you don't know AND no tool would help, say so in one line.",
 ].join("\n");
 
 // Dialog id → { context Claude can reason from, fallback when Claude is unreachable }
@@ -136,10 +144,14 @@ async function handleSubmit(e) {
 
   // Build a messages array for Claude from recent history. We pass the running
   // conversation so Pip can follow references ("the pin I mentioned?").
-  const msgs = _history.slice(-HISTORY_LIMIT);
-  const userText = msgs.map(m => `${m.role === "user" ? "User" : "Pip"}: ${m.content}`).join("\n");
-  const reply = await ask(`Conversation so far:\n${userText}\n\nReply as Pip to the last User line.`,
-                          { system: PIP_SYSTEM, maxTokens: 250 });
+  const messages = _history.slice(-HISTORY_LIMIT)
+    .map(m => ({ role: m.role, content: m.content }));
+  const reply = await askWithTools(messages, {
+    system: PIP_SYSTEM,
+    tools: TOOLS,
+    executor,
+    maxTokens: 1024,
+  });
   // In chat, empty means "I don't have anything useful" — surface that instead of silence,
   // since the user directly asked and expects an answer.
   const finalReply = reply === null
