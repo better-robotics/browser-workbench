@@ -440,7 +440,9 @@ async def _apply_bundle(bundle: dict) -> None:
         os.replace(tmp, dest)
 
     for cmd in manifest.get("post_install") or []:
-        argv = shlex.split(cmd)
+        # Manifest authors can use $HOME/__HOME__/__USER__ in commands too —
+        # same substitution as file dests and file contents.
+        argv = shlex.split(_ota_expand(cmd))
         rc = subprocess.run(argv, check=False, capture_output=True).returncode
         if rc != 0:
             _set_ota_status("failed", err=f"post_install: {cmd} rc={rc}"[:120])

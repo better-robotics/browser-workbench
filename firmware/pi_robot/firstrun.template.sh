@@ -44,11 +44,16 @@ note hostname_set "$HOSTNAME"
 if ! id -u "$USER_NAME" >/dev/null 2>&1; then
     adduser --disabled-password --gecos "" "$USER_NAME"
 fi
-# Empty password → stays disabled (SSH-key-only login, no sudo without a
-# password set later via `passwd`). chpasswd on an empty string would leave
-# the account with a blank password, which is worse than no password at all.
+# Always give the account a proper password hash. If the user didn't provide
+# one, generate a random unguessable one they never see — agetty's autologin
+# uses `login -f` (auth bypass), so the user never enters it. Matters because
+# --disabled-password leaves '*' in /etc/shadow, and some PAM paths reject
+# that for `login -f` autologin ('Login incorrect' even with --autologin).
 if [ -n "$USER_PASS" ]; then
     echo "${USER_NAME}:${USER_PASS}" | chpasswd
+else
+    RANDPASS=$(head -c 32 /dev/urandom | base64)
+    echo "${USER_NAME}:${RANDPASS}" | chpasswd
 fi
 # Pi OS imager's pre-built firstboot can leave the user with /usr/sbin/nologin
 # as shell — login then prints the banner and "This account is currently not

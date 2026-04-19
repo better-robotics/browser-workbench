@@ -76,6 +76,10 @@ async function connect() {
   });
   _resizeObs.observe(container);
   _term.focus();
+  // Clear before any serial buffer flush — belt + suspenders alongside the
+  // raf-deferred fit. Getty buffers from a prior session can flush into
+  // xterm as leading blank lines right after the reader starts.
+  _term.write("\x1b[2J\x1b[H");
 
   _term.onData(async (data) => {
     if (!_writer) return;
