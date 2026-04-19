@@ -10,7 +10,9 @@ export function setDisconnectHandler(fn) { _onDisconnectedById = fn; }
 
 export function persist() {
   const out = [];
-  for (const e of state.devices.values()) out.push({ id: e.id, name: e.name });
+  for (const e of state.devices.values()) {
+    out.push({ id: e.id, name: e.name, fwType: e.fwType || null });
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
 }
 
@@ -19,9 +21,12 @@ export function loadKnown() {
   catch { return []; }
 }
 
-export function makeEntry(id, name) {
+export function makeEntry(id, name, fwType = null) {
   return {
     id, name,
+    // Platform label shown as a badge on the card. Cached from fw-info.type
+    // on first connect so the badge survives disconnects / page reloads.
+    fwType,
     device: null,
     status: "idle",
     ledChar: null, ledOn: false,

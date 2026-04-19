@@ -294,6 +294,20 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .dot.connected { background: var(--success); }
 .dot.error { background: var(--danger); }
 
+/* Type badge — small pill next to the robot name identifying the hardware
+   platform (Pi vs ESP32). Populated from fw-info.type on first connect. */
+.type-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--border-subtle);
+  color: var(--ink-muted);
+}
+.type-badge.type-pi    { color: var(--success); }
+.type-badge.type-esp32 { color: var(--accent); }
+
 .robots-heading {
   display: flex;
   align-items: center;
