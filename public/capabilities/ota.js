@@ -42,8 +42,8 @@ async function streamOtaBytes(entry, bytes) {
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
 }
 
-async function buildBundle(entry) {
-  const manifestUrl = entry.fwInfo.bundle_url;
+async function buildBundle(entry, manifestUrl) {
+  manifestUrl = manifestUrl || entry.fwInfo?.bundle_url;
   const manifest = await (await fetch(manifestUrl, { cache: "no-cache" })).json();
   const files = {};
   for (const spec of manifest.files || []) {
@@ -68,12 +68,16 @@ export async function updateFirmware(id) {
     return;
   }
 
-  // Pi path: bundle-only OTA.
-  if (entry.fwInfo?.bundle_url) {
-    logFor(entry, `fetching bundle (${entry.fwInfo.bundle_url})…`);
+  // Pi path: bundle-only OTA. Falls back to the default manifest URL when
+  // fw-info wouldn't parse — lets us unstick a Pi whose FW_INFO read is
+  // truncated by an MTU issue (otaDataChar still present).
+  const bundleUrl = entry.fwInfo?.bundle_url
+    || (entry.otaDataChar && !entry.fwInfo?.url ? "firmware/pi_robot/ota-manifest.json" : null);
+  if (bundleUrl) {
+    logFor(entry, `fetching bundle (${bundleUrl})…`);
     let bytes;
     try {
-      const bundle = await buildBundle(entry);
+      const bundle = await buildBundle(entry, bundleUrl);
       bytes = new TextEncoder().encode(JSON.stringify(bundle));
       logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B`);
     } catch (err) {
