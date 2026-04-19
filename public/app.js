@@ -450,8 +450,10 @@ function renderEntry(entry) {
   const { id, name, status } = entry;
   const connected = status === "connected";
   const connecting = status === "connecting";
-  const statusText = connecting ? "Connecting…" : status === "error" ? "Error" : "";
-  const dotClass = connected ? " connected" : status === "error" ? " error" : "";
+  // Connecting state is carried by the dot's amber pulse + the button label;
+  // the sub-line is reserved for "Error" so we don't duplicate the signal.
+  const statusText = status === "error" ? "Error" : "";
+  const dotClass = connected ? " connected" : connecting ? " connecting" : status === "error" ? " error" : "";
 
   const sections = [
     ...CAPABILITIES.map(c => c.renderSection(entry)),
@@ -495,7 +497,7 @@ function renderEntry(entry) {
         ${connected
           ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
-              connecting ? "…" : (entry.device ? "Connect" : "Pair")
+              connecting ? "Connecting…" : (entry.device ? "Connect" : "Pair")
             }</button>`}
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>

@@ -291,8 +291,13 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   color: var(--ink-muted);
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-muted); }
-.dot.connected { background: var(--success); }
-.dot.error { background: var(--danger); }
+.dot.connected  { background: var(--success); }
+.dot.error      { background: var(--danger); }
+/* Pulsing amber while a connect is in flight. Same token as Pip's voice so the
+   "activity happening" feeling is consistent across the UI. */
+.dot.connecting { background: var(--duke-persimmon); animation: dot-pulse 1.4s ease-in-out infinite; }
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dot.connecting { animation: none; } }
 
 /* Type badge — small pill next to the robot name identifying the hardware
    platform (Pi vs ESP32). Populated from fw-info.type on first connect. */
@@ -352,7 +357,9 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 
 #robot-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  /* 400px minmax gives the 'dot + name + ESP32 pill + Connect button' row enough
+     slack that "BetterRobot-XXXX" doesn't wrap at typical ID lengths. */
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 16px;
   align-items: start;  /* cards aren't forced to the tallest row-mate */
   margin-bottom: 16px;
