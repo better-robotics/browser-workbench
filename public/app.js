@@ -523,32 +523,43 @@ function renderEntry(entry) {
   // whether fast-lane OTA is available without expanding.
   const wifiChip = connected && entry.wifiStatus?.ip
     ? `<span class="transport-chip">WiFi</span>` : "";
+  // Split on the last hyphen so the common "BetterRobot-" prefix dims and the
+  // distinguishing suffix ("E9D4") carries the visual weight. Names without a
+  // hyphen render plainly.
+  const dash = name.lastIndexOf("-");
+  const hasSplit = dash > 0 && dash < name.length - 1;
+  const nameHtml = hasSplit
+    ? `<span class="name-prefix">${escapeHtml(name.slice(0, dash + 1))}</span><span class="name-suffix">${escapeHtml(name.slice(dash + 1))}</span>`
+    : escapeHtml(name);
   const expanded = computeExpanded(entry);
   entry.node.classList.toggle("expanded", expanded);
-  const chevronTitle = expanded ? "Collapse" : "Expand";
   entry.node.innerHTML = `
     <div class="row">
-      <div>
-        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}${wifiChip}</div>
+      <div class="robot-identity">
+        <button class="label-btn" data-action="toggle-expand" aria-expanded="${expanded}">
+          <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
+          <span class="dot${dotClass}"></span>${nameHtml}${typeBadge}${wifiChip}
+        </button>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
       </div>
-      <div style="display: flex; gap: 4px; align-items: center;">
+      <div class="robot-actions">
         ${connected
           ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
               connecting ? "Connecting…" : (entry.device ? "Connect" : "Pair")
             }</button>`}
-        <button class="icon chevron" data-action="toggle-expand" aria-label="${chevronTitle}" title="${chevronTitle}"><svg class="icon-svg"><use href="icons.svg#icon-chevron-down"/></svg></button>
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>
     </div>
     ${stateHtml}
-    <div class="robot-body"${expanded ? "" : " hidden"}>
-      ${telemetryHtml(entry)}
-      ${enrollHtml}
-      ${sections}
-      ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
-    </div>
+    ${expanded ? `
+      <div class="robot-body">
+        ${telemetryHtml(entry)}
+        ${enrollHtml}
+        ${sections}
+        ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
+      </div>
+    ` : ""}
   `;
   for (const cap of CAPABILITIES) cap.wireActions(entry, entry.node);
   for (const cap of entry.runtimeCaps || []) cap.wireActions(entry, entry.node);
@@ -561,10 +572,19 @@ function renderEntry(entry) {
   if (disconnectBtn) disconnectBtn.addEventListener("click", () => disconnect(id));
   const menuBtn = entry.node.querySelector('[data-action="menu"]');
   if (menuBtn) menuBtn.addEventListener("click", () => openMenu(menuBtn, id));
-  const expandBtn = entry.node.querySelector('[data-action="toggle-expand"]');
-  if (expandBtn) expandBtn.addEventListener("click", () => {
+  const toggleExpand = () => {
     setExpansionPref(id, !entry.node.classList.contains("expanded"));
     renderEntry(entry);
+  };
+  // Explicit label-button handles keyboard + screen readers (aria-expanded).
+  const expandBtn = entry.node.querySelector('[data-action="toggle-expand"]');
+  if (expandBtn) expandBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleExpand(); });
+  // Whole row is a generous click target for the same action — except clicks
+  // that landed on another button (Pair/Disconnect, overflow menu).
+  const row = entry.node.querySelector(".row");
+  if (row) row.addEventListener("click", (e) => {
+    if (e.target.closest("button")) return;
+    toggleExpand();
   });
   const enrollBtn = entry.node.querySelector('[data-action="enroll"]');
   if (enrollBtn) enrollBtn.addEventListener("click", async () => {

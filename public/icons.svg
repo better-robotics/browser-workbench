@@ -10,10 +10,12 @@
     <path d="M18 6 6 18"/>
     <path d="m6 6 12 12"/>
   </symbol>
+  <!-- Vertical three-dots reads distinctly as "overflow menu" (Material pattern);
+       horizontal ellipsis overlapped with "text continues / loading" semantics. -->
   <symbol id="icon-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="5" r="1"/>
     <circle cx="12" cy="12" r="1"/>
-    <circle cx="19" cy="12" r="1"/>
-    <circle cx="5" cy="12" r="1"/>
+    <circle cx="12" cy="19" r="1"/>
   </symbol>
   <symbol id="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M5 12h14"/>

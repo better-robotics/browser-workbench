@@ -324,17 +324,80 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   color: var(--success);
 }
 
-/* Chevron rotates 180° when the card is expanded. */
-.chevron .icon-svg { transition: transform 0.2s ease-out; }
-.robot.expanded .chevron .icon-svg { transform: rotate(180deg); }
-@media (prefers-reduced-motion: reduce) {
-  .chevron .icon-svg { transition: none; }
+/* Collapsed cards behave like list rows — tight vertical padding so the row
+   doesn't feel spacious-empty. Expanded cards restore roomy padding since
+   the capability body is the main content. */
+.robot { transition: padding 0.15s ease; }
+.robot:not(.expanded) { padding: 12px 16px; }
+
+/* Whole row is a generous click target — cursor hints it, but the visual
+   hover lives on the label-btn only (the row whitespace is forgiveness, not
+   affordance; the band extending under buttons that aren't toggles would
+   false-advertise). */
+.robot .row { cursor: pointer; }
+
+/* Label is a button for keyboard/a11y (aria-expanded) but reads as text.
+   Negative margin + internal padding lets the hover pill sit snug against
+   the label without shifting layout when the pill appears. */
+.robot-identity { min-width: 0; flex: 1; }
+.label-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.label-btn:hover { background: var(--border-subtle); }
+.label-btn:focus-visible {
+  outline: none;
+  /* Softer focus ring than outline — closer to Apple's native feel. */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-/* Collapsible body — everything below the top row (telemetry, enroll, capability
-   sections, last-event) lives here. Hidden attribute removes it from layout
-   when the card is collapsed, so 3+ robots list reads as a scannable list, not
-   a wall of controls. */
+/* "BetterRobot-" prefix is the same for every robot so only the hex suffix
+   distinguishes. Dim the prefix and put the suffix in monospace so the eye
+   snaps to the ID characters. */
+.name-prefix { color: var(--ink-muted); font-weight: 400; }
+.name-suffix { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-weight: 500; }
+
+/* Leading-edge disclosure triangle — macOS Finder / Mail thread pattern for
+   in-place expansion. Lives inside the label-btn so it reads as part of the
+   identity, not an action. Rotates from › (right, collapsed) to ⌄ (down,
+   expanded). Purely visual; the whole label-btn is the click target. */
+.disclosure-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--ink-muted);
+  opacity: 0.6;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease-out;
+}
+.robot.expanded .disclosure-chevron { transform: rotate(0); }
+.robot-actions { display: flex; gap: 4px; align-items: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-chevron { transition: none; }
+  .robot { transition: none; }
+}
+
+/* Narrow viewports stack into a single column — iOS HIG list pattern. The
+   400px minmax grid at small widths squeezes cards uncomfortably. */
+@media (max-width: 720px) {
+  #robot-list { grid-template-columns: 1fr; }
+}
+
+/* Collapsible body — rendered only when expanded so capability DOM (camera
+   streams especially) isn't mounted-but-hidden, burning bandwidth. */
 .robot-body { margin-top: 12px; }
 .robot-body > :first-child { margin-top: 0; }
 
