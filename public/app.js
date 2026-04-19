@@ -11,6 +11,7 @@ import {
   makeEntry, entryFor, attachDevice, setDisconnectHandler,
 } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
+import { RUNTIMES } from "./capabilities/runtime/index.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot } from "./capabilities/ops.js";
 import { initRecovery, openRecoveryDialog } from "./recovery.js";
@@ -198,7 +199,25 @@ async function connect(id) {
       entry.capSchema = null;
     }
 
+    // Runtime-instantiated caps: for every schema entry whose type has a
+    // generic constructor in RUNTIMES, build a capability instance from the
+    // schema alone. Zero hand-written JS per capability of migrated types.
+    // Legacy hand-written caps in CAPABILITIES cover the types still to be
+    // migrated (motors, wifi, ota, camera, ops).
+    entry.runtimeCaps = [];
+    for (const capSchema of entry.capSchema || []) {
+      const make = RUNTIMES[capSchema.type];
+      if (!make) continue;
+      const cap = make(capSchema);
+      // Capability may need fields on entry; initEntry returns the shape.
+      Object.assign(entry, cap.initEntry());
+      entry.runtimeCaps.push(cap);
+    }
+
     for (const cap of CAPABILITIES) {
+      try { await cap.probe(entry, service); } catch { /* optional */ }
+    }
+    for (const cap of entry.runtimeCaps) {
       try { await cap.probe(entry, service); } catch { /* optional */ }
     }
   } catch (err) {
@@ -219,6 +238,8 @@ function onDisconnected(id) {
   if (!entry) return;
   entry.status = "idle";
   for (const cap of CAPABILITIES) cap.cleanup(entry);
+  for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
+  entry.runtimeCaps = [];
   renderEntry(entry);
 }
 
@@ -324,7 +345,10 @@ function renderEntry(entry) {
   const statusText = connecting ? "Connecting…" : status === "error" ? "Error" : "";
   const dotClass = connected ? " connected" : status === "error" ? " error" : "";
 
-  const sections = CAPABILITIES.map(c => c.renderSection(entry)).join("");
+  const sections = [
+    ...CAPABILITIES.map(c => c.renderSection(entry)),
+    ...(entry.runtimeCaps || []).map(c => c.renderSection(entry)),
+  ].join("");
   entry.node.innerHTML = `
     <div class="row">
       <div>
@@ -344,7 +368,9 @@ function renderEntry(entry) {
     ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
   `;
   for (const cap of CAPABILITIES) cap.wireActions(entry, entry.node);
+  for (const cap of entry.runtimeCaps || []) cap.wireActions(entry, entry.node);
   for (const cap of CAPABILITIES) cap.postRender?.(entry);
+  for (const cap of entry.runtimeCaps || []) cap.postRender?.(entry);
 
   // Header-level actions (connect / disconnect / menu). Capability-level
   // actions are wired by the respective capability modules above.

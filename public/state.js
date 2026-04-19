@@ -43,6 +43,10 @@ export function makeEntry(id, name) {
     cameraPc: null, cameraStream: null,
     cameraRecvBuf: null, cameraStatus: null,
     lastEvent: null,
+    // Schema-driven capabilities instantiated at connect time from
+    // fw-info.caps. Empty until connected. See capabilities/runtime/.
+    capSchema: null,
+    runtimeCaps: [],
     // DOM node owned by render.js. Null until first mounted. Per-entry node
     // ownership is what lets a notify for robot A skip robot B's DOM —
     // foundation for the LLM-orchestrator direction.

@@ -9,7 +9,7 @@ import { log } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
 import { state } from "./state.js";
 import { sendMotors } from "./capabilities/motors.js";
-import { toggleLed } from "./capabilities/led.js";
+import { setToggleValue, toggleCapValue } from "./capabilities/runtime/toggle.js";
 
 let _recognition = null;
 let _connectAll = () => {};  // injected by app.js init
@@ -35,14 +35,14 @@ function dispatchVoice(transcript) {
   if (ledOn) {
     const target = ledOn[2] ? resolveRobotByName(ledOn[2]) : null;
     const candidates = target ? [target] : [...state.devices.values()].filter(e => e.ledChar);
-    for (const e of candidates) if (!e.ledOn) toggleLed(e.id);
+    for (const e of candidates) setToggleValue(e, "led", true);
     return;
   }
   const ledOff = t.match(/\b(l.?e.?d|light)\s+off(?:\s+(\w[\w-]*))?/);
   if (ledOff) {
     const target = ledOff[2] ? resolveRobotByName(ledOff[2]) : null;
     const candidates = target ? [target] : [...state.devices.values()].filter(e => e.ledChar);
-    for (const e of candidates) if (e.ledOn) toggleLed(e.id);
+    for (const e of candidates) setToggleValue(e, "led", false);
     return;
   }
   log("voice: no match");
