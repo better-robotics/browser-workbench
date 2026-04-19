@@ -1,6 +1,6 @@
 # Current working model — better-robotics
 
-Last updated: 2026-04-18 (3-plane architecture named; bundle OTA + USB recovery + xterm.js + capability config landed)
+Last updated: 2026-04-19 (typed-ops verbs replace shell-over-BLE; identity + Pinout-edit-over-BLE + telemetry + ESP32 camera all landed)
 
 ## Project shape (stable — don't re-question unless new evidence)
 
@@ -43,8 +43,8 @@ Other invariants:
 - **Not blocking anything.** Decide when the use case surfaces.
 
 ### 3. USB gadget mode validation
-- `dtoverlay=dwc2` + `modules-load=dwc2,g_ether` + NM shared-mode `usb0` at `10.55.0.1/24` wired into `prepare.html` but never tested. User's current Pi was prepped before this was added.
-- **Plan:** next card re-prep, plug USB-C to Mac, try `ssh pi@10.55.0.1`. Confirms the debug channel works before we actually need it.
+- `dtoverlay=dwc2` + `modules-load=dwc2,libcomposite` + NM shared-mode `usb0` at `10.55.0.1/24` is wired in. Recovery console (Web Serial → ttyGS0) is in use by the user as of 2026-04-19; ECM ssh path still untested. Autologin on ttyGS0 lands once OTA propagates.
+- **Plan:** next card re-prep, plug USB-C to Mac, try `ssh robot@10.55.0.1`. Confirms the debug channel works before we actually need it.
 - **Not a blocker.**
 
 ### 4. Signal as messaging transport (deferred, not rejected)
@@ -76,7 +76,18 @@ Other invariants:
 - **Don't copy from hatch:** behavioral-trust ledger (overkill for single-user dashboard), multi-bridge primary/secondary election (only needed for multi-client orchestration).
 
 ## Recently landed (context for what's "done")
+- **Typed BLE ops verbs replace shell-over-BLE.** SHELL.md is "not pursuing"; the working alternative is a growing set of typed verbs on `ops` + `ops-response` (chunked notify): `restart-service`, `reboot`, `install-pkg`, `enroll-key`, `get-log`, `get-config`, plus single-file uploads via `uploadFile()` (mini-bundle on the OTA channel). Every concrete "why would I SSH in" use case has a verb. New verbs scale this without opening a tty.
+- **Pinout editing over BLE.** Per-Pi `⋯ → Pinout (GPIO) → Edit pins`. Fetches `pi-robot.conf` via `get-config`, lets user retarget LED / motor GPIOs / camera enable, flags pin conflicts, saves via single-file bundle OTA with `restart: pi-robot`. SSH no longer required for pin tweaks.
+- **Telemetry char (notify, every 6s):** `{uptime_s, mem_free_mb, temp_c?}` rendered as a compact line below the robot-status state.
+- **Robot-status with sticky-on-disconnect.** Top-level `{st, msg?}` notify channel; "rebooting" / "restarting" / "installing" announce 2s before action so the dashboard sees context before BLE drops; last-known status sticks for 30s after disconnect ("was rebooting").
+- **Dashboard identity = ed25519 keypair** in IndexedDB. Auto-authorizes SSH on freshly-prepped Pis (writes `dashboard.pub` to /boot/firmware/, firstrun appends to `authorized_keys`). BLE TOFU enrollment for already-deployed Pis (Phase 3 — `enroll-key` ops verb + `authorized` list in fw-info). Phase 4 (challenge/response verification) deferred — no consumer needs it now that typed verbs cover the access patterns.
+- **Firmware version stamping.** `make publish-pi-firmware` writes commit SHA into `version.py` + `ota-manifest.json.commit`. fw-info surfaces it; OTA log shows what's about to flash. Cache-busted manifest fetch + SD-prep fetches stop GH Pages CDN serving stale.
+- **Username `pi → robot` decoupling.** $HOME / __HOME__ / __USER__ expand at OTA-apply time; service unit, OTA dest paths, allowed prefixes all derive from the install location instead of hardcoding pi. `_derive_install_home()` parses from `__file__` so the bug where `_OTA_HOME = os.path.expanduser("~")` returned `/root` (service runs as root) is gone.
 - **ESP32 camera (OV3660 / OV2640 / OV5640 on CAM-MB socket).** Firmware initializes `esp_camera` with the AI-Thinker pin map, auto-detects the sensor, starts an MJPEG HTTP server on `:81/stream` after WiFi joins, and advertises `caps: [{name:"camera", type:"mjpeg-stream"}]` in fw-info. Dashboard's new `mjpeg-stream` runtime renders `<img src="http://<ip>:81/stream">`. IP comes from an expanded `wifi-status.ip` field (published on Pi too for parity). LAN-shared browser required — the WiFi data plane, not BLE.
+- **Bluetooth pairable on every pi-robot start.** `ExecStartPre=-/usr/bin/bluetoothctl pairable on` in pi-robot.service. Pi OS Trixie boots with adapter Pairable=no by default which silently broke `gatt.connect()` from Chrome.
+- **Bluetooth unblock on every bluetoothd start.** `ExecStartPre=-/usr/sbin/rfkill unblock bluetooth` in bluetooth.service drop-in. Masking systemd-rfkill alone isn't enough — kernel default re-blocks on boot.
+- **Serial Recovery autologin.** `serial-getty@ttyGS0` drop-in with `--autologin <user>`. USB cable possession is already the trust boundary.
+- **QR-arrival pair flow.** `?robot=X` URL hint shows a one-tap Pair banner at the top of the dashboard.
 
 - **Recovery plane: USB-CDC-ACM + xterm.js.** Pi runs composite USB gadget (ECM + ACM) via `usb-gadget.service` (independent of pi-robot). Dashboard has a Recovery console menu item that dynamic-loads xterm.js over a Web Serial connection to `/dev/cu.usbmodem*`. Real terminal — Ctrl+C, ANSI escapes, arrows, selection all work.
 - **Bundle OTA.** Multi-file updates in one BLE transfer. Manifest at `firmware/pi_robot/ota-manifest.json` declares files + modes + post_install commands + reboot. Pi's `_apply_bundle` validates, stages to `.new` paths, atomic-renames, runs hooks, reboots. Legacy single-file OTA still works for backward compat (pi sniffs payload shape at commit). Dest-path whitelist prevents a malformed manifest from writing to arbitrary locations.

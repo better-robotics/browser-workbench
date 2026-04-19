@@ -205,6 +205,7 @@ function renderEdit(entry) {
           <span>Camera (auto-detect)</span>
         </label>
       </div>
+      <div class="meta" style="margin-top: 12px;">Numbers are BCM GPIO IDs (the GPIO# label on the board), not physical pin positions.</div>
       ${warn}
       <div class="modal-footer">
         <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>

@@ -636,7 +636,11 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
 
     async def recv(self):
         arr = self.camera.capture_array("main")
-        frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+        # Picamera2's "RGB888" config actually delivers bytes in BGR memory
+        # order (libcamera convention — name follows little-endian byte
+        # arrangement, not pixel order). Tell PyAV the truth so red and blue
+        # don't swap downstream — symptom is purple skin / blue oranges.
+        frame = av.VideoFrame.from_ndarray(arr, format="bgr24")
         self._pts += 1
         frame.pts = self._pts
         frame.time_base = self._time_base
