@@ -9,6 +9,14 @@ import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { state } from "../../state.js";
 import { installPackage } from "./command.js";
+import { settings } from "../../settings.js";
+import {
+  isSupported as visionSupported,
+  startWatching as visionStart,
+  stopWatching as visionStop,
+  getLatestScene as visionScene,
+} from "../../perception.js";
+import { broadcastSceneToPhones } from "../../phones.js";
 
 const OP_BEGIN   = 0x01;
 const OP_CHUNK   = 0x02;
@@ -28,9 +36,11 @@ export function makeWebrtcInstallableCap(schema) {
   const streamField = `${name}Stream`;
   const bufField    = `${name}RecvBuf`;
   const statusState = `${name}Status`;
+  const watchingField = `${name}Watching`;
   const actionStart   = `${name}-start`;
   const actionStop    = `${name}-stop`;
   const actionInstall = `${name}-install`;
+  const actionWatch   = `${name}-watch`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   async function sendSignal(entry, msg) {
@@ -136,6 +146,9 @@ export function makeWebrtcInstallableCap(schema) {
   }
 
   async function stop(entry) {
+    // Perception rides on the stream; kill it before we tear the stream down
+    // so the next frame grab doesn't trip on a null srcObject.
+    if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
     try { await entry[signalField]?.writeValueWithResponse(new Uint8Array([OP_STOP])); } catch {}
     if (entry[pcField]) { try { entry[pcField].close(); } catch {} entry[pcField] = null; }
     entry[streamField] = null;
@@ -196,6 +209,34 @@ export function makeWebrtcInstallableCap(schema) {
       } else {
         action = `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
       }
+      // Perception toggle — same gating as mjpeg-stream. Only meaningful when
+      // the peer connection is active and a stream has landed; until then show
+      // a hint explaining what's missing so enabling the setting doesn't feel
+      // like a no-op.
+      const running = !!entry[pcField];
+      const watching = !!entry[watchingField];
+      const scene = visionScene(entry.id);
+      const sceneText = scene?.text ?? "";
+      let watchRow = "";
+      if (settings.perception) {
+        if (!running) {
+          watchRow = `<div class="meta camera-watch-hint">Perception: start the stream to enable “Watch with Pip”.</div>`;
+        } else if (!visionSupported()) {
+          watchRow = `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
+        } else {
+          watchRow = `
+            <label class="camera-watch-row">
+              <input type="checkbox" data-action="${actionWatch}" ${watching ? "checked" : ""}>
+              <span>Watch with Pip</span>
+              ${watching && sceneText
+                ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
+                : watching
+                  ? `<span class="meta camera-scene">Loading model…</span>`
+                  : ""}
+            </label>
+          `;
+        }
+      }
       return `
         <div class="robot-controls">
           <div class="row">
@@ -209,6 +250,7 @@ export function makeWebrtcInstallableCap(schema) {
           ${entry[pcField] ? `
             <video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted></video>
           ` : ""}
+          ${watchRow}
         </div>
       `;
     },
@@ -217,6 +259,29 @@ export function makeWebrtcInstallableCap(schema) {
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click",   () => start(entry));
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click",    () => stop(entry));
       node.querySelector(`[data-action="${actionInstall}"]`)?.addEventListener("click", () => install(entry));
+      node.querySelector(`[data-action="${actionWatch}"]`)?.addEventListener("change", async (e) => {
+        if (e.target.checked) {
+          entry[watchingField] = true;
+          renderEntry(entry);
+          try {
+            await visionStart(entry, {
+              onScene: (text) => {
+                renderEntry(entry);
+                broadcastSceneToPhones({ source: entry.name, text });
+              },
+              onError: (err) => console.warn("perception error", err),
+            });
+          } catch (err) {
+            entry[watchingField] = false;
+            alert(`Can't start perception: ${err.message || err}`);
+            renderEntry(entry);
+          }
+        } else {
+          visionStop(entry.id);
+          entry[watchingField] = false;
+          renderEntry(entry);
+        }
+      });
     },
 
     // Rebind the live <video> to its MediaStream after innerHTML rebuild.
