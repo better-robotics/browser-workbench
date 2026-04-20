@@ -55,7 +55,13 @@ async function beginPairing() {
   statusEl.textContent = "Generating room…";
   dialog.showModal();
 
-  const session = hostPairingRoom();
+  // onStatus gives us live pair-progress to surface in the dialog — without
+  // it, a stuck negotiation looks identical to a working one (just "Waiting
+  // for phone…" forever). Stage echoes go through statusEl so the user can
+  // distinguish "phone never showed up" from "phone here but p2p stalled".
+  const session = hostPairingRoom({
+    onStatus: (s) => { statusEl.textContent = s; },
+  });
   _pendingSession = session;
 
   const url = new URL("phone.html", window.location.href);

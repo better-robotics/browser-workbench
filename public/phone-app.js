@@ -94,7 +94,9 @@ async function init() {
   const roomId = match[1];
   try {
     setStatus("connecting", "Connecting…");
-    _peer = await joinPairingRoom(roomId);
+    _peer = await joinPairingRoom(roomId, {
+      onStatus: (s) => { $("phone-status-text").textContent = s; },
+    });
     setStatus("connected", transportLabel(_peer.transport));
     setMessage("Hi — I'm Pip, running on your desktop. Ask me something.");
     _peer.onMessage(onPeerMessage);

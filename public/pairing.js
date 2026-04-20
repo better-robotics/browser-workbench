@@ -127,24 +127,41 @@ function wireIceTrickle(pc, ws, myRole) {
 // Peer once EITHER the data channel opens (P2P) OR after a short grace
 // period with just the WS alive (relay-only). WS stays open for the life
 // of the Peer so relay fallback is always available.
-const P2P_WAIT_MS = 8000;
+//
+// Grace timer starts when the FIRST signal from the phone arrives — not when
+// hostPairingRoom was called. If the phone takes longer than the grace
+// period to scan + connect, a function-start timer would fire uselessly and
+// the promise would hang forever. Anchoring to "phone started signaling"
+// fixes the long-pairing hang.
+const P2P_WAIT_MS = 10000;
 
-export function hostPairingRoom() {
+export function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
   const myRole = "desktop";
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const ws = openSignalWs(roomId);
   wireIceTrickle(pc, ws, myRole);
 
-  let phoneHere = false;   // we've seen at least one signal from the other side
   let incomingChannel = null;
+  let graceTimer = null;
+  let phoneHere = false;
 
   const peerPromise = new Promise((resolve, reject) => {
     const fail = (err) => { ws.close(); pc.close(); reject(err); };
+    const resolveWithStub = (why) => {
+      if (ws.readyState !== WebSocket.OPEN) return fail(new Error(`${why}, signal socket also closed`));
+      onStatus(`p2p failed (${why}) — falling back to relay`);
+      resolve(new Peer({ pc, channel: makeStubChannel(), ws, myRole }));
+    };
+
+    ws.addEventListener("open", () => onStatus("signal socket open"));
 
     pc.addEventListener("datachannel", (e) => {
       incomingChannel = e.channel;
+      onStatus("data channel negotiating");
       e.channel.addEventListener("open", () => {
+        onStatus("p2p connected");
+        if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
         resolve(new Peer({ pc, channel: e.channel, ws, myRole }));
       });
     });
@@ -152,7 +169,17 @@ export function hostPairingRoom() {
     ws.addEventListener("message", async (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type !== "signal" || msg.peer === myRole) return;
-      phoneHere = true;
+      // Start the grace timer on first phone activity — if P2P doesn't open
+      // within the window from here, fall back to relay. Ignoring signals
+      // received before we've processed them means the timer can't fire while
+      // the phone hasn't actually joined.
+      if (!phoneHere) {
+        phoneHere = true;
+        onStatus("phone in room, negotiating");
+        graceTimer = setTimeout(() => {
+          if (incomingChannel?.readyState !== "open") resolveWithStub("p2p timeout");
+        }, P2P_WAIT_MS);
+      }
       if (msg.data?.offer) {
         await pc.setRemoteDescription(msg.data.offer);
         const answer = await pc.createAnswer();
@@ -164,25 +191,13 @@ export function hostPairingRoom() {
 
     ws.addEventListener("error", () => fail(new Error("signal socket failed")));
     pc.addEventListener("connectionstatechange", () => {
-      if (pc.connectionState === "failed") {
-        // Phone arrived (we saw signals) but ICE failed — fall back to relay.
-        if (phoneHere && incomingChannel?.readyState !== "open") {
-          // Hand off a stub channel so Peer's relay path is the only route.
-          const stub = makeStubChannel();
-          resolve(new Peer({ pc, channel: stub, ws, myRole }));
-        }
+      onStatus(`pc ${pc.connectionState}`);
+      if (pc.connectionState === "failed"
+          && phoneHere
+          && incomingChannel?.readyState !== "open") {
+        resolveWithStub("ice failed");
       }
     });
-
-    // P2P grace timer: if the data channel hasn't opened within P2P_WAIT_MS
-    // but the phone has already been in the room (=signals flowing), give
-    // up on P2P and resolve as relay-only.
-    setTimeout(() => {
-      if (incomingChannel?.readyState === "open") return;
-      if (!phoneHere) return;
-      const stub = makeStubChannel();
-      resolve(new Peer({ pc, channel: stub, ws, myRole }));
-    }, P2P_WAIT_MS);
   });
 
   return {
@@ -193,8 +208,10 @@ export function hostPairingRoom() {
 }
 
 // Phone: joins the room, creates the data channel + offer immediately,
-// processes the desktop's answer. Same relay-fallback grace as the host.
-export function joinPairingRoom(roomId) {
+// processes the desktop's answer. Grace timer starts when the desktop's
+// answer arrives (proves the other side is live) — same anchoring as
+// the host side to avoid firing before the counterpart is ready.
+export function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   const myRole = "phone";
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const channel = pc.createDataChannel("pip");
@@ -202,17 +219,29 @@ export function joinPairingRoom(roomId) {
   wireIceTrickle(pc, ws, myRole);
 
   return new Promise((resolve, reject) => {
-    const fail = (err) => { ws.close(); pc.close(); reject(err); };
     let resolved = false;
+    let graceTimer = null;
+    let desktopHere = false;
+    const fail = (err) => { ws.close(); pc.close(); reject(err); };
     const finish = (ch) => {
       if (resolved) return;
       resolved = true;
+      if (graceTimer) clearTimeout(graceTimer);
       resolve(new Peer({ pc, channel: ch, ws, myRole }));
     };
+    const finishRelay = (why) => {
+      if (ws.readyState !== WebSocket.OPEN) return fail(new Error(`${why}, signal socket also closed`));
+      onStatus(`p2p failed (${why}) — falling back to relay`);
+      finish(makeStubChannel());
+    };
 
-    channel.addEventListener("open", () => finish(channel));
+    channel.addEventListener("open", () => {
+      onStatus("p2p connected");
+      finish(channel);
+    });
 
     ws.addEventListener("open", async () => {
+      onStatus("signal socket open, sending offer");
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       ws.send(JSON.stringify({ type: "signal", peer: myRole, data: { offer } }));
@@ -221,22 +250,22 @@ export function joinPairingRoom(roomId) {
     ws.addEventListener("message", async (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type !== "signal" || msg.peer === myRole) return;
+      if (!desktopHere) {
+        desktopHere = true;
+        onStatus("desktop responding, negotiating");
+        graceTimer = setTimeout(() => {
+          if (!resolved) finishRelay("p2p timeout");
+        }, P2P_WAIT_MS);
+      }
       if (msg.data?.answer) await pc.setRemoteDescription(msg.data.answer);
       if (msg.data?.ice)   { try { await pc.addIceCandidate(msg.data.ice); } catch {} }
     });
 
     ws.addEventListener("error", () => fail(new Error("signal socket failed")));
     pc.addEventListener("connectionstatechange", () => {
-      if (pc.connectionState === "failed" && !resolved) {
-        finish(makeStubChannel());  // relay-only from here on
-      }
+      onStatus(`pc ${pc.connectionState}`);
+      if (pc.connectionState === "failed" && !resolved) finishRelay("ice failed");
     });
-
-    // P2P grace: fall back to relay-only if the channel hasn't opened.
-    setTimeout(() => {
-      if (channel.readyState === "open" || resolved) return;
-      finish(makeStubChannel());
-    }, P2P_WAIT_MS);
   });
 }
 
