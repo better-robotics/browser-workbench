@@ -326,7 +326,9 @@ button.icon:hover { background: var(--line); color: var(--ink); }
    doesn't feel spacious-empty. Expanded cards restore roomy padding since
    the capability body is the main content. */
 .robot { transition: padding 0.15s ease; }
-.robot:not(.expanded) { padding: 12px 16px; }
+/* 8px vertical keeps the row tight against the 36px button height without
+   losing breathing room; content:padding ratio lands near 3:1 instead of 2:1. */
+.robot:not(.expanded) { padding: 8px 16px; }
 
 /* Whole row is a generous click target — cursor hints it, but the visual
    hover lives on the label-btn only (the row whitespace is forgiveness, not
