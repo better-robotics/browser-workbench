@@ -130,8 +130,6 @@ main {
   flex: 1;
   overflow-y: auto;
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
   padding: 32px 24px 48px;
 }
 
@@ -774,19 +772,31 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 }
 .log > div {
   display: grid;
-  grid-template-columns: auto 14ch 1fr;
+  grid-template-columns: auto 16ch 1fr;
   gap: 12px;
   align-items: baseline;
 }
 .log > div.sys .log-msg { grid-column: 2 / -1; }  /* no name → message absorbs the slot */
 /* Tertiary text — express as one step (40% of primary) instead of opacity on already-muted. */
 .log .log-time { color: color-mix(in srgb, var(--ink) 40%, transparent); font-variant-numeric: tabular-nums; }
+/* Flex + inner prefix/suffix so the column truncates the dim prefix first and
+   keeps the identifying suffix visible (mirrors the card header treatment). */
 .log .log-name {
-  color: var(--ink);
-  font-weight: 500;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
+}
+.log .log-name-prefix {
+  color: var(--ink-muted);
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+.log .log-name-suffix {
+  color: var(--ink);
+  font-weight: 500;
+  flex-shrink: 0;
 }
 .log .log-name.dup { visibility: hidden; }
 .log .log-msg { white-space: pre-wrap; word-break: break-word; }

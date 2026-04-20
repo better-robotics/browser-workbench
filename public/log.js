@@ -11,6 +11,28 @@ const _errRe = /\b(fail(?:ed|ure)?|error|rejected|timeout|cancelled|stalled|stuc
 const _okRe  = /\b(paired|joined|installed|done|ready|enabled|ok)\b/i;
 const _logClass = (msg) => _errRe.test(msg) ? "err" : _okRe.test(msg) ? "ok" : "";
 
+// Split on the last hyphen so "BetterRobot-" dims and the identifying suffix
+// ("E9D4") keeps the weight — and the column truncates the prefix first under
+// width pressure rather than the part that actually identifies the robot.
+function buildNameSpan(name) {
+  const outer = document.createElement("span");
+  outer.className = "log-name";
+  outer.title = name;  // hover-tooltip safety net for long custom names
+  const dash = name.lastIndexOf("-");
+  const hasSplit = dash > 0 && dash < name.length - 1;
+  if (hasSplit) {
+    const prefix = document.createElement("span");
+    prefix.className = "log-name-prefix";
+    prefix.textContent = name.slice(0, dash + 1);
+    outer.appendChild(prefix);
+  }
+  const suffix = document.createElement("span");
+  suffix.className = "log-name-suffix";
+  suffix.textContent = hasSplit ? name.slice(dash + 1) : name;
+  outer.appendChild(suffix);
+  return outer;
+}
+
 export const log = (msg, name = "") => {
   const el = $("log");
   const now = new Date().toLocaleTimeString();
@@ -29,9 +51,7 @@ export const log = (msg, name = "") => {
   const timeSpan = document.createElement("span");
   timeSpan.className = "log-time";
   timeSpan.textContent = now;
-  const nameSpan = document.createElement("span");
-  nameSpan.className = "log-name";
-  nameSpan.textContent = name;
+  const nameSpan = buildNameSpan(name);
   const msgSpan = document.createElement("span");
   msgSpan.className = "log-msg";
   msgSpan.textContent = msg;
