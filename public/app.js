@@ -98,6 +98,18 @@ onKeyChange(refreshMyFingerprint);
 // Skip auto-reconnect for robots untouched past this window — stale entries
 // shouldn't blast the BT stack with timeout attempts on every page load.
 const AUTO_RECONNECT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+// gatt.connect() has no browser-exposed timeout; a wedged robot can leave the
+// amber "Connecting…" pulse on indefinitely. Hard cap so a failed attempt
+// resolves to an error state the user can see.
+const GATT_CONNECT_TIMEOUT_MS = 20000;
+function gattConnectWithTimeout(device) {
+  return Promise.race([
+    device.gatt.connect(),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`connect timeout after ${GATT_CONNECT_TIMEOUT_MS / 1000}s`)),
+                 GATT_CONNECT_TIMEOUT_MS)),
+  ]);
+}
 
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
@@ -265,7 +277,7 @@ async function connect(id) {
   entry.status = "connecting";
   renderEntry(entry);
   try {
-    const server = await entry.device.gatt.connect();
+    const server = await gattConnectWithTimeout(entry.device);
     const service = await server.getPrimaryService(SERVICE_UUID);
     // A robot advertising only the service (no chars) is still "connected".
     // Every capability is optional.

@@ -1,4 +1,4 @@
-import { $, freshUrl } from "./dom.js";
+import { $, freshUrl, fetchWithTimeout } from "./dom.js";
 import { pubkeySsh } from "./auth.js";
 import { ensurePassword } from "./passwords.js";
 
@@ -47,7 +47,8 @@ async function readTextFile(dir, name) {
 }
 
 async function fetchBlob(url) {
-  const r = await fetch(freshUrl(url), { cache: "no-cache" });
+  // 60s — wheels / binaries can be a few MB each on slow connections.
+  const r = await fetchWithTimeout(freshUrl(url), { cache: "no-cache" }, 60000);
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
   return r.blob();
 }
@@ -99,7 +100,7 @@ async function runPrepare() {
     }
 
     prepLog("Fetching firstrun template…");
-    const template = await (await fetch(freshUrl(`${FIRMWARE_URL}/firstrun.template.sh`), { cache: "no-cache" })).text();
+    const template = await (await fetchWithTimeout(freshUrl(`${FIRMWARE_URL}/firstrun.template.sh`), { cache: "no-cache" })).text();
 
     prepLog("Fetching firmware files…");
     const betterpi = await ensureDir(dirHandle, "betterpi");
@@ -109,7 +110,7 @@ async function runPrepare() {
     }
 
     prepLog("Fetching wheels manifest…");
-    const manifest = await (await fetch(freshUrl(`${FIRMWARE_URL}/wheels/manifest.json`), { cache: "no-cache" })).json();
+    const manifest = await (await fetchWithTimeout(freshUrl(`${FIRMWARE_URL}/wheels/manifest.json`), { cache: "no-cache" })).json();
     const wheels = await ensureDir(dirHandle, "wheels");
     for await (const entry of wheels.values()) {
       if (entry.kind === "file") await wheels.removeEntry(entry.name).catch(() => {});

@@ -8,6 +8,19 @@ export const $ = (id) => document.getElementById(id);
 export const freshUrl = (path) =>
   `${path}${path.includes("?") ? "&" : "?"}v=${Date.now()}`;
 
+// Timeout-wrapped fetch so a stalled CDN/network doesn't leave a prepare or
+// OTA flow hanging indefinitely. Default 20s covers small manifest/template
+// fetches; callers override for larger bundles.
+export async function fetchWithTimeout(url, opts = {}, timeoutMs = 20000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

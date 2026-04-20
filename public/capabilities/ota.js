@@ -5,7 +5,7 @@ import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson,
 } from "../ble.js";
-import { freshUrl, escapeHtml } from "../dom.js";
+import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
 
@@ -82,11 +82,12 @@ async function streamOtaBytes(entry, bytes) {
 
 async function buildBundle(entry, manifestUrl) {
   manifestUrl = manifestUrl || entry.fwInfo?.bundle_url;
-  const manifest = await (await fetch(freshUrl(manifestUrl), { cache: "no-cache" })).json();
+  const manifest = await (await fetchWithTimeout(freshUrl(manifestUrl), { cache: "no-cache" })).json();
   const files = {};
   for (const spec of manifest.files || []) {
     const src = spec.src;
-    const buf = await (await fetch(freshUrl(`firmware/pi_robot/${src}`), { cache: "no-cache" })).arrayBuffer();
+    // 60s per file — bundle binaries can be a few MB on a slow connection.
+    const buf = await (await fetchWithTimeout(freshUrl(`firmware/pi_robot/${src}`), { cache: "no-cache" }, 60000)).arrayBuffer();
     // Chunked to avoid stack overflow from spreading into String.fromCharCode.
     const bytes = new Uint8Array(buf);
     let bin = "";
@@ -179,7 +180,8 @@ export async function updateFirmware(id) {
   logFor(entry, `fetching ${fetchUrl}…`);
   let bytes;
   try {
-    const resp = await fetch(freshUrl(fetchUrl), { cache: "no-cache" });
+    // 60s — firmware bundle can be a few MB on slow connections.
+    const resp = await fetchWithTimeout(freshUrl(fetchUrl), { cache: "no-cache" }, 60000);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     bytes = new Uint8Array(await resp.arrayBuffer());
   } catch (err) {
