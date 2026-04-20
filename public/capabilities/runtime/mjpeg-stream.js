@@ -4,6 +4,13 @@
 // dashboard just opens http://<ip>:<port><path> with a plain <img>. Works
 // only when the dashboard's browser and the robot share a network.
 import { escapeHtml } from "../../dom.js";
+import {
+  isSupported as visionSupported,
+  isWatching as visionWatching,
+  startWatching as visionStart,
+  stopWatching as visionStop,
+  getLatestScene as visionScene,
+} from "../../perception.js";
 
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
@@ -19,26 +26,34 @@ function streamUrl(entry, schema) {
 export function makeMjpegStreamCap(schema) {
   const { name } = schema;
   const runningField = `${name}Running`;
+  const watchingField = `${name}Watching`;
   const actionStart = `${name}-start`;
   const actionStop  = `${name}-stop`;
+  const actionWatch = `${name}-watch`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   return {
     name,
     schema,
-    initEntry: () => ({ [runningField]: false }),
+    initEntry: () => ({ [runningField]: false, [watchingField]: false }),
     async probe() { /* HTTP on LAN — no BLE char to probe. */ },
-    cleanup(entry)  { entry[runningField] = false; },
+    cleanup(entry)  {
+      entry[runningField] = false;
+      if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
+    },
 
     renderSection(entry) {
       if (entry.status !== "connected") return "";
       const url = streamUrl(entry, schema);
       const running = entry[runningField];
+      const watching = entry[watchingField];
       let body = "";
       if (!url) {
         body = `<div class="meta">Waiting for the robot to join WiFi — stream needs a LAN IP.</div>`;
       } else if (running) {
-        body = `<img class="robot-camera" data-cam-id="${entry.id}" src="${escapeHtml(url)}" alt="MJPEG stream">`;
+        // crossOrigin="anonymous" lets canvas read pixels (perception.js needs
+        // it). ESP32 firmware already serves Access-Control-Allow-Origin: *.
+        body = `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" src="${escapeHtml(url)}" alt="MJPEG stream">`;
       } else {
         body = `<div class="meta">${escapeHtml(url)}</div>`;
       }
@@ -47,6 +62,22 @@ export function makeMjpegStreamCap(schema) {
         : running
           ? `<button class="secondary sm" data-action="${actionStop}">Stop</button>`
           : `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
+      // Perception toggle — only surface when the stream is active AND the
+      // browser supports WebGPU. Shows the latest scene text underneath the
+      // checkbox so the user can see what Pip sees.
+      const scene = visionScene(entry.id);
+      const sceneText = scene?.text ?? "";
+      const watchRow = running && visionSupported() ? `
+        <label class="camera-watch-row">
+          <input type="checkbox" data-action="${actionWatch}" ${watching ? "checked" : ""}>
+          <span>Watch with Pip</span>
+          ${watching && sceneText
+            ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
+            : watching
+              ? `<span class="meta camera-scene">Loading model…</span>`
+              : ""}
+        </label>
+      ` : "";
       return `
         <div class="robot-controls">
           <div class="row">
@@ -54,6 +85,7 @@ export function makeMjpegStreamCap(schema) {
             ${action}
           </div>
           ${body}
+          ${watchRow}
         </div>
       `;
     },
@@ -64,8 +96,29 @@ export function makeMjpegStreamCap(schema) {
         renderEntry(entry);
       });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click", () => {
+        if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
         entry[runningField] = false;
         renderEntry(entry);
+      });
+      node.querySelector(`[data-action="${actionWatch}"]`)?.addEventListener("change", async (e) => {
+        if (e.target.checked) {
+          entry[watchingField] = true;
+          renderEntry(entry);
+          try {
+            await visionStart(entry, {
+              onScene: () => renderEntry(entry),
+              onError: (err) => console.warn("perception error", err),
+            });
+          } catch (err) {
+            entry[watchingField] = false;
+            alert(`Can't start perception: ${err.message || err}`);
+            renderEntry(entry);
+          }
+        } else {
+          visionStop(entry.id);
+          entry[watchingField] = false;
+          renderEntry(entry);
+        }
       });
     },
   };

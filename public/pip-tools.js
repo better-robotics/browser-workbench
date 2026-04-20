@@ -2,6 +2,7 @@ import { state } from "./state.js";
 import { onOpsResponse } from "./ops-response.js";
 import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
 import { listPhones, sendToPhone } from "./phones.js";
+import { getLatestScene as getRobotScene, isWatching as isWatchingRobot } from "./perception.js";
 
 // One-shot ops-response wait — register, wait for the response that targets
 // our robot, unregister. Times out so a dropped response doesn't stall Pip.
@@ -69,6 +70,19 @@ export const TOOLS = [
     name: "list_phones",
     description: "Returns phones currently paired with this desktop dashboard (WebRTC). Empty list means nobody's on mobile right now. Pip can check this to know if the user can receive a push notice.",
     input_schema: { type: "object", properties: {}, required: [] },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  },
+  // Perception: returns the robot's most recent VLM scene description, if the
+  // user has enabled "Watch with Pip" on the camera section. No spatial
+  // information (VLM can't localize); treat as semantic "I see X" only.
+  {
+    name: "get_robot_scene",
+    description: "Returns the latest VLM scene description for a robot's camera, plus how many seconds ago it was observed. Only works when the user has enabled 'Watch with Pip' on that robot's camera (otherwise returns {watching:false}). VLM is semantic only — it can say 'I see a wall' but NOT where the wall is in the frame. Don't trust color names.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Robot id" } },
+      required: ["id"],
+    },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   },
   {
@@ -153,6 +167,18 @@ export async function executor(name, input) {
     }
     case "list_phones": {
       return listPhones();
+    }
+    case "get_robot_scene": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      if (!isWatchingRobot(input.id)) return { watching: false };
+      const scene = getRobotScene(input.id);
+      if (!scene) return { watching: true, text: null };
+      return {
+        watching: true,
+        text: scene.text,
+        observed_seconds_ago: Math.round((Date.now() - scene.at) / 1000),
+      };
     }
     case "send_to_phone": {
       const text = String(input.text || "").slice(0, 300);

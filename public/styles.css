@@ -558,6 +558,26 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 
 /* Enroll prompt — appears on a connected robot whose authorized list
    doesn't contain this dashboard's fingerprint. Empty list = TOFU invite. */
+
+/* VLM "Watch with Pip" toggle under the camera stream. Checkbox sits flush
+   with the stream; the last observed scene text lays out beneath, muted. */
+.camera-watch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.camera-watch-row input[type="checkbox"] { cursor: pointer; }
+.camera-scene {
+  flex-basis: 100%;
+  padding-left: 26px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+
 /* OTA progress bar — thin inline indicator styled to match the dashboard
    rather than the browser's chunky native bar. */
 .ota-progress {
