@@ -876,7 +876,7 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 }
 
 /* modals */
-.label-modal, .prepare-dialog, .settings-modal {
+.label-modal, .prepare-dialog, .settings-modal, .pair-dialog {
   border: none;
   border-radius: var(--radius);
   padding: 24px;
@@ -884,7 +884,7 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   color: var(--ink);
   box-shadow: 0 20px 60px rgba(0,0,0,0.2);
 }
-.label-modal::backdrop, .prepare-dialog::backdrop, .settings-modal::backdrop { background: rgba(0,0,0,0.3); }
+.label-modal::backdrop, .prepare-dialog::backdrop, .settings-modal::backdrop, .pair-dialog::backdrop { background: rgba(0,0,0,0.3); }
 
 /* fade + scale on open/close. allow-discrete + @starting-style handle the display
    transition so the native <dialog> toggle animates instead of popping. */
