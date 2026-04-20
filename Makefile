@@ -63,10 +63,11 @@ monitor:
 flash-monitor: flash monitor
 
 preview:
-	@# Custom server forces HTTP/1.0 so Chrome doesn't pool keep-alive
-	@# connections and leave module fetches stuck at (pending). See
-	@# scripts/preview.py for the story.
-	@python3 scripts/preview.py 8080 public
+	@# Local HTTP server + cloudflared tunnel. Desktop uses localhost, phone
+	@# uses the trycloudflare.com URL (HTTPS is required for getUserMedia /
+	@# WebRTC on mobile). Connection: close on each response avoids Chrome's
+	@# HTTP/1.1 keep-alive pool stall that leaves module fetches pending.
+	@node scripts/serve.js
 
 publish-firmware: compile
 	@test -n "$(BOOT_APP0)" || (echo "Could not find boot_app0.bin — run 'make setup' first" && exit 1)
