@@ -21,3 +21,4 @@ config.mk
 .vscode/
 .idea/
 *.swp
+firmware/esp32_robot/version.h

@@ -10,9 +10,9 @@ import { logFor } from "../../log.js";
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
-// Classic ESP32 shares the radio between BLE and WiFi; a scan can take
-// 5-10s. 20s gives generous headroom; longer than that = real failure.
-const SCAN_TIMEOUT_MS = 20000;
+// Classic ESP32 shares the radio between BLE and WiFi; a passive scan
+// can take 7-12s. 30s gives headroom; longer = real failure.
+const SCAN_TIMEOUT_MS = 30000;
 
 function summarize(status) {
   const { st, ssid, err, ip } = status || {};
