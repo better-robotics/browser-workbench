@@ -131,17 +131,22 @@ export function makeSignedPairCap(schema) {
     },
 
     wireActions(entry, node) {
-      const stop = node.querySelector(`[data-action="${actionStop}"]`);
-      if (stop) stop.addEventListener("click", () => {
-        node.querySelectorAll("input[type='range']").forEach(el => { el.value = 0; });
-        setPairValue(entry, name, 0, 0);
-      });
+      let resetJoypad = null;
       if (isMotors) {
         const pad = node.querySelector(".joypad");
         const knob = pad?.querySelector(".joypad-knob");
-        if (pad && knob) wireJoypad(entry, pad, knob);
-        return;
+        if (pad && knob) resetJoypad = wireJoypad(entry, pad, knob);
       }
+      const stop = node.querySelector(`[data-action="${actionStop}"]`);
+      if (stop) stop.addEventListener("click", () => {
+        // Cancel any in-flight drag first — otherwise the joypad's 200ms
+        // heartbeat would re-send the last non-zero values right after this
+        // (0, 0) write and Stop would appear broken.
+        resetJoypad?.();
+        node.querySelectorAll("input[type='range']").forEach(el => { el.value = 0; });
+        setPairValue(entry, name, 0, 0);
+      });
+      if (isMotors) return;
       const l = node.querySelector(`[data-action="${actionLeft}"]`);
       const r = node.querySelector(`[data-action="${actionRight}"]`);
       if (l && r) {
@@ -155,7 +160,8 @@ export function makeSignedPairCap(schema) {
 
 // Wire pointer events on a joypad. Heartbeat re-sends the last values every
 // 200ms while the pointer is held, so the firmware watchdog (~600ms) doesn't
-// cut a motor that the user is holding steady.
+// cut a motor the user is holding steady. Returns a reset fn callers can use
+// to synthesize an immediate release (e.g. from the Stop button).
 function wireJoypad(entry, pad, knob) {
   let activePointer = null;
   let holdTimer = null;
@@ -176,14 +182,24 @@ function wireJoypad(entry, pad, knob) {
     setPairValue(entry, "motors", lastL, lastR);
   };
 
+  // Internal state-reset shared by release events and the external reset fn.
+  // External reset skips the (0, 0) write because the caller (Stop button)
+  // does its own write after.
+  const clearDragState = () => {
+    if (activePointer !== null) {
+      try { pad.releasePointerCapture(activePointer); } catch {}
+      activePointer = null;
+    }
+    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
+    pad.classList.remove("dragging");
+    knob.style.transform = "";
+    lastL = lastR = 0;
+  };
+
   const release = (e) => {
     if (activePointer === null) return;
     if (e && e.pointerId !== activePointer) return;
-    try { pad.releasePointerCapture(activePointer); } catch {}
-    activePointer = null;
-    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
-    knob.style.transform = "";
-    lastL = lastR = 0;
+    clearDragState();
     setPairValue(entry, "motors", 0, 0);
   };
 
@@ -191,6 +207,7 @@ function wireJoypad(entry, pad, knob) {
     if (activePointer !== null) return;
     activePointer = e.pointerId;
     pad.setPointerCapture(activePointer);
+    pad.classList.add("dragging");
     updateFromXY(e.clientX, e.clientY);
     holdTimer = setInterval(() => setPairValue(entry, "motors", lastL, lastR), 200);
   });
@@ -200,7 +217,11 @@ function wireJoypad(entry, pad, knob) {
   });
   pad.addEventListener("pointerup", release);
   pad.addEventListener("pointercancel", release);
-  pad.addEventListener("pointerleave", release);
+  // NOT pointerleave: with pointer capture active, dragging outside the circle
+  // still fires pointerleave even though the capture is still live. Using it
+  // as a release trigger cancels drags mid-motion.
+
+  return clearDragState;
 }
 
 // Matches the old sendMotors(id, l, r) shape that gamepad.js calls.
