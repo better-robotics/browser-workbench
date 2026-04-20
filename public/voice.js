@@ -78,11 +78,13 @@ export function initVoice({ connectAll }) {
   _connectAll = connectAll;
   const voiceCheckbox = $("setting-voice");
   const voiceStatus = $("setting-voice-status");
+  const voicePrivacy = $("setting-voice-privacy");
   const voiceAvailable = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   voiceCheckbox.checked = settings.voice && voiceAvailable;
   voiceStatus.textContent = voiceAvailable
-    ? "Commands: connect all · stop · LED on/off <name>. Chrome routes speech-to-text through Google's cloud."
+    ? 'Say "connect all", "stop", or "LED on/off <name>".'
     : "Unavailable — no SpeechRecognition in this browser.";
+  voicePrivacy.hidden = !voiceAvailable;
   if (!voiceAvailable) voiceCheckbox.disabled = true;
   const applyVoice = () => {
     const on = settings.voice && voiceAvailable;

@@ -41,10 +41,10 @@
   <div class="robots-heading" id="robots-heading" hidden>
     <div class="label">Your robots</div>
     <div style="display: flex; gap: 8px;">
-      <button id="add-robot-btn" class="secondary sm">+ Add robot</button>
+      <button id="add-robot-btn" class="secondary sm">Set up</button>
       <button id="connect-all-btn" class="secondary sm" hidden>Connect all</button>
       <button id="scan-btn" class="secondary sm">Scan for new</button>
-      <button id="pair-phone-btn" class="secondary sm">+ Pair phone</button>
+      <button id="pair-phone-btn" class="secondary sm">Pair phone</button>
     </div>
   </div>
 
@@ -61,7 +61,7 @@
     <div class="empty-title">No robots yet</div>
     <div class="empty-sub">Set up a new robot, scan for one nearby, or pair a phone.</div>
     <div class="empty-actions">
-      <button id="empty-add-robot-btn">+ Add robot</button>
+      <button id="empty-add-robot-btn">Set up a robot</button>
       <button id="empty-scan-btn" class="secondary">Scan</button>
       <button id="empty-pair-phone-btn" class="secondary">Pair phone</button>
     </div>
@@ -115,37 +115,38 @@
     <div class="settings-profile-body">
       <label for="setting-name" class="settings-title">Your name</label>
       <input type="text" id="setting-name" placeholder="e.g. Jonas" maxlength="40" autocomplete="off">
-      <div class="meta">Stored in this browser only. Used for robot labels and logs.</div>
+      <div class="hint">Stored in this browser only. Used for robot labels and logs.</div>
     </div>
   </section>
   <div class="settings-item key-row">
     <div class="settings-title">Dashboard key</div>
     <div class="meta key-fingerprint" id="key-fingerprint">—</div>
-    <div class="meta">Authorizes SSH + BLE ops on robots you prepare.</div>
+    <div class="hint">Authorizes SSH + BLE ops on robots you prepare.</div>
     <div class="key-actions">
       <button class="secondary sm" id="key-copy-pub">Copy public</button>
       <button class="secondary sm" id="key-download">Download private key</button>
       <button class="secondary sm" id="key-import">Import</button>
-      <button class="secondary sm" id="key-regenerate">Regenerate</button>
+      <button class="secondary sm danger" id="key-regenerate">Regenerate</button>
     </div>
   </div>
   <div class="settings-item passwords-row">
     <div class="settings-title">Robot passwords</div>
-    <div class="meta">Auto-generated during Pi setup when you leave the password blank. SSH uses the key; these are here for sudo / terminal login.</div>
+    <div class="hint">Auto-generated during Pi setup when you leave the password blank. SSH uses the key; these are here for sudo / terminal login.</div>
     <div id="passwords-list"></div>
   </div>
   <div class="settings-item">
     <input type="checkbox" id="setting-passive-scan">
     <label for="setting-passive-scan">
       <div class="settings-title">Passive BLE scan (experimental)</div>
-      <div class="meta" id="setting-passive-scan-status"></div>
+      <div class="hint" id="setting-passive-scan-status"></div>
     </label>
   </div>
   <div class="settings-item">
     <input type="checkbox" id="setting-voice">
     <label for="setting-voice">
       <div class="settings-title">Voice commands (experimental)</div>
-      <div class="meta" id="setting-voice-status"></div>
+      <div class="hint" id="setting-voice-status"></div>
+      <div class="hint" id="setting-voice-privacy" hidden>Audio is processed by Chrome's speech-to-text (Google cloud).</div>
     </label>
   </div>
 </dialog>
@@ -251,25 +252,34 @@
 
 <dialog id="setup-dialog" class="prepare-dialog setup-dialog">
   <div class="modal-header">
-    <div class="label">Add a robot</div>
+    <div class="label">Set up a robot</div>
     <button class="icon" id="setup-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="meta" style="margin: 0 0 16px;">Pick your platform.</p>
   <div class="setup-grid">
-    <section class="card setup-item">
-      <div class="label">Flash an ESP32</div>
-      <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
-      <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
-      <esp-web-install-button manifest="firmware/manifest.json">
-        <button slot="activate" class="secondary">Flash firmware</button>
-        <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
-        <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
-      </esp-web-install-button>
+    <section class="platform-tile platform-esp32">
+      <span class="platform-mark">ESP32</span>
+      <div class="platform-body">
+        <div class="platform-title">ESP32</div>
+        <div class="platform-sub">Flash firmware over USB. ~30 seconds, no camera.</div>
+      </div>
+      <div class="platform-action">
+        <esp-web-install-button manifest="firmware/manifest.json">
+          <button slot="activate">Flash firmware</button>
+          <span slot="unsupported" class="platform-sub">Web Serial required (Chrome or Edge desktop).</span>
+          <span slot="not-allowed" class="platform-sub">HTTPS required to flash.</span>
+        </esp-web-install-button>
+        <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
+      </div>
     </section>
-    <section class="card setup-item">
-      <div class="label">Set up a Pi robot</div>
-      <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stages firmware, wheels, dashboard key, and the Better Robotics runtime onto the boot partition.</div>
-      <button class="secondary" type="button" id="prepare-open-btn">Set up</button>
+    <section class="platform-tile platform-pi">
+      <span class="platform-mark">PI</span>
+      <div class="platform-body">
+        <div class="platform-title">Raspberry Pi</div>
+        <div class="platform-sub">Prepare an SD card. Camera and onboard compute.</div>
+      </div>
+      <div class="platform-action">
+        <button type="button" id="prepare-open-btn">Set up SD card</button>
+      </div>
     </section>
   </div>
 </dialog>

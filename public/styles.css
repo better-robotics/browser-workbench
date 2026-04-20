@@ -162,6 +162,14 @@ h1 {
   font-size: 13px;
   font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
 }
+/* Prose counterpart to .meta: muted helper text that is NOT an identifier.
+   .meta renders SF Mono (the "this is data" register) which reads as log
+   output when used on explanatory copy. Use .hint for helper sentences. */
+.hint {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
 
 button {
   font: inherit;
@@ -186,6 +194,17 @@ button.secondary { background: transparent; color: var(--ink); border: 1px solid
 button.secondary:not(:disabled):hover { background: var(--border-subtle); }
 button.sm { min-height: 36px; padding: 6px 12px; font-size: 14px; }
 button.danger { background: var(--danger); }
+/* Destructive + secondary — bordered, no fill, danger-red text. Apple HIG
+   pattern for "risky but not the primary action." Used on Regenerate next to
+   benign Copy/Import so the destructive weight is legible without screaming. */
+button.secondary.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+button.secondary.danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
 button.icon {
   display: inline-flex;
   align-items: center;
@@ -626,19 +645,39 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 
 .setup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-  max-width: 800px;  /* don't stretch two setup cards across a 1200px page */
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
-.setup-grid .card { margin-bottom: 0; }
-.setup-item { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-/* Primary CTA anchors to the bottom of each setup card so buttons align
-   across cards regardless of how much description or helper text sits above. */
-.setup-item > esp-web-install-button,
-.setup-item > button:not(.help-hint) {
-  margin-top: auto;
+@media (max-width: 560px) {
+  .setup-grid { grid-template-columns: 1fr; }
 }
+
+/* Platform picker — two tiles, one per hardware platform. Mark reuses the
+   type-badge treatment from the robot-card list so the dialog visually
+   rhymes with the surface the user came from. */
+.platform-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+}
+.platform-mark {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--border-subtle);
+}
+.platform-esp32 .platform-mark { color: var(--accent); }
+.platform-pi    .platform-mark { color: var(--success); }
+.platform-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.platform-sub { font-size: 13px; color: var(--ink-muted); line-height: 1.45; }
+.platform-action { margin-top: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
 .help-hint {
   background: transparent;
@@ -912,7 +951,7 @@ dialog[open]::backdrop { opacity: 1; }
 .label-modal { width: min(400px, calc(100vw - 32px)); }
 .prepare-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }
 .settings-modal { width: min(440px, calc(100vw - 32px)); }
-.setup-dialog { width: min(760px, calc(100vw - 32px)); max-width: 760px; }
+.setup-dialog { width: min(560px, calc(100vw - 32px)); max-width: 560px; }
 
 /* Floating assistant — transparent mascot + speech-bubble panel.
    Mascot stays visible; panel appears above with a tail pointing down. */
