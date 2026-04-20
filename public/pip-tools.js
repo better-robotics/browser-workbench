@@ -2,7 +2,11 @@ import { state } from "./state.js";
 import { onOpsResponse } from "./ops-response.js";
 import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
 import { listPhones, sendToPhone } from "./phones.js";
-import { getLatestScene as getRobotScene, isWatching as isWatchingRobot } from "./perception.js";
+import {
+  getLatestScene as getRobotScene,
+  isWatching as isWatchingRobot,
+  observeOnce,
+} from "./perception.js";
 
 // One-shot ops-response wait — register, wait for the response that targets
 // our robot, unregister. Times out so a dropped response doesn't stall Pip.
@@ -77,13 +81,26 @@ export const TOOLS = [
   // information (VLM can't localize); treat as semantic "I see X" only.
   {
     name: "get_robot_scene",
-    description: "Returns the latest VLM scene description for a robot's camera, plus how many seconds ago it was observed. Only works when the user has enabled 'Watch with Pip' on that robot's camera (otherwise returns {watching:false}). VLM is semantic only — it can say 'I see a wall' but NOT where the wall is in the frame. Don't trust color names.",
+    description: "Returns the latest VLM scene description for a robot's camera, plus how many seconds ago it was observed. Only works when the user has enabled 'Watch with Pip' on that robot's camera (otherwise returns {watching:false}). VLM is semantic only — it can say 'I see a wall' but NOT where the wall is in the frame. If a specific detail (color, count, small feature) matters to your answer, cross-check it with ask_robot_scene using a neutrally-framed follow-up.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string", description: "Robot id" } },
       required: ["id"],
     },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "ask_robot_scene",
+    description: "Runs ONE on-demand VLM inference on the robot's current camera frame with a question you supply. Use this to cross-examine a fact from get_robot_scene — VLM sometimes hallucinates (especially colors, small counts), and asking a second, NEUTRALLY-framed question often reveals the hallucination. IMPORTANT: prefer open questions over leading ones: 'what color is the wall?' not 'is the wall brown?'; 'how many doors are visible?' not 'are there two doors?'. Leading prompts prime the VLM and get the same confabulation echoed back. Requires Watch to already be on (model loaded); fails otherwise. Each call spends ~1-1.5s of GPU time, so use sparingly — don't cross-check trivia.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Robot id" },
+        question: { type: "string", description: "Neutral, open-ended question about the scene." },
+      },
+      required: ["id", "question"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
     name: "send_to_phone",
@@ -179,6 +196,21 @@ export async function executor(name, input) {
         text: scene.text,
         observed_seconds_ago: Math.round((Date.now() - scene.at) / 1000),
       };
+    }
+    case "ask_robot_scene": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      if (!isWatchingRobot(input.id)) {
+        return { error: "Watch isn't on for this robot — user needs to enable it first (camera card)" };
+      }
+      const q = String(input.question || "").trim();
+      if (!q) return { error: "question is required" };
+      try {
+        const text = await observeOnce(e, q);
+        return { text: text || null };
+      } catch (err) {
+        return { error: err.message || String(err) };
+      }
     }
     case "send_to_phone": {
       const text = String(input.text || "").slice(0, 300);

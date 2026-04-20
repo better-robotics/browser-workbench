@@ -110,6 +110,29 @@ async function runInference(entry, prompt) {
   return decoded[0]?.trim() || null;
 }
 
+// On-demand one-shot inference with a caller-specified prompt. Used by Pip
+// (via pip-tools' ask_robot_scene) for cross-examination — asking the VLM
+// the same thing different ways to beat confirmation bias. Serializes
+// against the poll loop so they don't collide on the GPU.
+export async function observeOnce(entry, prompt) {
+  if (!_model) throw new Error("perception model not loaded — user needs to enable Watch on this robot first");
+  const loop = _loops.get(entry.id);
+  // If the poll loop is mid-inference, wait for it to finish. One inference
+  // at a time on the GPU keeps things predictable.
+  if (loop?.running) {
+    await new Promise((r) => {
+      const check = () => (!loop.running ? r() : setTimeout(check, 100));
+      check();
+    });
+  }
+  if (loop) loop.running = true;
+  try {
+    return await runInference(entry, prompt);
+  } finally {
+    if (loop) loop.running = false;
+  }
+}
+
 // id → { timer, running, onScene, onError }
 const _loops = new Map();
 
