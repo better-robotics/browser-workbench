@@ -43,9 +43,10 @@ function telemetryHtml(entry) {
 
 // Ops-response dispatch registry lives in ops-response.js so pip-tools.js
 // (a registrar) doesn't need to import app.js (a caller) and create a cycle.
-// Re-exported here for back-compat with anything else that imported it from app.
-export { onOpsResponse } from "./ops-response.js";
-import { dispatchOpsResponse } from "./ops-response.js";
+// Imported locally (app.js registers its own handlers) and re-exported for
+// back-compat with anything else that imported it from app.
+import { onOpsResponse, dispatchOpsResponse } from "./ops-response.js";
+export { onOpsResponse };
 
 // Per-robot expand/collapse preference. Persisted so a user's choice sticks
 // across sessions. Absence of a key = fall back to smart default (see
