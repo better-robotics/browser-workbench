@@ -12,6 +12,7 @@ import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { log, logFor } from "../../log.js";
 import { state } from "../../state.js";
+import { attachJoypad, mix } from "../../joypad.js";
 
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
@@ -40,13 +41,6 @@ export async function setPairValue(entry, capName, left, right) {
   } finally {
     entry[`${capName}Sending`] = false;
   }
-}
-
-// Differential mix: (throttle, turn) ∈ [-100, 100] → (L, R). Used by joypad
-// and keyboard so the slider-less controls share one mental model.
-function mix(throttle, turn) {
-  const c = (v) => Math.max(-100, Math.min(100, Math.round(v)));
-  return [c(throttle + turn), c(throttle - turn)];
 }
 
 export function makeSignedPairCap(schema) {
@@ -158,96 +152,15 @@ export function makeSignedPairCap(schema) {
   };
 }
 
-// Wire pointer events on a joypad. Pattern mirrors nipplejs (github.com/
-// yoannmoinet/nipplejs) — pointerdown on the pad, but pointermove/up on the
-// window. setPointerCapture is unreliable across iOS Safari + mobile Chrome;
-// listening on the window holds together when the pointer leaves the circle,
-// the viewport, or the browser window entirely. 200ms heartbeat keeps the
-// firmware watchdog (~600ms) from cutting a motor the user is holding steady.
-// Returns a reset fn callers (e.g. Stop button) can use to end a drag
-// immediately from outside the event flow.
+// Thin wrapper around the shared joypad module: feeds motor writes for the
+// entry. External reset (exposed to the Stop button) ends any in-flight drag
+// without emitting its own (0, 0) — Stop button writes that itself.
 function wireJoypad(entry, pad, knob) {
-  let activePointerId = null;
-  let holdTimer = null;
-  let lastL = 0, lastR = 0;
-  let rafPending = null;
-  let pendingXY = null;
-
-  const updateFromXY = (clientX, clientY) => {
-    const rect = pad.getBoundingClientRect();
-    const radius = rect.width / 2;
-    const dx = clientX - (rect.left + radius);
-    const dy = clientY - (rect.top + radius);
-    const dist = Math.min(1, Math.hypot(dx, dy) / radius);
-    const angle = Math.atan2(dy, dx);
-    const nx = Math.cos(angle) * dist;
-    const ny = Math.sin(angle) * dist;
-    knob.style.transform = `translate(${nx * radius}px, ${ny * radius}px)`;
-    // Y is inverted — up on screen should be +throttle forward.
-    [lastL, lastR] = mix(-ny * 100, nx * 100);
-    setPairValue(entry, "motors", lastL, lastR);
-  };
-
-  // Coalesce pointer-move bursts (can hit 120Hz+ on high-refresh screens) to
-  // one update per animation frame — keeps the knob silky and the BLE write
-  // queue from backing up on fast moves.
-  const scheduleUpdate = (x, y) => {
-    pendingXY = [x, y];
-    if (rafPending) return;
-    rafPending = requestAnimationFrame(() => {
-      rafPending = null;
-      if (!pendingXY) return;
-      const [cx, cy] = pendingXY;
-      pendingXY = null;
-      updateFromXY(cx, cy);
-    });
-  };
-
-  const onMove = (e) => {
-    if (e.pointerId !== activePointerId) return;
-    e.preventDefault();
-    scheduleUpdate(e.clientX, e.clientY);
-  };
-
-  const detach = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-  };
-
-  // External reset: cancel drag machinery without emitting a (0,0) write.
-  // Callers (Stop button) typically follow up with their own write.
-  const clearDragState = () => {
-    if (activePointerId === null) return;
-    activePointerId = null;
-    detach();
-    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
-    if (rafPending) { cancelAnimationFrame(rafPending); rafPending = null; }
-    pendingXY = null;
-    pad.classList.remove("dragging");
-    knob.style.transform = "";
-    lastL = lastR = 0;
-  };
-
-  function onUp(e) {
-    if (e && e.pointerId !== activePointerId) return;
-    clearDragState();
-    setPairValue(entry, "motors", 0, 0);
-  }
-
-  pad.addEventListener("pointerdown", (e) => {
-    if (activePointerId !== null) return;
-    e.preventDefault();
-    activePointerId = e.pointerId;
-    pad.classList.add("dragging");
-    updateFromXY(e.clientX, e.clientY);
-    holdTimer = setInterval(() => setPairValue(entry, "motors", lastL, lastR), 200);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+  const { reset } = attachJoypad(pad, knob, {
+    onDrive: (l, r) => setPairValue(entry, "motors", l, r),
+    onStop:  ()     => setPairValue(entry, "motors", 0, 0),
   });
-
-  return clearDragState;
+  return reset;
 }
 
 // Matches the old sendMotors(id, l, r) shape that gamepad.js calls.
@@ -270,7 +183,7 @@ const _heldKeys = new Set();
 let _keyHoldTimer = null;
 let _keyboardWired = false;
 
-function pickMotorsTarget() {
+export function pickMotorsTarget() {
   for (const e of state.devices.values()) {
     if (e.motorsChar && e.status === "connected") return e;
   }

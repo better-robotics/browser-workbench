@@ -9,6 +9,7 @@
 import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
+import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 
 const _phones = new Map();  // roomId → { id, label, peer, connectedAt }
 let _chatHandler = null;
@@ -86,10 +87,21 @@ async function beginPairing() {
 
     peer.onMessage((msg) => onPhoneMessage(id, peer, msg));
     peer.onClose(() => {
+      // Safety stop: if this phone was driving a robot and drops offline,
+      // zero the motors so the robot doesn't keep running on its last
+      // command. Firmware watchdog would catch it in ~600ms anyway, but
+      // we can be explicit here at zero cost.
+      const lastDriven = _phones.get(id)?.lastTarget;
+      if (lastDriven) { try { sendPairById(lastDriven, "motors", 0, 0); } catch {} }
       _phones.delete(id);
       log("phone disconnected", "phone");
       renderPhones();
     });
+    // Tell the phone what it's driving (if anything). Sent once on connect —
+    // phones.js doesn't watch state.devices for changes, so if the target
+    // robot disconnects the phone will keep showing the old name until it
+    // sends a drive message that fails silently. Acceptable for v1.
+    sendTargetInfo(peer);
     renderPhones();
     _pendingSession = null;
     // Let the user see the "Connected" text briefly before the dialog closes.
@@ -103,19 +115,42 @@ async function beginPairing() {
 }
 
 async function onPhoneMessage(id, peer, msg) {
-  if (msg.type !== "chat") return;
-  const text = (msg.text || "").trim();
-  if (!text) return;
-  if (!_chatHandler) {
-    peer.send({ type: "chat-reply", text: "Pip isn't wired to the phone path yet — check initPhones/setPhoneChatHandler." });
+  if (msg.type === "chat") {
+    const text = (msg.text || "").trim();
+    if (!text) return;
+    if (!_chatHandler) {
+      peer.send({ type: "chat-reply", text: "Pip isn't wired to the phone path yet — check initPhones/setPhoneChatHandler." });
+      return;
+    }
+    try {
+      const reply = await _chatHandler(text);
+      peer.send({ type: "chat-reply", text: reply ?? "(no response)" });
+    } catch (err) {
+      peer.send({ type: "chat-reply", text: `Error: ${err.message || err}` });
+    }
     return;
   }
-  try {
-    const reply = await _chatHandler(text);
-    peer.send({ type: "chat-reply", text: reply ?? "(no response)" });
-  } catch (err) {
-    peer.send({ type: "chat-reply", text: `Error: ${err.message || err}` });
+  if (msg.type === "drive") {
+    // Route phone joypad output to the first connected robot with motors.
+    // Drop silently when no robot is available — phone UI already hides the
+    // joypad when target-info says "no target", so this should be rare.
+    const target = pickMotorsTarget();
+    if (!target) return;
+    const phone = _phones.get(id);
+    if (phone) phone.lastTarget = target.id;  // remember for safety-stop on disconnect
+    const l = Math.max(-100, Math.min(100, Number(msg.l) || 0));
+    const r = Math.max(-100, Math.min(100, Number(msg.r) || 0));
+    sendPairById(target.id, "motors", l, r);
+    return;
   }
+}
+
+function sendTargetInfo(peer) {
+  const target = pickMotorsTarget();
+  peer.send({
+    type: "target-info",
+    target: target ? { id: target.id, name: target.name } : null,
+  });
 }
 
 function renderPhones() {

@@ -1,8 +1,10 @@
 import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pairing.js";
+import { attachJoypad } from "./joypad.js";
 
 let _peer = null;
 let _pending = false;
+let _joypad = null;
 
 function setStatus(state, text) {
   const dot = $("phone-status-dot");
@@ -39,7 +41,41 @@ function onPeerMessage(msg) {
     // Pip-initiated message (tool: send_to_phone) — desktop pushing to us.
     setEcho("");
     setMessage(msg.text || "");
+  } else if (msg.type === "target-info") {
+    // Desktop tells us which robot the joypad will drive. If null, hide the
+    // drive surface so we don't look like we're controlling something.
+    const driveSection = $("phone-drive");
+    const targetEl = $("phone-drive-target");
+    if (msg.target?.name) {
+      driveSection.hidden = false;
+      targetEl.textContent = `Driving: ${msg.target.name}`;
+    } else {
+      driveSection.hidden = true;
+      targetEl.textContent = "No robot connected";
+      _joypad?.reset();
+    }
   }
+}
+
+function wireJoypad() {
+  const pad = $("phone-joypad");
+  const knob = pad?.querySelector(".joypad-knob");
+  if (!pad || !knob) return;
+  _joypad = attachJoypad(pad, knob, {
+    onDrive: (l, r) => _peer?.send({ type: "drive", l, r }),
+    onStop:  ()     => _peer?.send({ type: "drive", l: 0, r: 0 }),
+  });
+}
+
+// Phone backgrounded (tab switch, screen lock, app switcher): emit a stop so
+// the robot doesn't keep driving while the user can't see it.
+function wireBackgroundStop() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      _joypad?.reset();
+      _peer?.send({ type: "drive", l: 0, r: 0 });
+    }
+  });
 }
 
 async function init() {
@@ -64,6 +100,8 @@ async function init() {
     $("phone-form").addEventListener("submit", handleSubmit);
     $("phone-input").disabled = false;
     $("phone-input").focus();
+    wireJoypad();
+    wireBackgroundStop();
   } catch (err) {
     setStatus("error", "Failed");
     setMessage(`Couldn't pair: ${err.message || err}`);
