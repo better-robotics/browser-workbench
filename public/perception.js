@@ -236,10 +236,16 @@ export function patchPerceptionState(entry) {
     if (loadEl)    loadEl.hidden = false;
     if (loadLabel) loadLabel.textContent = `${load.file || "preparing"} · ${Math.round(load.percent || 0)}%`;
     if (loadBar)   { loadBar.value = load.percent || 0; loadBar.max = 100; }
-    if (sceneEl)   sceneEl.textContent = "";
+    if (sceneEl)   { sceneEl.textContent = ""; sceneEl.title = ""; }
   } else {
     if (loadEl)  loadEl.hidden = true;
-    if (sceneEl) sceneEl.textContent = watching ? (scene?.text || "Listening…") : "";
+    if (sceneEl) {
+      const text = watching ? (scene?.text || "Listening…") : "";
+      sceneEl.textContent = text;
+      // Full text on hover when the 3-line clamp truncates. Listening /
+      // empty states get no tooltip.
+      sceneEl.title = scene?.text ? scene.text : "";
+    }
   }
 }
 
