@@ -169,19 +169,19 @@ async function runPrepare() {
   }
 }
 
-async function openDialog() {
-  // Guarantee the dashboard key is present in the textarea on open, without
-  // clobbering anything the user pasted or saved from a previous prep.
-  const dashKey = await pubkeySsh();
-  const ta = $("prep-sshkey");
-  if (!ta.value.includes(dashKey)) {
-    ta.value = ta.value.trim() ? `${dashKey}\n${ta.value.trim()}` : dashKey;
-  }
-  $("prepare-dialog").showModal();
-}
 function closeDialog() { $("prepare-dialog").close(); }
 
-export function initPrepare() {
+// Module is lazy-loaded by app.js on first "Set up a Pi robot" click, so
+// one-time setup runs in initOnce() guarded by a flag. The "prepare-open-btn"
+// handler itself is owned by app.js — it triggers the import, then calls
+// openDialog() here. No outside-click dismiss on the dialog: SD prep is a
+// multi-step write to the card, and accidental close mid-flight leaves a
+// partially-prepped card. Users close via × or Cancel explicitly.
+let _initialized = false;
+function initOnce() {
+  if (_initialized) return;
+  _initialized = true;
+
   const supported = !!window.showDirectoryPicker;
   if (!supported) {
     $("prep-unsupported").hidden = false;
@@ -193,12 +193,8 @@ export function initPrepare() {
     if (saved) $("prep-sshkey").value = saved;
   } catch {}
 
-  $("prepare-open-btn").addEventListener("click", openDialog);
   $("prepare-close").addEventListener("click", closeDialog);
   $("prep-cancel-btn").addEventListener("click", closeDialog);
-  // No outside-click dismiss — SD-prep is a multi-step write to the card.
-  // Accidental close mid-flight leaves a partially-prepped card. Use × or
-  // Cancel explicitly.
 
   $("prep-sshkey-load").addEventListener("click", () => {
     const input = document.createElement("input");
@@ -223,9 +219,16 @@ export function initPrepare() {
   });
 
   $("prep-go-btn").addEventListener("click", runPrepare);
+}
 
-  // ?prepare auto-opens the dialog (bookmark / QR-code support).
-  if (new URLSearchParams(location.search).get("prepare") !== null) {
-    openDialog();
+export async function openDialog() {
+  initOnce();
+  // Guarantee the dashboard key is present in the textarea on open, without
+  // clobbering anything the user pasted or saved from a previous prep.
+  const dashKey = await pubkeySsh();
+  const ta = $("prep-sshkey");
+  if (!ta.value.includes(dashKey)) {
+    ta.value = ta.value.trim() ? `${dashKey}\n${ta.value.trim()}` : dashKey;
   }
+  $("prepare-dialog").showModal();
 }

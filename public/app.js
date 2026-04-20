@@ -11,12 +11,12 @@ import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index
 import { RUNTIMES } from "./capabilities/runtime/index.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot, enrollKey, getLog, getConfig } from "./capabilities/runtime/command.js";
-import { initRecovery, openRecoveryDialog } from "./recovery.js";
-import { initPinout, openPinoutDialog } from "./pinout.js";
 import { initGamepad } from "./gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initVoice } from "./voice.js";
-import { initPrepare } from "./prepare.js";
+// prepare.js / pinout.js / recovery.js are lazy-loaded on first use (~750 LOC
+// combined, none of it needed for first paint). See the dynamic import()
+// calls in the DOMContentLoaded wiring below.
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat } from "./assistant.js";
@@ -848,17 +848,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (logTimeoutId) { clearTimeout(logTimeoutId); logTimeoutId = null; }
     $("log-dialog-body").textContent = msg.text || "(empty)";
   });
-  $("menu-pinout").addEventListener("click", () => {
+  $("menu-pinout").addEventListener("click", async () => {
     const id = menuTargetId;
     closeMenu();
-    if (id) openPinoutDialog(id);
+    if (!id) return;
+    const mod = await import("./pinout.js");
+    mod.openPinoutDialog(id);
   });
   // Recovery lives in the avatar menu, not the per-robot menu: gating the
   // "BLE is dead" escape hatch behind a paired robot is the exact catch-22
   // it exists to break. The avatar menu has zero BLE dependency.
-  $("menu-recovery").addEventListener("click", () => {
+  $("menu-recovery").addEventListener("click", async () => {
     $("avatar-menu").hidePopover();
-    openRecoveryDialog();
+    const mod = await import("./recovery.js");
+    mod.openRecoveryDialog();
   });
   $("label-close").addEventListener("click", () => $("label-modal").close());
   $("label-copy").addEventListener("click", async () => {
@@ -981,14 +984,23 @@ document.addEventListener("DOMContentLoaded", () => {
   initGamepad();
   initMotorsKeyboard();
   initVoice({ connectAll });
-  initPrepare();
-  initRecovery();
-  initPinout();
   initAuthUI();
   initPasswordsUI();
   initAssistant();
   initPhones();
   setPhoneChatHandler(text => handleRemoteChat(text, { source: "phone" }));
+
+  // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
+  // System Access API; no reason to pull it into first-paint. prepare.js's
+  // openDialog() runs its own initOnce() internally so one-time setup still
+  // happens. ?prepare URL param keeps working via the same path.
+  $("prepare-open-btn").addEventListener("click", async () => {
+    const mod = await import("./prepare.js");
+    await mod.openDialog();
+  });
+  if (new URLSearchParams(location.search).get("prepare") !== null) {
+    import("./prepare.js").then(m => m.openDialog());
+  }
   // Empty-state duplicate trigger so fresh dashboards without robots can still
   // pair a phone. Same handler as the one in robots-heading.
   const emptyPairBtn = $("empty-pair-phone-btn");

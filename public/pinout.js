@@ -353,18 +353,14 @@ async function saveEdit(entry) {
   }
 }
 
-export function openPinoutDialog(id) {
-  const entry = state.devices.get(id);
-  if (!entry) return;
-  currentId = id;
-  editMode = false;
-  editConfig = null;
-  $("pinout-title").textContent = `Pinout — ${entry.name}`;
-  renderView(entry);
-  $("pinout-modal").showModal();
-}
-
-export function initPinout() {
+// Lazy-loaded from app.js on first pinout-menu click. One-time setup guarded
+// by flag; the get-config subscription only needs to be live when a request
+// is in flight, which only happens after the dialog is opened — so attaching
+// it on first open is safe.
+let _initialized = false;
+function initOnce() {
+  if (_initialized) return;
+  _initialized = true;
   $("pinout-close").addEventListener("click", () => $("pinout-modal").close());
   $("pinout-modal").addEventListener("close", () => {
     editMode = false;
@@ -387,4 +383,16 @@ export function initPinout() {
     }
     renderEdit(entry);
   });
+}
+
+export function openPinoutDialog(id) {
+  initOnce();
+  const entry = state.devices.get(id);
+  if (!entry) return;
+  currentId = id;
+  editMode = false;
+  editConfig = null;
+  $("pinout-title").textContent = `Pinout — ${entry.name}`;
+  renderView(entry);
+  $("pinout-modal").showModal();
 }

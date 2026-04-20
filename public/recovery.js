@@ -117,15 +117,21 @@ async function disconnect() {
   $("recovery-connect").textContent = "Connect via USB serial";
 }
 
-export function openRecoveryDialog() {
-  $("recovery-modal").showModal();
-}
-
-export function initRecovery() {
+// Lazy-loaded from app.js on first "Recovery" menu click; one-time setup
+// guarded by the flag, dialog-open behavior on every call.
+let _initialized = false;
+function initOnce() {
+  if (_initialized) return;
+  _initialized = true;
   $("recovery-close").addEventListener("click", () => $("recovery-modal").close());
   $("recovery-connect").addEventListener("click", () => _port ? disconnect() : connect());
   // No outside-click dismiss — terminal session is real work; accidental
   // clicks outside the modal used to kill the connection and scrollback.
   // Explicit × button is the only way out.
   $("recovery-modal").addEventListener("close", () => { if (_port) disconnect(); });
+}
+
+export function openRecoveryDialog() {
+  initOnce();
+  $("recovery-modal").showModal();
 }
