@@ -353,10 +353,6 @@ async function connect(id) {
     } catch { /* ops-response char absent on older firmware — optional */ }
 
     entry.runtimeCaps = [];
-    const schemaLog = (entry.capSchema || []).map(c =>
-      RUNTIMES[c.type] ? c.name : `${c.name}(no runtime for ${c.type})`
-    ).join(", ");
-    logFor(entry, `caps: ${schemaLog || "none declared"}`);
     for (const capSchema of entry.capSchema || []) {
       const make = RUNTIMES[capSchema.type];
       if (!make) continue;
@@ -518,10 +514,16 @@ function renderEntry(entry) {
   const statusText = status === "error" ? "Error" : "";
   const dotClass = connected ? " connected" : connecting ? " connecting" : status === "error" ? " error" : "";
 
-  const sections = [
-    ...CAPABILITIES.map(c => c.renderSection(entry)),
-    ...(entry.runtimeCaps || []).map(c => c.renderSection(entry)),
-  ].join("");
+  // Canonical capability order across robot types so the eye lands on the same
+  // control in the same place on both Pi and ESP32 cards. Unknown names fall
+  // to the end in schema order.
+  const CAP_ORDER = { led: 1, motors: 2, wifi: 3, camera: 4, ops: 5, ota: 6 };
+  const byOrder = (a, b) => (CAP_ORDER[a.name] ?? 99) - (CAP_ORDER[b.name] ?? 99);
+  const sections = [...CAPABILITIES, ...(entry.runtimeCaps || [])]
+    .slice()
+    .sort(byOrder)
+    .map(c => c.renderSection(entry))
+    .join("");
   const liveStatus = entry.robotStatus;
   const sticky = !liveStatus ? entry.stickyStatus : null;
   const stateHtml = (() => {
@@ -531,21 +533,27 @@ function renderEntry(entry) {
     const text = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
     return `<div class="robot-state${sticky ? " sticky" : ""}">${escapeHtml(text)}</div>`;
   })();
-  // Enroll prompt: shown when the robot publishes an `authorized` list and
-  // this dashboard's fingerprint isn't in it. Empty list = TOFU, one click.
-  // Non-empty without us = "someone else's robot" — silent muted note.
+  // Enroll prompt flattened to match the capability row rhythm (label + state
+  // + action) so it doesn't visually break the card's structure.
   const enrollHtml = (() => {
     if (!connected || !entry.opsChar) return "";
     const auth = entry.fwInfo?.authorized;
     if (!Array.isArray(auth) || !myFingerprint || auth.includes(myFingerprint)) return "";
     if (auth.length === 0) {
       return `
-        <div class="enroll-prompt">
-          <span>Dashboard not enrolled on this robot.</span>
-          <button class="secondary sm" data-action="enroll">Enroll</button>
+        <div class="robot-controls">
+          <div class="row">
+            <div><div class="label">Enrollment</div><div class="meta">Dashboard not enrolled on this robot.</div></div>
+            <button class="secondary sm" data-action="enroll">Enroll</button>
+          </div>
         </div>`;
     }
-    return `<div class="enroll-prompt muted"><span>Enrolled to another dashboard.</span></div>`;
+    return `
+      <div class="robot-controls">
+        <div class="row">
+          <div><div class="label">Enrollment</div><div class="meta">Enrolled to another dashboard.</div></div>
+        </div>
+      </div>`;
   })();
   const typeBadge = entry.fwType
     ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())}</span>`
@@ -588,7 +596,6 @@ function renderEntry(entry) {
         ${telemetryHtml(entry)}
         ${enrollHtml}
         ${sections}
-        ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
       </div>
     ` : ""}
   `;

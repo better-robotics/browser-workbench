@@ -5,7 +5,7 @@ import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson,
 } from "../ble.js";
-import { freshUrl } from "../dom.js";
+import { freshUrl, escapeHtml } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
 
@@ -270,9 +270,11 @@ export const ota = {
       await entry.otaStatusChar.startNotifications();
       entry.otaStatusChar.addEventListener("characteristicvaluechanged", (e) => {
         entry.otaStatus = decodeJson(e.target.value) || { st: "idle" };
-        const { st, n = 0, total = 0, err: errMsg } = entry.otaStatus;
-        const pct = total ? Math.round(100 * n / total) : 0;
-        logFor(entry, `OTA ${st}${total ? ` ${pct}%` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
+        // Progress surfaces via the Firmware capability section; log only the
+        // terminal transitions (error / done) so the log pane isn't spammed.
+        const { st, err: errMsg } = entry.otaStatus;
+        if (errMsg) logFor(entry, `OTA ${st} — ${errMsg}`);
+        else if (st === "done" || st === "idle") logFor(entry, `OTA ${st}`);
         renderEntry(entry);
       });
     } catch {
@@ -285,7 +287,26 @@ export const ota = {
     entry.fwInfo = null;
   },
 
-  // OTA controls live in the ⋯ menu; app.js wires them to updateFirmware/updateFromFile.
-  renderSection() { return ""; },
+  // OTA controls live in the ⋯ menu; the section only appears while an update
+  // is actually in flight so the card shows progress without claiming permanent
+  // screen real estate.
+  renderSection(entry) {
+    const s = entry?.otaStatus;
+    if (!s || s.st === "idle") return "";
+    const { st, n = 0, total = 0, err } = s;
+    const pct = total ? Math.round(100 * n / total) : 0;
+    const stateLine = err
+      ? `${escapeHtml(st)} — ${escapeHtml(err)}`
+      : total ? `${escapeHtml(st)} · ${pct}%`
+      : escapeHtml(st);
+    return `
+      <div class="robot-controls">
+        <div class="row">
+          <div><div class="label">Firmware</div><div class="meta">${stateLine}</div></div>
+        </div>
+        ${total ? `<progress class="ota-progress" value="${n}" max="${total}"></progress>` : ""}
+      </div>
+    `;
+  },
   wireActions() {},
 };

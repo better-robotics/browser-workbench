@@ -52,7 +52,10 @@ export function makeWifiScanCap(schema) {
   const scanStartedField = `${name}ScanStartedAt`;
   const actionScan = `${name}-scan`;
   const actionJoin = `${name}-join`;
-  const label = name.length <= 3 ? name.toUpperCase()
+  // "wifi" auto-capitalizes to "Wifi" via the default rule; force the correct
+  // stylization so the section header matches the collapsed-row pill.
+  const label = name === "wifi" ? "WiFi"
+    : name.length <= 3 ? name.toUpperCase()
     : name[0].toUpperCase() + name.slice(1);
 
   function clearScanTimer(entry) {
