@@ -21,7 +21,6 @@
 //   The loop only runs while the user explicitly toggles "Watch" on a
 //   robot — no idle GPU drain.
 import { state } from "./state.js";
-import { settings } from "./settings.js";
 import { escapeHtml } from "./dom.js";
 import { broadcastSceneToPhones } from "./phones.js";
 
@@ -196,10 +195,11 @@ export function stopWatching(id) {
 // a scene tick can't destroy the user's in-progress edit in the prompt
 // textarea.
 export function renderPerceptionRow(entry, { running, watching, watchingAction }) {
-  if (!settings.perception) return "";
-  if (!running) {
-    return `<div class="meta camera-watch-hint">Perception: start the stream to enable “Watch with Pip”.</div>`;
-  }
+  // Only surface when a stream is active — nothing meaningful to attach to
+  // otherwise. WebGPU absence is a real blocker (no inference possible), so
+  // we do show a hint there so users on Safari/Firefox understand why there's
+  // no Watch toggle.
+  if (!running) return "";
   if (!isSupported()) {
     return `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
   }
@@ -302,7 +302,7 @@ export function wirePerceptionToggle(entry, node, {
 // front of the robot"). Persists on entry.vlmPrompt for the session;
 // changing it while a loop is active takes effect on the next inference.
 export function renderPerceptionPromptField(entry, { editAction }) {
-  if (!settings.perception) return "";
+  if (!isSupported()) return "";
   const current = entry.vlmPrompt ?? "";
   return `
     <details class="camera-prompt">

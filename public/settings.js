@@ -2,7 +2,7 @@
 const SETTINGS_KEY = "better-robotics:settings";
 
 export const settings = Object.assign(
-  { passiveScan: false, voice: false, perception: false },
+  { passiveScan: false, voice: false },
   JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
 );
 
