@@ -52,6 +52,7 @@ export function makeWifiScanCap(schema) {
   const scanStartedField = `${name}ScanStartedAt`;
   const actionScan = `${name}-scan`;
   const actionJoin = `${name}-join`;
+  const actionManualJoin = `${name}-join-manual`;
   // "wifi" auto-capitalizes to "Wifi" via the default rule; force the correct
   // stylization so the section header matches the collapsed-row pill.
   const label = name === "wifi" ? "WiFi"
@@ -110,6 +111,22 @@ export function makeWifiScanCap(schema) {
       await entry[joinField].writeValueWithResponse(encodeJson({ s: ssid, p: password }));
     } catch (err) {
       logFor(entry, `${name} join failed: ${err.message}`);
+    }
+  }
+
+  // When scan fails (classic ESP32 + BLE coexistence commonly returns zero
+  // APs even when networks exist), the user can still join by typing SSID +
+  // password directly. Mirrors iOS's "Join Other Network…" affordance.
+  async function joinManual(entry) {
+    if (!entry[joinField]) return;
+    const ssid = prompt("Network name (SSID):");
+    if (!ssid) return;
+    const password = prompt(`Password for "${ssid}" (leave blank for open):`);
+    if (password === null) return;
+    try {
+      await entry[joinField].writeValueWithResponse(encodeJson({ s: ssid, p: password }));
+    } catch (err) {
+      logFor(entry, `${name} manual join failed: ${err.message}`);
     }
   }
 
@@ -195,7 +212,7 @@ export function makeWifiScanCap(schema) {
       ` : scanning ? `
         <div class="wifi-empty"><span class="wifi-spinner"></span> Looking for networks…</div>
       ` : Array.isArray(networks) ? `
-        <div class="wifi-empty">No networks found — try again?</div>
+        <div class="wifi-empty">No networks found — try again, or join another network manually.</div>
       ` : "";
       return `
         <div class="robot-controls row">
@@ -203,9 +220,12 @@ export function makeWifiScanCap(schema) {
             <div class="label">${escapeHtml(label)}</div>
             <div class="meta">${escapeHtml(summarize(entry[statusState]))}</div>
           </div>
-          <button class="secondary sm" data-action="${actionScan}" ${scanning ? "disabled" : ""}>
-            ${scanning ? `<span class="wifi-spinner"></span> Scanning…` : "Scan"}
-          </button>
+          <div class="wifi-actions">
+            <button class="secondary sm" data-action="${actionScan}" ${scanning ? "disabled" : ""}>
+              ${scanning ? `<span class="wifi-spinner"></span> Scanning…` : "Scan"}
+            </button>
+            <button class="secondary sm" data-action="${actionManualJoin}">Join other…</button>
+          </div>
         </div>
         ${nets}
       `;
@@ -214,6 +234,8 @@ export function makeWifiScanCap(schema) {
     wireActions(entry, node) {
       const scanBtn = node.querySelector(`[data-action="${actionScan}"]`);
       if (scanBtn) scanBtn.addEventListener("click", () => scan(entry));
+      const manualBtn = node.querySelector(`[data-action="${actionManualJoin}"]`);
+      if (manualBtn) manualBtn.addEventListener("click", () => joinManual(entry));
       node.querySelectorAll(`[data-action="${actionJoin}"]`).forEach(btn => {
         btn.addEventListener("click", () => join(
           entry, btn.dataset.ssid, btn.dataset.secured === "1",

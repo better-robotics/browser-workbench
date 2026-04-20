@@ -610,6 +610,8 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   color: var(--ink-muted);
 }
 
+.wifi-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
 /* Small spinner — Scan button + empty-list wait state. */
 .wifi-spinner {
   display: inline-block;
