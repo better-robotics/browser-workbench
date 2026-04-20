@@ -49,10 +49,8 @@ async function beginPairing() {
   const dialog = $("pair-dialog");
   const statusEl = $("pair-status");
   const qrEl = $("pair-qr");
-  const codeEl = $("pair-code");
   const urlEl = $("pair-url");
   qrEl.innerHTML = "";
-  codeEl.textContent = "";
   urlEl.textContent = "";
   statusEl.textContent = "Generating room…";
   dialog.showModal();
@@ -73,7 +71,6 @@ async function beginPairing() {
   } else {
     qrEl.textContent = "(QR library not loaded)";
   }
-  codeEl.textContent = session.roomId;
   urlEl.textContent = urlText;
   statusEl.textContent = "Waiting for phone…";
 
