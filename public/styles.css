@@ -341,13 +341,11 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   color: var(--success);
 }
 
-/* Collapsed cards behave like list rows — tight vertical padding so the row
-   doesn't feel spacious-empty. Expanded cards restore roomy padding since
-   the capability body is the main content. */
-.robot { transition: padding 0.15s ease; }
-/* 8px vertical keeps the row tight against the 36px button height without
-   losing breathing room; content:padding ratio lands near 3:1 instead of 2:1. */
-.robot:not(.expanded) { padding: 8px 16px; }
+/* Tight vertical padding in every state — the card hugs the row (or the row
+   plus body margin), so auto-expanded cards don't hold up an empty hero shell
+   while capabilities are still loading. The body brings its own cradle via
+   robot-body margin-top + capability section spacing. */
+.robot { padding: 8px 16px; }
 
 /* Whole row is a generous click target — cursor hints it, but the visual
    hover lives on the label-btn only (the row whitespace is forgiveness, not
@@ -408,7 +406,6 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   .disclosure-chevron { transition: none; }
-  .robot { transition: none; }
 }
 
 /* Narrow viewports stack into a single column — iOS HIG list pattern. The
