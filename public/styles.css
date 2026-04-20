@@ -677,7 +677,12 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 .platform-pi    .platform-mark { color: var(--success); }
 .platform-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .platform-sub { font-size: 13px; color: var(--ink-muted); line-height: 1.45; }
-.platform-action { margin-top: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* CTA anchors to the bottom of the tile so buttons align across tiles.
+   Footnote sits BELOW the CTA as a fixed-height slot — keeping the hint
+   out of the CTA row is what lets the Flash / Set-up buttons line up.
+   Pi tile carries an empty footnote purely to reserve matching height. */
+.platform-cta { margin-top: auto; }
+.platform-footnote { min-height: 20px; display: flex; align-items: center; }
 
 .help-hint {
   background: transparent;

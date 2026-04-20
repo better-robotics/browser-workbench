@@ -266,12 +266,14 @@
         <div class="platform-title">ESP32</div>
         <div class="platform-sub">Flash firmware over USB. ~30 seconds, no camera.</div>
       </div>
-      <div class="platform-action">
+      <div class="platform-cta">
         <esp-web-install-button manifest="firmware/manifest.json">
           <button slot="activate">Flash firmware</button>
           <span slot="unsupported" class="platform-sub">Web Serial required (Chrome or Edge desktop).</span>
           <span slot="not-allowed" class="platform-sub">HTTPS required to flash.</span>
         </esp-web-install-button>
+      </div>
+      <div class="platform-footnote">
         <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
       </div>
     </section>
@@ -281,9 +283,10 @@
         <div class="platform-title">Raspberry Pi</div>
         <div class="platform-sub">Prepare an SD card. Camera and onboard compute.</div>
       </div>
-      <div class="platform-action">
+      <div class="platform-cta">
         <button type="button" id="prepare-open-btn">Set up SD card</button>
       </div>
+      <div class="platform-footnote" aria-hidden="true"></div>
     </section>
   </div>
 </dialog>
