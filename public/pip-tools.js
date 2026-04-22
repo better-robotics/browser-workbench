@@ -8,6 +8,7 @@ import {
   observeOnce,
   captureFrameDataUrl,
 } from "./perception.js";
+import { wrapExecutor } from "./replay.js";
 
 // One-shot ops-response wait — register, wait for the response that targets
 // our robot, unregister. Times out so a dropped response doesn't stall Pip.
@@ -134,7 +135,7 @@ export const TOOLS = [
   },
 ];
 
-export async function executor(name, input) {
+async function dispatch(name, input) {
   switch (name) {
     case "list_robots": {
       const out = [];
@@ -256,3 +257,9 @@ export async function executor(name, input) {
       return { error: `unknown tool: ${name}` };
   }
 }
+
+// replay.wrapExecutor persists every call (input + output + timing) to
+// IndexedDB so a past session can be re-evaluated offline against a new
+// prompt or model — comma.ai's replay-your-drive pattern, scoped down.
+// Transparent to callers; wrapped executor has the same signature.
+export const executor = wrapExecutor(dispatch);

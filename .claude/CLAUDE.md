@@ -28,3 +28,30 @@ This is an AI-edited codebase. Every line of comment is context cost. The global
 
 - **Menus + popovers** (`robot-menu`, `avatar-menu`, help popovers): dismiss on both outside-click and Escape. Users reach for "click away" to close a menu; that's the expected affordance.
 - **Dialogs (all of them)**: close only via the explicit × button or Escape (native `<dialog>` default). Outside-click dismiss is NOT wired — same rule for quick-views and session dialogs alike, because the cost of accidentally nuking a session dialog (recovery terminal, SD prep) outweighs the tiny convenience win for reopening a quick-view. `wireDialogOutsideClick()` exists in `dom.js` but isn't used; keep it out unless there's a clear reason.
+
+# Control-loop invariants
+
+Three design rules for anything that couples an LLM / VLM to the robot's motion. Think of it as our "openpilot panda" discipline: safety is enforced below the intelligent layer, not inside it.
+
+- **Safety below the planner.** Firmware-side limits (pulse duration cap, max LLM-driven speed, watchdog auto-stop) are the hard floor. Claude and Pip cannot bypass them — not even with a malformed or malicious tool call. Max LLM-issued motor speed is separately capped from max user-joystick speed; only the human can command "fast."
+- **Pulse-bounded motion under LLM control.** LLM-issued motor commands always carry `duration_ms` and the firmware auto-stops at the end. Persistent speed ("set and hold") is reserved for user joystick control, where a human is in the decision loop at 20Hz+. Between Pip decisions the robot is at rest — not cruising blindly while Claude thinks for 3 seconds.
+- **Confidence-based handoff is core policy, not a tool.** `ask_human_via_phone` isn't an escape hatch, it's the terminal rung of the decision cascade. The model should ask to be overridden rather than wait to be overridden. Any new planner-layer feature that doesn't have a "defer upward" path is incomplete.
+
+# Replay
+
+Every Pip tool call is persisted to IndexedDB via `replay.wrapExecutor()` in `pip-tools.js`. Records carry `{sessionId, name, input, output, error, startedAt, endedAt, durationMs}`. Image data URLs (from `ask_human_via_phone`'s robot-camera attach) stay in the record — the point is to reconstruct "what did Pip see when it made that call?"
+
+Dev handles exposed on `window`: `replayDownload()` → saves full JSON of the store; `replayAll()` → in-memory array; `replayClear()` → wipes; `replaySession` → current session id. Callable from DevTools console or the `?debug` overlay.
+
+Use case: when upgrading Claude, we can re-run a past session's inputs against the new model offline and compare decisions. No hardware, no user, no risk. comma.ai's replay-your-drive pattern, scoped to our tool surface.
+
+# Scope discipline
+
+Name what the system WON'T do, as loudly as what it will:
+
+- Not autonomous. The human is always one `ask_human` away by design.
+- Not real-time. Decision loop is seconds, not milliseconds. Reactive control is impossible at this latency; pulse-bounded motion is how we live with that.
+- Not spatially aware. Monocular camera + VLM text — no depth, no SLAM, no metric maps. Navigation is semantic (landmarks, "further along the wall"), not geometric.
+- Not a Waymo / Roomba. Don't sell safety guarantees we can't make. Don't promise "the robot will not hit things" — promise "the robot will stop and ask when uncertain, and motion is pulse-bounded to cap any blind-motion blast radius."
+
+When scope creeps — "can Pip just drive the robot to the kitchen?" — match it against these four. If the request requires something we've named we don't do, the honest answer is to surface that, not to quietly extend.
