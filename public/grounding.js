@@ -21,6 +21,19 @@
 
 import { drawFrameToCanvas } from "./perception.js";
 
+// Feature flag — set to false while the in-browser detector is unusable.
+// OWLv2 and OWL-ViT both emit a Cast node that onnxruntime-web can't
+// place on any execution provider (WebGPU and WASM both refuse), so
+// detectOnce always throws. Rather than keep Pip trying a broken tool
+// on every spatial decision, we gate it at the source:
+//   - preloadGrounding() becomes a no-op (saves the ~300MB download)
+//   - detectOnce() returns a structured error
+//   - pip-tools.js filters get_robot_detections out of the advertised TOOLS
+// Re-enable by flipping to true when a working detector path is wired
+// (different model family, server-side detection, or a future onnxruntime
+// release that covers the missing op).
+export const GROUNDING_ENABLED = false;
+
 const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
 // OWLv2 has a cleaner ONNX graph than OWL-ViT — the base-patch32 variant
 // tripped onnxruntime-web's WASM backend on an unsupported Cast(13) op in
@@ -46,6 +59,7 @@ export function isGroundingLoaded() { return !!_pipe; }
 // useful on their own. Any error surfaces naturally when Pip later calls
 // get_robot_detections.
 export function preloadGrounding() {
+  if (!GROUNDING_ENABLED) return;
   // URL opt-out for bandwidth-sensitive scenarios (mobile hotspot,
   // users who only want VLM scene captions without spatial grounding).
   // Documented in DEV.md.

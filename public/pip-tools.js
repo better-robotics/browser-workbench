@@ -8,7 +8,7 @@ import {
   observeOnce,
   captureFrameDataUrl,
 } from "./perception.js";
-import { detectOnce } from "./grounding.js";
+import { detectOnce, GROUNDING_ENABLED } from "./grounding.js";
 import { wrapExecutor } from "./replay.js";
 
 // One-shot ops-response wait — register, wait for the response that targets
@@ -25,7 +25,7 @@ function waitOpsResponse(op, robotId, timeoutMs = 10000) {
   });
 }
 
-export const TOOLS = [
+const ALL_TOOLS = [
   {
     name: "list_robots",
     description: "Returns the dashboard's known robots: id, name, type (pi|esp32), connection status (idle|connecting|connected|error), and whether Bluetooth is currently paired (so you know whether tool calls that need a BLE link will work).",
@@ -152,6 +152,15 @@ export const TOOLS = [
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
   },
 ];
+
+// Hide disabled tools from Pip so it doesn't waste tokens proposing calls
+// that would fail. Keeping the executor case below (unreachable when the
+// tool isn't advertised) means re-enabling is a single flag flip in
+// grounding.js, not a re-plumb.
+export const TOOLS = ALL_TOOLS.filter(t => {
+  if (t.name === "get_robot_detections" && !GROUNDING_ENABLED) return false;
+  return true;
+});
 
 async function dispatch(name, input) {
   switch (name) {
