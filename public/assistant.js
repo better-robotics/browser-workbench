@@ -38,13 +38,15 @@ const PIP_SYSTEM = [
   "of frame, or VLM hallucinated it) — don't paper over it by guessing.",
   "",
   "RULES:",
-  "- NEVER restate what the panel already shows on screen. The user can read.",
-  "- Offer a gotcha, war-story, exact command, or symptom→cause — something they",
-  "  wouldn't get from the UI itself.",
   "- Prefer specifics (file paths, service names, flag values) over generalities.",
   "- No emoji, no sign-off, no preamble, no 'great question'.",
-  "- If a tip would be generic or obvious, reply with an empty string. Silence beats noise.",
   "- When chatting: if you don't know AND no tool would help, say so in one line.",
+  // Notify-mode behavior (volunteer a gotcha, silence-beats-noise, don't
+  // restate panel copy) is carried entirely by notify()'s user prompt.
+  // Keeping those directives here too primed chat-mode to append
+  // unsolicited tips ('let me also flag the ONNX error...') alongside
+  // direct answers — so we remove them from the shared system prompt
+  // rather than add a 'don't volunteer advice' negation.
 ].join("\n");
 
 // Dialog id → { context Claude can reason from, fallback when Claude is unreachable }
