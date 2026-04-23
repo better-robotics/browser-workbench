@@ -160,7 +160,7 @@ export function makeWebrtcInstallableCap(schema) {
     const spec = schema.install || { pkg: name };
     return installPackage(entry.id, spec.pkg, {
       confirm: spec.confirm ||
-        `Install ${spec.pkg} support on this robot? Downloads binaries over WiFi.`,
+        `Install ${spec.pkg} support on this robot? Downloads ~150 MB from Debian + PyPI over WiFi.`,
     });
   }
 
@@ -199,6 +199,13 @@ export function makeWebrtcInstallableCap(schema) {
       const meta = s.step
         ? `${s.st} — ${s.step}`
         : (s.err ? `${s.st} — ${s.err}` : s.st);
+      // Install path needs network (apt-get + pip). Don't gate the button —
+      // the user might be on Ethernet, about to join WiFi, etc. Just surface
+      // the dependency in a hint line so the failure mode isn't a surprise.
+      const wifiOk = entry.wifiStatus?.st === "joined";
+      const installHint = (s.st === "uninstalled" || s.st === "install_failed") && !wifiOk
+        ? `<div class="meta">Needs WiFi (~150 MB from Debian + PyPI). Join a network first or be ready to retry.</div>`
+        : "";
       let action = "";
       if (s.st === "uninstalled" || s.st === "install_failed") {
         action = `<button class="secondary sm" data-action="${actionInstall}">Install ${name} support</button>`;
@@ -224,6 +231,7 @@ export function makeWebrtcInstallableCap(schema) {
             </div>
             ${action}
           </div>
+          ${installHint}
           ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
           ${entry[pcField] ? `
             <video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted></video>
