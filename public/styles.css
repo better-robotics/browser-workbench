@@ -1358,13 +1358,30 @@ dialog[open]::backdrop { opacity: 1; }
   border-radius: 6px;
 }
 .assistant-panel .assistant-close:hover { color: var(--ink); }
-/* Pip turns — each turn is a (echo, trace, reply) triple. Auto-collapses to
-   a one-liner when the next turn opens, so the active loop never has to share
-   visual weight with stale text. Stack flows top→bottom, latest at bottom. */
+/* Ambient notify slot — Pip volunteering ("hey, I noticed X"). One slot,
+   replaced (not stacked) on each new notify. Sits above the chat-turn stack
+   so it's the first thing the user sees but never accumulates as fake history. */
+.pip-notify {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0 32px 10px 0;  /* right margin clears the floating close button */
+  padding: 8px 10px;
+  border-left: 2px solid var(--border-default);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  border-radius: 0 6px 6px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pip-notify[hidden] { display: none; }
+.pip-notify.ai-generated { color: #d4b24e; }
+
+/* Pip turns — each chat turn is a (echo, trace, reply) triple. Auto-collapses
+   to a one-liner when the next turn opens, so the active loop never has to share
+   visual weight with stale text. Stack flows top→bottom, latest at bottom.
+   Capped at MAX_CHAT_TURNS (assistant.js); older turns drop entirely. */
 .pip-turns { display: flex; flex-direction: column; gap: 12px; }
 .pip-turn { margin: 0; }
-.pip-turn:first-child > .pip-echo,
-.pip-turn:first-child > .pip-reply:only-child { margin-right: 32px; }  /* clear close button */
+.pip-turn:first-child > .pip-echo { margin-right: 32px; }  /* clear close button */
 
 .pip-echo {
   font-size: 13px;
@@ -1425,11 +1442,11 @@ dialog[open]::backdrop { opacity: 1; }
   min-width: 0;
 }
 
-/* Collapsed turn — one button-styled line. Click to expand back. Shows the
-   echo (when present) + action count, otherwise truncated reply text. */
-.pip-turn.collapsed { margin: 0; }
-.pip-turn-toggle {
-  display: block;
+/* Non-destructive collapse: both summary and full content live in the DOM,
+   CSS toggles which is visible. Clicking the summary expands the full content
+   below it (echo + trace + reply, with all detail intact). */
+.pip-turn-summary {
+  display: none;  /* shown only when .collapsed */
   width: 100%;
   text-align: left;
   font-size: 12px;
@@ -1439,7 +1456,10 @@ dialog[open]::backdrop { opacity: 1; }
   padding: 4px 0;
   cursor: pointer;
 }
-.pip-turn-toggle:hover { color: var(--ink); }
+.pip-turn-summary:hover { color: var(--ink); }
+.pip-turn-full { display: block; }
+.pip-turn.collapsed > .pip-turn-summary { display: block; }
+.pip-turn.collapsed > .pip-turn-full    { display: none; }
 
 .pip-reply { margin: 0; }
 /* Amber tint = Pip is answering something the user just asked right now.

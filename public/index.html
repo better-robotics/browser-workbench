@@ -361,11 +361,11 @@
        user's last question takes the place the title used to occupy,
        contextualizing Pip's reply. Close button floats in the corner. -->
   <button class="icon assistant-close" id="assistant-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
-  <div id="assistant-turns" class="pip-turns">
-    <div class="pip-turn">
-      <div class="pip-reply">Hi — I'm Pip. I'll pipe up when there's something worth knowing.</div>
-    </div>
-  </div>
+  <!-- Ambient notify slot: Pip volunteering ("hey, I noticed X"). One slot,
+       latest replaces previous, no history. Distinct from the chat-turn stack
+       below — see USER-CODE.md / assistant.js comment on the split. -->
+  <div id="assistant-notify" class="pip-notify">Hi — I'm Pip. I'll pipe up when there's something worth knowing.</div>
+  <div id="assistant-turns" class="pip-turns"></div>
   <form id="assistant-form" class="assistant-form">
     <input id="assistant-input" class="assistant-input" type="text" autocomplete="off"
            placeholder="Ask Pip…" maxlength="4000" aria-label="Ask Pip">

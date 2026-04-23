@@ -74,13 +74,18 @@ const CONTEXTS = {
   },
 };
 
-let _bubble, _panel, _turns, _input, _form;
+let _bubble, _panel, _notify, _turns, _input, _form;
 let _fadeTimer = null, _closeTimer = null, _resumeTimer = null;
 let _lastNotifyAt = 0;
 let _pending = false;
 let _abort = false;            // set by Stop button; checked between askWithTools iterations
 let _activeTurnEl = null;      // turn currently being filled (live trace destination)
 const _history = [];
+
+// Cap the chat-turn stack so the bubble doesn't become a scrolling wall over
+// time. Older turns drop entirely from the DOM (still in _history for Claude
+// context). Notify slot is separate and never accumulates.
+const MAX_CHAT_TURNS = 5;
 
 // One row in a turn's trace list — a tool call.  pendingMs/result/error filled
 // in by finishTrace once the call returns.  Kept terse; deeper inspection lives
@@ -253,30 +258,37 @@ function open({ autoDismiss = false } = {}) {
 }
 
 // Collapse every previously-completed turn so only the current/active one is
-// expanded. A turn is considered "complete" when it carries a reply slot. The
-// active turn (the one we're currently filling) is left alone.
+// expanded. NON-DESTRUCTIVE: wraps existing children in .pip-turn-full and
+// appends a .pip-turn-summary sibling — both stay in the DOM, CSS toggles
+// which is visible. Click the summary to re-expand the original content
+// (echo + trace + reply intact, including any tool-call detail).
 function collapsePreviousTurns() {
   const turns = _turns.querySelectorAll(".pip-turn:not(.collapsed)");
   for (const t of turns) {
     if (t === _activeTurnEl) continue;
-    if (!t.querySelector(".pip-reply")) continue;  // can't collapse a turn that has no reply yet
-    const echo = t.querySelector(".pip-echo")?.textContent?.trim() || "";
-    const replyText = t.querySelector(".pip-reply")?.textContent?.trim() || "";
-    const traceCount = t.querySelectorAll(".pip-trace-line").length;
-    const summary = echo
-      ? `${shorten(echo, 50)}${traceCount ? ` · ${traceCount} action${traceCount === 1 ? "" : "s"}` : ""}`
-      : shorten(replyText, 70);
+    if (!t.querySelector(".pip-reply")) continue;  // turn has no reply yet — skip
+    if (!t.querySelector(".pip-turn-summary")) {
+      const echo = t.querySelector(".pip-echo")?.textContent?.trim() || "";
+      const replyText = t.querySelector(".pip-reply")?.textContent?.trim() || "";
+      const traceCount = t.querySelectorAll(".pip-trace-line").length;
+      const summary = echo
+        ? `${shorten(echo, 50)}${traceCount ? ` · ${traceCount} action${traceCount === 1 ? "" : "s"}` : ""}`
+        : shorten(replyText, 70);
+      const sumBtn = document.createElement("button");
+      sumBtn.type = "button";
+      sumBtn.className = "pip-turn-summary";
+      sumBtn.textContent = `▸ ${summary}`;
+      const full = document.createElement("div");
+      full.className = "pip-turn-full";
+      while (t.firstChild) full.appendChild(t.firstChild);
+      t.appendChild(sumBtn);
+      t.appendChild(full);
+    }
     t.classList.add("collapsed");
-    t.innerHTML = `<button class="pip-turn-toggle" type="button">▸ ${escapeForHtml(summary)}</button>`;
-    // Stash the original DOM so re-expand restores it byte-for-byte. Browsers
-    // can hold this; turns are bounded by HISTORY_LIMIT.
   }
-}
-
-function escapeForHtml(s) {
-  const d = document.createElement("div");
-  d.textContent = String(s ?? "");
-  return d.innerHTML;
+  // Cap the stack — drop oldest beyond the limit. They stay in _history for
+  // Claude context, just not in the DOM.
+  while (_turns.children.length > MAX_CHAT_TURNS) _turns.removeChild(_turns.firstChild);
 }
 
 // Build a fresh turn DOM for a new user prompt, append it, set as active.
@@ -331,15 +343,17 @@ function attachStopButton(turnEl) {
   return btn;
 }
 
-// Public API — any module can push a line from Pip. Auto-dismissing is the
-// default for spontaneous speech; pass { autoDismiss: false } for sticky ones.
-// Pass { fromAI: true } when the text came from a Claude call; defaults to
-// static so ad-hoc speakMessage() calls from module code don't falsely
-// advertise themselves as AI output.
-export function speakMessage(text, { autoDismiss = true, echo = null, fromAI = false } = {}) {
-  const t = startNewTurn({ echo });
-  setReplyText(t, text, fromAI);
-  _activeTurnEl = null;
+// Public API — Pip volunteering context (proactive tips, greetings, app voice).
+// Writes to the ambient notify slot at the top of the bubble, replacing whatever
+// was there. Distinct from chat turns, which live in their own stack below: notify
+// is "hey, I noticed X" and doesn't accumulate as history.  `echo` is accepted but
+// ignored (notify isn't a reply to a user prompt; nothing to quote).
+export function speakMessage(text, { autoDismiss = true, fromAI = false } = {}) {
+  if (!_notify) return;
+  if (fromAI) _notify.innerHTML = renderMd(text);
+  else        _notify.textContent = text;
+  _notify.classList.toggle("ai-generated", !!fromAI);
+  _notify.hidden = false;
   _history.push({ role: "assistant", content: text });
   if (_history.length > HISTORY_LIMIT) _history.splice(0, _history.length - HISTORY_LIMIT);
   open({ autoDismiss });
@@ -485,6 +499,7 @@ function watchDialogs() {
 export function initAssistant() {
   _bubble  = $("assistant-bubble");
   _panel   = $("assistant-panel");
+  _notify  = $("assistant-notify");
   _turns   = $("assistant-turns");
   _input   = $("assistant-input");
   _form    = $("assistant-form");
@@ -501,17 +516,13 @@ export function initAssistant() {
   setAskInChatHandler(askInChat);
   // Typing cancels the auto-dismiss so Pip doesn't vanish mid-thought.
   _input.addEventListener("input", () => { if (_input.value) cancelAutoDismiss(); });
-  // Click any collapsed turn's toggle button to re-expand it. We replaced its
-  // inner DOM on collapse so the original is gone — render a stub from the
-  // saved summary instead (keeps state minimal; full detail lives in
-  // replay.js / IndexedDB anyway).
+  // Click a collapsed turn's summary line to re-expand it. Collapse is now
+  // non-destructive (full DOM hidden via CSS), so expansion restores the
+  // original echo + trace + reply intact.
   _turns.addEventListener("click", (e) => {
-    const btn = e.target.closest(".pip-turn-toggle");
-    if (!btn) return;
-    const turn = btn.closest(".pip-turn");
-    if (!turn) return;
-    turn.classList.remove("collapsed");
-    turn.innerHTML = `<div class="pip-reply">${btn.textContent.replace(/^▸\s*/, "")}</div>`;
+    const sum = e.target.closest(".pip-turn-summary");
+    if (!sum) return;
+    sum.closest(".pip-turn")?.classList.toggle("collapsed");
   });
   watchDialogs();
 }
