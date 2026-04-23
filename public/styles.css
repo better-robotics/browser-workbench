@@ -545,6 +545,10 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   color: var(--ink-muted);
 }
 .scripts-output > div { padding: 1px 0; }
+/* Hide the box itself when nothing has been logged yet — empty bordered
+   strip below Run carries no information. Reappears the instant the first
+   appendOutput child mounts. */
+.scripts-output:empty { display: none; }
 
 /* Heartbeat-only connect: pi-robot.service is dead, recovery plane reachable. */
 .firmware-down-banner {
