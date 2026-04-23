@@ -506,7 +506,6 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   color: var(--ink-muted);
 }
 
-.pinout-edit-opt { color: var(--ink-muted); font-weight: 400; font-size: 11px; }
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
 .pinout-edit { margin-top: 16px; }
 .pinout-edit-section {
@@ -871,6 +870,15 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   stroke: #60a5fa;
   stroke-width: 2.5;
   filter: drop-shadow(0 0 3px rgba(96, 165, 250, 0.6));
+}
+/* Focus highlight — when the user is editing a pin input, the circle for
+   that GPIO on the board glows white. Stacks over .claimed; appears after
+   .claimed in this file so it wins the stroke declaration. Separate signal
+   from amber AI-reply tint (different context, different channel). */
+.pinout-svg .pin-dot.focused {
+  stroke: #ffffff;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.95));
 }
 .pinout-svg .pin-label {
   font: 600 11px ui-monospace, "SF Mono", Menlo, monospace;

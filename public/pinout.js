@@ -257,16 +257,16 @@ function renderEdit(entry) {
           </label>
           <div class="meta" style="margin-top: 6px;">Wire each Pi GPIO to the driver board's IN pin of the same number (IN1 ↔ IN1, etc.). Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
           <label class="pinout-edit-row" style="margin-top: 10px;">
-            <span class="pinout-edit-label">ENA · left speed <span class="pinout-edit-opt">(optional)</span></span>
+            <span class="pinout-edit-label">ENA · left speed</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
                    data-path="motors_pins.left.ena" data-optional="true" value="${ml.ena ?? ""}" placeholder="—">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">ENB · right speed <span class="pinout-edit-opt">(optional)</span></span>
+            <span class="pinout-edit-label">ENB · right speed</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
                    data-path="motors_pins.right.enb" data-optional="true" value="${mr.enb ?? ""}" placeholder="—">
           </label>
-          <div class="meta" style="margin-top: 6px;">ENA/ENB are only needed for PWM speed control. Leave blank if the driver board's ENA/ENB jumpers are on (factory default) — gpiozero PWMs the direction pins instead. Remove the jumpers + wire to a GPIO + set here for speed control via the enable line.</div>
+          <div class="meta" style="margin-top: 6px;">Leave blank unless you've removed the ENA/ENB jumpers to wire speed control to a GPIO.</div>
         </div>
       </div>
       <div class="pinout-edit-section">
@@ -319,6 +319,11 @@ function renderEdit(entry) {
       obj[key] = v;
       renderEdit(entry);
     });
+    // Focus a pin input → highlight the corresponding circle on the board so
+    // the user sees which physical pin they're about to edit. Re-renders
+    // blow the class away; we re-apply at the end of renderEdit.
+    el.addEventListener("focus", () => highlightPinFromInput(el));
+    el.addEventListener("blur",  () => clearPinHighlight());
   });
   $("pinout-cancel-btn")?.addEventListener("click", () => {
     editMode = false;
@@ -344,6 +349,25 @@ function renderEdit(entry) {
   } else if (savedToggle) {
     $("pinout-body").querySelector(`input[data-toggle="${savedToggle}"]`)?.focus();
   }
+  // innerHTML rebuild wiped the focused-pin class on the SVG; re-apply based
+  // on whatever input is currently focused so the highlight tracks typing.
+  const act = document.activeElement;
+  if (act?.dataset?.path) highlightPinFromInput(act);
+}
+
+function highlightPinFromInput(el) {
+  clearPinHighlight();
+  const gpio = parseInt(el.value, 10);
+  if (Number.isNaN(gpio)) return;
+  const phys = GPIO_TO_PHYS.get(gpio);
+  if (!phys) return;
+  const circle = document.querySelector(`.pinout-svg .pin-dot[data-phys="${phys}"]`);
+  circle?.classList.add("focused");
+}
+
+function clearPinHighlight() {
+  document.querySelectorAll(".pinout-svg .pin-dot.focused")
+    .forEach(el => el.classList.remove("focused"));
 }
 
 function beginEdit(id) {
