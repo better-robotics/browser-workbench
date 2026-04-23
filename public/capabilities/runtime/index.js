@@ -5,6 +5,7 @@ import { makeCommandCap,            setRender as setCommandRender    } from "./c
 import { makeWifiScanCap,           setRender as setWifiScanRender   } from "./wifi-scan.js";
 import { makeWebrtcInstallableCap,  setRender as setWebrtcRender     } from "./webrtc-installable.js";
 import { makeMjpegStreamCap,        setRender as setMjpegRender      } from "./mjpeg-stream.js";
+import { makeBleSnapshotCap,        setRender as setBleSnapshotRender} from "./ble-snapshot.js";
 
 export const RUNTIMES = {
   "toggle":              makeToggleCap,
@@ -13,6 +14,7 @@ export const RUNTIMES = {
   "wifi-scan":           makeWifiScanCap,
   "webrtc-installable":  makeWebrtcInstallableCap,
   "mjpeg-stream":        makeMjpegStreamCap,
+  "ble-snapshot":        makeBleSnapshotCap,
 };
 
 export function setRuntimeRenderer(fn) {
@@ -22,4 +24,5 @@ export function setRuntimeRenderer(fn) {
   setWifiScanRender(fn);
   setWebrtcRender(fn);
   setMjpegRender(fn);
+  setBleSnapshotRender(fn);
 }

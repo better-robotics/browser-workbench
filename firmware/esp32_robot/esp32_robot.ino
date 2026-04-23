@@ -46,6 +46,13 @@
 // Same UUID Pi uses, so the dashboard's existing telemetry handler works
 // across both platforms with no per-device branching.
 #define TELEMETRY_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9f"
+// BLE snapshot — single-frame JPEG over BLE notify, no WiFi required. The
+// MJPEG-over-WiFi cap stays primary for live viewing; this is the fallback
+// for "I want one frame to verify the camera works" or "Pip needs an image
+// to analyze and the robot isn't on WiFi yet". Distinct UUIDs from the
+// d9a/d9b WebRTC signaling pair on Pi — different intent, different protocol.
+#define SNAPSHOT_REQUEST_CHAR_UUID "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da0"
+#define SNAPSHOT_DATA_CHAR_UUID    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1"
 
 // Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 // Safe default on disconnect — no redundant channel required.
@@ -93,6 +100,13 @@ BLECharacteristic* wifiStatusChar = nullptr;
 BLECharacteristic* telemetryChar  = nullptr;
 static unsigned long lastTelemetryAt = 0;
 static const unsigned long TELEMETRY_INTERVAL_MS = 10000;
+
+BLECharacteristic* snapshotRequestChar = nullptr;
+BLECharacteristic* snapshotDataChar    = nullptr;
+static TaskHandle_t snapshotTaskHandle = nullptr;
+// Snapshot chunk size — must fit under MTU-3. Matches public/ble.js CHUNK_BYTES
+// (180), which is conservative for desktop Chrome's negotiated MTU (~185).
+static const size_t SNAPSHOT_CHUNK_BYTES = 180;
 BLECharacteristic* otaDataChar    = nullptr;
 BLECharacteristic* otaStatusChar  = nullptr;
 BLECharacteristic* fwInfoChar     = nullptr;
@@ -480,6 +494,9 @@ static void publishFwInfo() {
   info += ",{\"name\":\"motors\",\"type\":\"signed-pair\",\"range\":[-100,100]}";
   if (cameraReady) {
     info += ",{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"}";
+    // Snapshot is BLE-only and works without WiFi — distinct cap so the
+    // dashboard can render it independently of the live-stream card.
+    info += ",{\"name\":\"snapshot\",\"type\":\"ble-snapshot\"}";
   }
   info += "]";
   if (!cameraReady && cameraInitError) {
@@ -680,6 +697,96 @@ class WifiJoinCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+// Snapshot pipeline — runs in its own FreeRTOS task so the BLE write
+// callback returns immediately. Captures a frame, sends as a chunked stream
+// (begin/chunk/commit; same envelope OTA uses, just outbound). One snapshot
+// at a time — overlapping requests during a transfer drop the new one.
+static void snapshotTask(void* param) {
+  if (!cameraReady) {
+    if (snapshotDataChar) {
+      uint8_t err[1 + 16];
+      err[0] = 0xff;
+      const char* msg = "no-camera";
+      size_t n = strlen(msg);
+      memcpy(err + 1, msg, n);
+      snapshotDataChar->setValue(err, 1 + n);
+      snapshotDataChar->notify();
+    }
+    snapshotTaskHandle = nullptr;
+    vTaskDelete(nullptr);
+    return;
+  }
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    if (snapshotDataChar) {
+      uint8_t err[1 + 16];
+      err[0] = 0xff;
+      const char* msg = "fb-get-failed";
+      size_t n = strlen(msg);
+      memcpy(err + 1, msg, n);
+      snapshotDataChar->setValue(err, 1 + n);
+      snapshotDataChar->notify();
+    }
+    snapshotTaskHandle = nullptr;
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // Begin: opcode 0x01 + total size (u32 BE). Dashboard pre-allocates a
+  // buffer so it can show progress (n received / total) instead of a spinner.
+  uint8_t begin[5];
+  begin[0] = 0x01;
+  begin[1] = (fb->len >> 24) & 0xff;
+  begin[2] = (fb->len >> 16) & 0xff;
+  begin[3] = (fb->len >>  8) & 0xff;
+  begin[4] = (fb->len      ) & 0xff;
+  snapshotDataChar->setValue(begin, 5);
+  snapshotDataChar->notify();
+
+  // Chunks: opcode 0x02 + payload. Loop with small yields between to let the
+  // BLE stack drain its tx queue — sending too fast on classic ESP32 BLE
+  // overflows the controller and notifies silently drop.
+  size_t sent = 0;
+  uint8_t chunk[1 + SNAPSHOT_CHUNK_BYTES];
+  chunk[0] = 0x02;
+  while (sent < fb->len) {
+    size_t take = fb->len - sent;
+    if (take > SNAPSHOT_CHUNK_BYTES) take = SNAPSHOT_CHUNK_BYTES;
+    memcpy(chunk + 1, fb->buf + sent, take);
+    snapshotDataChar->setValue(chunk, 1 + take);
+    snapshotDataChar->notify();
+    sent += take;
+    // 6ms ≈ default connection interval; one notify per CI is the BLE flow-
+    // control sweet spot. Lower = drops; higher = wastes slots.
+    vTaskDelay(pdMS_TO_TICKS(6));
+  }
+
+  // Commit: opcode 0x03, no payload. Dashboard validates received == total.
+  uint8_t commit[1] = { 0x03 };
+  snapshotDataChar->setValue(commit, 1);
+  snapshotDataChar->notify();
+
+  esp_camera_fb_return(fb);
+  Serial.printf("snapshot: sent %u bytes\n", (unsigned)sent);
+  snapshotTaskHandle = nullptr;
+  vTaskDelete(nullptr);
+}
+
+class SnapshotRequestCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* c) override {
+    String v = c->getValue();
+    // Single byte 0x01 = capture. Any other opcode reserved for future use.
+    if (v.length() < 1 || (uint8_t)v[0] != 0x01) return;
+    if (snapshotTaskHandle != nullptr) {
+      Serial.printf("snapshot: ignored — transfer in progress\n");
+      return;
+    }
+    // 8 KB stack — chunk loop is shallow; bumped from 4 KB out of paranoia
+    // on camera-frame paths.
+    xTaskCreatePinnedToCore(snapshotTask, "snapshot", 8192, nullptr, 1, &snapshotTaskHandle, 1);
+  }
+};
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
@@ -793,6 +900,23 @@ void setup() {
   );
   telemetryChar->addDescriptor(new BLE2902());
   telemetryChar->setValue("{}");
+
+  // BLE snapshot — see snapshotTask() for the wire format. Two chars: a
+  // single-byte write trigger and a notify-only outbound stream. Only
+  // registered if the camera came up; saves handles otherwise (we're at 32).
+  if (cameraReady) {
+    snapshotRequestChar = service->createCharacteristic(
+      SNAPSHOT_REQUEST_CHAR_UUID,
+      BLECharacteristic::PROPERTY_WRITE
+    );
+    snapshotRequestChar->setCallbacks(new SnapshotRequestCallbacks());
+
+    snapshotDataChar = service->createCharacteristic(
+      SNAPSHOT_DATA_CHAR_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY
+    );
+    snapshotDataChar->addDescriptor(new BLE2902());
+  }
 
   service->start();
   bleServiceStarted = true;

@@ -21,6 +21,14 @@ export const TELEMETRY_CHAR_UUID      = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9f";
 export const HEARTBEAT_SVC_UUID       = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb0";
 export const HEARTBEAT_CHAR_UUID      = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb1";
 
+// BLE snapshot — ESP32 firmware. One-shot JPEG over BLE notify, no WiFi
+// required. Distinct from the WebRTC camera-signal pair (different intent:
+// snapshot is BLE-native, not signaling for an out-of-band stream). Same
+// chunked envelope as OTA: 0x01 begin+u32 len, 0x02 chunk, 0x03 commit,
+// 0xff err+text.
+export const SNAPSHOT_REQUEST_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da0";
+export const SNAPSHOT_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1";
+
 // Chunked-frame protocol shared by OTA and camera signaling: begin carries a
 // u32 big-endian length, chunks append, commit parses + acts, stop tears down.
 export const CHUNK_BYTES = 180;  // safe under ATT MTU on macOS/Chrome.
@@ -34,6 +42,7 @@ export const UUIDS_BY_CAP = {
   ota:    { data: OTA_DATA_CHAR_UUID, status: OTA_STATUS_CHAR_UUID },
   camera: { signal: CAMERA_SIGNAL_CHAR_UUID, status: CAMERA_STATUS_CHAR_UUID },
   ops:    OPS_CHAR_UUID,
+  snapshot: { request: SNAPSHOT_REQUEST_CHAR_UUID, data: SNAPSHOT_DATA_CHAR_UUID },
 };
 
 export const decodeJson = (dv) => {
