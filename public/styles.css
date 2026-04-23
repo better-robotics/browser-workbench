@@ -646,6 +646,12 @@ details.tray.has-alert > summary::after {
   border-radius: 6px;
   color: var(--ink);
 }
+#setting-pip-local-progress {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  height: 8px;
+}
 
 /* Service-worker update banner. Sits at the bottom-center of the viewport
    when a new dashboard version is waiting. Dismissable, never auto-applies. */

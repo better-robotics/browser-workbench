@@ -24,6 +24,7 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat } from "./assistant.js";
 import { initPhones, setPhoneChatHandler } from "./phones.js";
+import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
@@ -1197,18 +1198,23 @@ document.addEventListener("DOMContentLoaded", () => {
     saveSettings();
   });
 
-  // Pip backend picker — bridge (default), Anthropic direct, OpenAI direct.
-  // Phase 3 (local LFM2.5) extends this list when its adapter lands.
+  // Pip backend picker — bridge (default), Anthropic direct, OpenAI direct,
+  // local (LFM2.5 in-browser via WebGPU).
   const backendSelect = $("setting-pip-backend");
   const backendHint = $("setting-pip-backend-hint");
   const anthropicKeyRow = $("setting-pip-anthropic-key-row");
   const openaiKeyRow    = $("setting-pip-openai-key-row");
+  const localRow        = $("setting-pip-local-row");
   const anthropicKeyInput = $("setting-pip-key");
   const openaiKeyInput    = $("setting-pip-openai-key");
+  const localStatusEl   = $("setting-pip-local-status");
+  const localProgressEl = $("setting-pip-local-progress");
+  const localInstallBtn = $("setting-pip-local-install");
   const HINTS = {
     bridge:    "Routes through the AI Bridge extension. Token stays in Keychain via native messaging — never exposed to the page.",
     anthropic: "Calls api.anthropic.com directly with your API key. Works without the AI Bridge extension. Key stays in this browser.",
     openai:    "Calls api.openai.com directly with your API key. Tool-calling translated from Anthropic's tool_use shape to OpenAI's function_calling shape — same Pip behavior, different backend.",
+    local:     "Runs LFM2.5-1.2B-Thinking-ONNX in this browser via WebGPU. ~1.2 GB download, then offline-capable.",
   };
   function syncBackendUI() {
     const b = settings.pipBackend || "bridge";
@@ -1216,6 +1222,7 @@ document.addEventListener("DOMContentLoaded", () => {
     backendHint.textContent = HINTS[b] || "";
     anthropicKeyRow.hidden = b !== "anthropic";
     openaiKeyRow.hidden    = b !== "openai";
+    localRow.hidden        = b !== "local";
     anthropicKeyInput.value = settings.pipApiKey || "";
     openaiKeyInput.value    = settings.pipOpenaiKey || "";
   }
@@ -1234,6 +1241,40 @@ document.addEventListener("DOMContentLoaded", () => {
   openaiKeyInput.addEventListener("blur", () => {
     settings.pipOpenaiKey = openaiKeyInput.value.trim();
     saveSettings();
+  });
+
+  // Local-LLM install + load status. Wired even when the row is hidden so the
+  // status reflects loads kicked off from a previous session opening.
+  function refreshLocalUI(s) {
+    if (s.status === "loading") {
+      localStatusEl.textContent = `Loading ${s.file || "files"} (${s.progress || 0}%)`;
+      localProgressEl.hidden = false;
+      localProgressEl.value = s.progress || 0;
+      localInstallBtn.disabled = true;
+      localInstallBtn.textContent = "Loading…";
+    } else if (s.status === "ready") {
+      localStatusEl.textContent = "Ready";
+      localProgressEl.hidden = true;
+      localInstallBtn.disabled = false;
+      localInstallBtn.textContent = "Reload";
+    } else if (s.status === "error") {
+      localStatusEl.textContent = `Error: ${s.error || "unknown"}`;
+      localProgressEl.hidden = true;
+      localInstallBtn.disabled = false;
+      localInstallBtn.textContent = "Retry";
+    } else {
+      localStatusEl.textContent = "Not installed";
+      localProgressEl.hidden = true;
+      localInstallBtn.disabled = false;
+      localInstallBtn.textContent = "Install (~1.2 GB)";
+    }
+  }
+  onLocalLoadStateChange(refreshLocalUI);
+  refreshLocalUI(getLocalLoadState());
+  localInstallBtn.addEventListener("click", () => {
+    loadLocalModel().catch((err) => {
+      console.warn("[local-llm] install failed", err);
+    });
   });
 
   // Profile — classroom-local identity (no auth, browser-only). Seeded hue from name hash.

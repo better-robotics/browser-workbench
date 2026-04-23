@@ -152,7 +152,7 @@
       <option value="bridge">AI Bridge extension (default)</option>
       <option value="anthropic">Anthropic API (direct, your key)</option>
       <option value="openai">OpenAI API (direct, your key)</option>
-      <!-- <option value="local">LFM2.5-1.2B-Thinking (local)</option>  Phase 3 -->
+      <option value="local">LFM2.5-1.2B-Thinking (local)</option>
     </select>
     <div class="hint" id="setting-pip-backend-hint"></div>
     <div id="setting-pip-anthropic-key-row" class="pip-key-row" hidden>
@@ -164,6 +164,15 @@
       <label for="setting-pip-openai-key" class="settings-title">OpenAI API key</label>
       <input type="password" id="setting-pip-openai-key" autocomplete="off" placeholder="sk-…" spellcheck="false">
       <div class="hint">Stored in this browser only. Goes directly to api.openai.com. Default model is gpt-4o-mini (cheap; tool-call capable). Treat like a password.</div>
+    </div>
+    <div id="setting-pip-local-row" class="pip-key-row" hidden>
+      <div class="settings-title">Local model (LFM2.5-1.2B-Thinking)</div>
+      <div class="meta" id="setting-pip-local-status">Not installed</div>
+      <progress id="setting-pip-local-progress" value="0" max="100" hidden></progress>
+      <div class="row" style="margin-top: 6px;">
+        <button class="secondary sm" id="setting-pip-local-install">Install (~1.2 GB)</button>
+      </div>
+      <div class="hint">Runs LFM2.5-1.2B-Thinking-ONNX in this browser via WebGPU. <strong>Experimental:</strong> tool calling is best-effort (JSON-mode adapter) and may need retries on complex multi-step scenarios. Output capped at 512 tokens. ~1.2 GB one-time download; persists across sessions in the SW cache. Requires Chrome/Edge with WebGPU enabled.</div>
     </div>
   </div>
 

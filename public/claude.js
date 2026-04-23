@@ -3,20 +3,17 @@
 //               token never visible to the page).
 //   anthropic — direct fetch() to api.anthropic.com using the user's API key
 //               from settings. Browser-stored, "user's responsibility" model.
-// Future:
-//   openai    — Phase 2, different protocol (function_calling).
-//   local     — Phase 3, LFM2.5-1.2B-Thinking-ONNX via transformers.js,
-//               Pythonic-tool-call adapter required.
-//
-// Both current backends speak Anthropic's /v1/messages protocol so they share
-// the same request body shape. Only the transport differs — extracted into
-// callAnthropic() below; everything above (ask, askWithTools, sanitizeTool)
-// stays untouched.
+//   openai    — direct fetch() to api.openai.com (chat/completions, function-
+//               calling). Different protocol from Anthropic; translated below.
+//   local     — LFM2.5-1.2B-Thinking-ONNX via transformers.js (WebGPU). Lives
+//               in local-llm.js so the dashboard does not import the
+//               transformers runtime until the user opts in.
 //
 // Wire protocol of the bridge (from ai-bridge/bridge-content.js):
 //   page → document.dispatchEvent(new CustomEvent('ai-bridge-request', { detail: {...} }))
 //   page ← document.addEventListener('ai-bridge-response', e => e.detail)
 import { settings } from "./settings.js";
+import { localAsk, localAskWithTools } from "./local-llm.js";
 
 const MODEL = "claude-sonnet-4-6";
 // Per-Claude-call ceiling. Tool-using conversations make several bridgeRequests
@@ -151,6 +148,7 @@ function logBackendError(label, res) {
 // return text or null; the caller never sees protocol details.
 export async function ask(userText, opts = {}) {
   if (settings.pipBackend === "openai") return _openaiAsk(userText, opts);
+  if (settings.pipBackend === "local")  return localAsk(userText, opts);
   return _anthropicAsk(userText, opts);
 }
 
@@ -216,6 +214,7 @@ async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
 //                                             "(reached iteration limit)".
 export async function askWithTools(messages, opts = {}) {
   if (settings.pipBackend === "openai") return _openaiAskWithTools(messages, opts);
+  if (settings.pipBackend === "local")  return localAskWithTools(messages, opts);
   return _anthropicAskWithTools(messages, opts);
 }
 
