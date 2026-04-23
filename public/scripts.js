@@ -9,22 +9,32 @@ import { state } from "./state.js";
 import { setToggleValue } from "./capabilities/runtime/toggle.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
+import { waitOpsResponse } from "./ops-response.js";
 
 const STORE_KEY = "better-robotics:scripts:v1";
-const DEFAULT_BODY = `// Edit and click Run. \`robots\` is every connected robot;
-// \`robot\` is the first one. \`sleep(ms)\` and \`log(...)\` are
-// available. The robot API matches the BLE capability surface
-// — see USER-CODE.md.
+const DEFAULT_BODY = `// Edit and click Run (or Cmd/Ctrl-Enter).
+// \`robots\` is every connected robot; \`robot\` is the first.
+// \`sleep(ms)\`, \`log(...)\` available. See USER-CODE.md.
 
 if (!robot) {
   log("No robots connected. Pair one and click Connect first.");
   return;
 }
 
-log(\`Driving \${robot.name}…\`);
+log(\`\${robot.name} caps: \${robot.capabilities.join(", ") || "(none)"}\`);
+
+// Read-back ops return data:
+const cfg = await robot.op("get-config");
+log("config:", cfg.text?.slice(0, 200) || "(empty)");
+
+// Pulse-bounded motion (firmware-clamped to ±40 / 50–2000 ms):
 await robot.move({ left: 30, right: 30, durationMs: 400 });
 await sleep(500);
 await robot.move({ left: -30, right: -30, durationMs: 400 });
+
+// Fire-and-forget for ops that don't return (the robot drops BLE):
+// await robot.op("restart-service", {}, { await: false });
+
 log("done");
 `;
 
@@ -60,10 +70,15 @@ function makeRobotApi(entry) {
       await setToggleValue(entry, "led", on);
     },
 
-    async op(name, args = {}) {
-      // Fire-and-forget. Op responses (get-log, get-config) flow through the
-      // dashboard's existing ops-response dispatcher, not back to this caller.
-      return sendCommand(entry, "ops", { op: name, args });
+    // op(name, args, opts?) — sends a typed op and, by default, waits for the
+    // response carrying the same op name. Pass {await: false} for ops that
+    // intentionally have no response (restart-service, reboot — the robot is
+    // mid-restart and BLE drops). Pass {timeoutMs: N} for slow ops.
+    async op(name, args = {}, opts = {}) {
+      const sent = await sendCommand(entry, "ops", { op: name, args });
+      if (!sent) throw new Error(`${entry.name}: ops write failed (not connected?)`);
+      if (opts.await === false) return { ok: true };
+      return waitOpsResponse(name, entry.id, opts.timeoutMs ?? 10000);
     },
   };
 }

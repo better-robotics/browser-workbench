@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { onOpsResponse } from "./ops-response.js";
+import { waitOpsResponse } from "./ops-response.js";
 import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
 import { listPhones, sendToPhone, askHuman } from "./phones.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
@@ -11,20 +11,6 @@ import {
 } from "./perception.js";
 import { detectOnce, GROUNDING_ENABLED } from "./grounding.js";
 import { wrapExecutor } from "./replay.js";
-
-// One-shot ops-response wait — register, wait for the response that targets
-// our robot, unregister. Times out so a dropped response doesn't stall Pip.
-function waitOpsResponse(op, robotId, timeoutMs = 10000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { unregister(); reject(new Error(`${op} timed out`)); }, timeoutMs);
-    const unregister = onOpsResponse(op, (entry, msg) => {
-      if (entry.id !== robotId) return;  // not for us — let other handlers see it
-      clearTimeout(timer);
-      unregister();
-      resolve(msg);
-    });
-  });
-}
 
 const ALL_TOOLS = [
   {

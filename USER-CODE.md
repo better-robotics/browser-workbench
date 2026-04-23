@@ -24,6 +24,13 @@ for (const r of robots) {
   await sleep(500);
   await r.led(false);
 }
+
+// Typed ops with responses — same channel Pip uses.
+const cfg = await robot.op("get-config");
+const log = await robot.op("get-log", { lines: 50, unit: "pi-robot" });
+
+// Fire-and-forget for ops where the robot drops BLE mid-call.
+await robot.op("reboot", {}, { await: false });
 ```
 
 ## Why this is the right shape
