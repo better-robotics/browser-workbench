@@ -8,7 +8,15 @@ import {
   isWatching as isWatchingRobot,
   observeOnce,
   captureFrameDataUrl,
+  startWatching,
+  stopWatching,
 } from "./perception.js";
+
+// Injected from assistant.js so dispatch can render an in-bubble question with
+// option buttons (or a free-text input). Without injection we fall back to the
+// phone path; ask_human surfaces an error if neither transport is available.
+let _askInChat = null;
+export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED } from "./grounding.js";
 import { wrapExecutor } from "./replay.js";
 
@@ -138,20 +146,41 @@ const ALL_TOOLS = [
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
-    name: "ask_human_via_phone",
-    description: "Ask the paired phone user a question, blocking until they answer or the ask times out (60s default). Preferred over guessing when spatial judgment matters: 'which door should I take?', 'is this the red book you meant?', directional disambiguation during navigation. Attach the robot's current camera frame when it helps the user answer ('include_robot_camera' + 'robot_id'). Provide 'options' for tappable answers when the choice is discrete; omit options to get a free-text response. Returns {answer, timed_out}: answer is the string the user tapped/typed, null if they skipped or timed out.",
+    name: "ask_human",
+    description: "Ask the human user a question, blocking until they answer (60s default). Routes to a paired phone if one is available (better UX — they're holding it), otherwise renders the question as buttons inline in the dashboard chat bubble. Preferred over guessing when spatial judgment matters: 'which door should I take?', 'is this the red book you meant?'. Provide 'options' for tappable answers; omit options to get a free-text response. Optionally attach a robot camera frame ('include_robot_camera' + 'robot_id') when the question is visual. Returns {answer, timed_out, via}: answer is the string the user tapped/typed, null on skip/timeout; via is 'phone' or 'chat'.",
     input_schema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Phone id from list_phones." },
         question: { type: "string", description: "One short, specific question. Open-ended wording beats leading wording." },
         options: { type: "array", items: { type: "string" }, description: "Up to ~4 tappable answers. Omit or leave empty for a free-text response." },
-        include_robot_camera: { type: "boolean", description: "Attach the robot's current camera frame. Default false." },
+        prefer: { type: "string", enum: ["phone", "chat"], description: "Force a transport. Default: phone if paired, chat otherwise." },
+        phone_id: { type: "string", description: "Specific phone id from list_phones. Default: first paired phone." },
+        include_robot_camera: { type: "boolean", description: "Attach the robot's current camera frame (phone transport only). Default false." },
         robot_id: { type: "string", description: "Robot whose camera to capture. Required when include_robot_camera is true." },
       },
-      required: ["id", "question"],
+      required: ["question"],
     },
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "start_live_scene",
+    description: "Turn on continuous in-browser VLM observation of a robot's camera. Once on, frames get a one-sentence scene description every few seconds. Use when ongoing situational awareness matters across several upcoming reasoning steps. Cheap to leave on briefly; stop with stop_live_scene when no longer earning the CPU cost.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Robot id from list_robots." } },
+      required: ["id"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "stop_live_scene",
+    description: "Turn off continuous VLM observation for a robot. Idempotent — safe to call when not running.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Robot id from list_robots." } },
+      required: ["id"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
   },
 ];
 
@@ -283,23 +312,61 @@ async function dispatch(name, input) {
     case "move_motor": {
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
     }
-    case "ask_human_via_phone": {
+    case "ask_human": {
       const question = String(input.question || "").trim();
       if (!question) return { error: "question is required" };
       const options = Array.isArray(input.options) ? input.options.map(String).slice(0, 8) : [];
-      let imageDataUrl = null;
-      if (input.include_robot_camera) {
-        if (!input.robot_id) return { error: "robot_id is required when include_robot_camera is true" };
-        const entry = state.devices.get(input.robot_id);
-        if (!entry) return { error: `no robot with id ${input.robot_id}` };
-        imageDataUrl = captureFrameDataUrl(entry);
-        if (!imageDataUrl) return { error: "couldn't capture a frame — no camera element, feed not started, or CORS-tainted" };
+
+      const phones = listPhones();
+      const phoneId = input.phone_id || phones[0]?.id || null;
+      const prefer = input.prefer || (phoneId ? "phone" : "chat");
+
+      if (prefer === "phone" && phoneId) {
+        let imageDataUrl = null;
+        if (input.include_robot_camera) {
+          if (!input.robot_id) return { error: "robot_id required for include_robot_camera" };
+          const entry = state.devices.get(input.robot_id);
+          if (!entry) return { error: `no robot with id ${input.robot_id}` };
+          imageDataUrl = captureFrameDataUrl(entry);
+          if (!imageDataUrl) return { error: "couldn't capture a frame — feed not started or CORS-tainted" };
+        }
+        try {
+          const r = await askHuman(phoneId, { question, options, imageDataUrl });
+          return { ...r, via: "phone" };
+        } catch (err) {
+          // Phone path failed — try chat fallback before giving up.
+          if (!_askInChat) return { error: String(err.message || err), via: "phone" };
+        }
       }
+      if (!_askInChat) return { error: "no transport available (no phone paired and chat bubble not initialized)" };
       try {
-        return await askHuman(input.id, { question, options, imageDataUrl });
+        const answer = await _askInChat({ question, options });
+        return { answer, timed_out: false, via: "chat" };
       } catch (err) {
+        return { error: String(err.message || err), via: "chat" };
+      }
+    }
+    case "start_live_scene": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      if (isWatchingRobot(input.id)) return { ok: true, already_watching: true };
+      try {
+        // Mirror the cap's toggle so the next renderEntry shows the checkbox
+        // checked. Cap reads entry.cameraWatching (capName + "Watching").
+        e.cameraWatching = true;
+        await startWatching(e);
+        return { ok: true };
+      } catch (err) {
+        e.cameraWatching = false;
         return { error: String(err.message || err) };
       }
+    }
+    case "stop_live_scene": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      stopWatching(input.id);
+      e.cameraWatching = false;
+      return { ok: true };
     }
     default:
       return { error: `unknown tool: ${name}` };

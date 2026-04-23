@@ -216,7 +216,7 @@ export function stopWatching(id) {
   _loops.delete(id);
 }
 
-// ─── Shared "Watch with Pip" UI ───────────────────────────────────────────
+// ─── Shared "Live scene" UI ───────────────────────────────────────────────
 // Both camera capabilities (mjpeg-stream + webrtc-installable) wire the same
 // toggle under their camera element. Rendering + wiring live here so the
 // gate-and-hint logic isn't duplicated per cap.
@@ -239,7 +239,7 @@ export function renderPerceptionRow(entry, { running, watching, watchingAction }
     <div class="camera-perception" data-cam-perception="${escapeHtml(entry.id)}">
       <label class="camera-watch-row">
         <input type="checkbox" class="camera-watch-cb" data-action="${escapeHtml(watchingAction)}" ${watching ? "checked" : ""}>
-        <span>Watch with Pip</span>
+        <span>Live scene</span>
         <span class="meta camera-scene"></span>
       </label>
       <div class="camera-watch-load" hidden>

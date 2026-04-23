@@ -1,6 +1,6 @@
 import { $ } from "./dom.js";
 import { ask, askWithTools } from "./claude.js";
-import { TOOLS, executor } from "./pip-tools.js";
+import { TOOLS, executor, setAskInChatHandler } from "./pip-tools.js";
 import { renderMd } from "./markdown.js";
 
 // Auto-dismiss timings match Buddy: 10s total show, fade begins at 7s (last 3s).
@@ -33,10 +33,12 @@ const PIP_SYSTEM = [
   "spatial-grounding tool (detector is out of service). When a decision depends",
   "on left/right/near/far, the only honest moves are: (a) make the smallest",
   "exploratory action that is safe to undo (tiny pulse, brief look), then",
-  "re-observe, or (b) escalate to ask_human_via_phone with a directional",
-  "question. Never fabricate a position from scene-caption text and commit to",
-  "a confident direction — a 'left of center' claim that the VLM didn't make",
-  "is a hallucination even when it sounds plausible.",
+  "re-observe, or (b) escalate to ask_human with a directional question.",
+  "ask_human routes to a paired phone if available, otherwise renders option",
+  "buttons inline in the dashboard chat — works regardless of phone presence.",
+  "Never fabricate a position from scene-caption text and commit to a confident",
+  "direction — a 'left of center' claim that the VLM didn't make is a",
+  "hallucination even when it sounds plausible.",
   "",
   "RULES:",
   "- Prefer specifics (file paths, service names, flag values) over generalities.",
@@ -130,8 +132,12 @@ function summarizeTool(name, input, result, error) {
   if (name === "get_robot_scene" || name === "ask_robot_scene" || name === "get_robot_scene_now") {
     return `${lbl} · "${shorten(r.scene || r.text || "", 80)}"`;
   }
-  if (name === "ask_human_via_phone") {
-    return `${lbl} · phone said "${shorten(r.answer || "(no answer)", 60)}"`;
+  if (name === "ask_human") {
+    const via = r.via ? ` (via ${r.via})` : "";
+    return `${lbl}${via} · "${shorten(r.answer || "(no answer)", 60)}"`;
+  }
+  if (name === "start_live_scene" || name === "stop_live_scene") {
+    return `${lbl} · ${input?.id || "?"}${r.already_watching ? " (already on)" : ""}`;
   }
   if (name === "list_robots") {
     return `${lbl} · ${(r.robots || []).map(x => x.name).join(", ") || "(none)"}`;
@@ -147,6 +153,67 @@ function summarizeTool(name, input, result, error) {
 
 function scrollPanelToBottom() {
   if (_panel) _panel.scrollTop = _panel.scrollHeight;
+}
+
+// In-bubble ask primitive — renders a question + option buttons (or a
+// free-text input when options is empty) into the active turn, awaits a
+// click/submit, removes the block. Returns the answer string. Also used by
+// the Continue/Stop affordance when askWithTools hits its iteration budget.
+function askInChat({ question, options = [] }) {
+  return new Promise((resolve) => {
+    const turnEl = _activeTurnEl || _turns.lastElementChild;
+    if (!turnEl) { resolve(null); return; }
+
+    const block = document.createElement("div");
+    block.className = "pip-ask";
+
+    const q = document.createElement("div");
+    q.className = "pip-ask-q";
+    q.textContent = question;
+    block.appendChild(q);
+
+    const finalize = (answer) => { block.remove(); resolve(answer); };
+
+    if (options.length > 0) {
+      const row = document.createElement("div");
+      row.className = "pip-ask-options";
+      for (const opt of options) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "secondary sm";
+        btn.textContent = opt;
+        btn.addEventListener("click", () => finalize(opt));
+        row.appendChild(btn);
+      }
+      block.appendChild(row);
+    } else {
+      const form = document.createElement("form");
+      form.className = "pip-ask-form";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "pip-ask-input";
+      input.placeholder = "Your answer…";
+      const send = document.createElement("button");
+      send.type = "submit";
+      send.className = "sm";
+      send.textContent = "Send";
+      form.appendChild(input);
+      form.appendChild(send);
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (v) finalize(v);
+      });
+      block.appendChild(form);
+      // Defer focus so the dialog has finished its render.
+      setTimeout(() => input.focus(), 0);
+    }
+
+    // Insert above the reply slot so it sits below the trace.
+    const reply = turnEl.querySelector(".pip-reply");
+    turnEl.insertBefore(block, reply || null);
+    scrollPanelToBottom();
+  });
 }
 
 // Two distinct states on the mascot button:
@@ -337,6 +404,15 @@ async function handleSubmit(e) {
       pendingTraceLi = null;
     },
     shouldAbort: () => _abort,
+    // Hit the budget? Ask the user instead of slamming into the wall — same
+    // primitive ask_human uses (renders Continue/Stop buttons inline).
+    onMaxIterations: async () => {
+      const choice = await askInChat({
+        question: "Pip's worked through several steps without finishing. Continue?",
+        options: ["Continue", "Stop"],
+      });
+      return choice === "Continue" ? 5 : 0;
+    },
   });
 
   stopBtn.remove();
@@ -420,6 +496,9 @@ export function initAssistant() {
   });
   $("assistant-close").addEventListener("click", close);
   _form.addEventListener("submit", handleSubmit);
+  // Inject the chat-bubble ask handler so pip-tools' ask_human can render
+  // option buttons / free-text input inline in the active turn.
+  setAskInChatHandler(askInChat);
   // Typing cancels the auto-dismiss so Pip doesn't vanish mid-thought.
   _input.addEventListener("input", () => { if (_input.value) cancelAutoDismiss(); });
   // Click any collapsed turn's toggle button to re-expand it. We replaced its

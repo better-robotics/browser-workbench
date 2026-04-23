@@ -105,9 +105,17 @@ export async function ask(userText, { system, maxTokens = 200 } = {}) {
 //                                             returns the aborted sentinel
 //                                             "(stopped)" so the caller can
 //                                             render it as a final reply
-export async function askWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort } = {}) {
+//   onMaxIterations() → Promise<number>    — when the iteration budget runs
+//                                             out, caller decides whether to
+//                                             extend it. Return N>0 to grant
+//                                             N more iterations; 0/false to
+//                                             stop and return the canned
+//                                             "(reached iteration limit)".
+export async function askWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
   const convo = [...messages];
-  for (let i = 0; i < maxIterations; i++) {
+  let i = 0;
+  let budget = maxIterations;
+  while (i < budget) {
     if (shouldAbort?.()) return "(stopped)";
     const res = await bridgeRequest({
       type: "proxy", provider: "claude", path: "/v1/messages", method: "POST",
@@ -163,6 +171,11 @@ export async function askWithTools(messages, { system, tools, executor, maxItera
       }
     }
     convo.push({ role: "user", content: toolResults });
+    i++;
+    if (i >= budget && onMaxIterations) {
+      const more = await onMaxIterations();
+      if (typeof more === "number" && more > 0) budget += more;
+    }
   }
-  return "(reached max tool turns without a final answer — ask again)";
+  return "(reached iteration limit)";
 }

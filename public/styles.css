@@ -621,7 +621,7 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 /* Enroll prompt — appears on a connected robot whose authorized list
    doesn't contain this dashboard's fingerprint. Empty list = TOFU invite. */
 
-/* VLM "Watch with Pip" toggle under the camera stream. Checkbox sits flush
+/* VLM "Live scene" toggle under the camera stream. Checkbox sits flush
    with the stream; the last observed scene text lays out beneath, muted. */
 .camera-watch-row {
   display: flex;
@@ -1399,6 +1399,30 @@ dialog[open]::backdrop { opacity: 1; }
   font-size: 11px;
   padding: 2px 8px;
   min-height: 22px;
+}
+
+/* Inline ask — Pip needs an answer from the desktop user. Same primitive
+   serves ask_human (chat fallback) AND the Continue/Stop prompt when
+   askWithTools hits its iteration budget. */
+.pip-ask {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--duke-persimmon) 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--duke-persimmon) 6%, transparent);
+}
+.pip-ask-q { font-size: 13px; margin-bottom: 6px; color: var(--ink); }
+.pip-ask-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.pip-ask-form { display: flex; gap: 6px; align-items: stretch; }
+.pip-ask-input {
+  flex: 1;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  min-width: 0;
 }
 
 /* Collapsed turn — one button-styled line. Click to expand back. Shows the
