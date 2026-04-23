@@ -506,6 +506,7 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
   color: var(--ink-muted);
 }
 
+.pinout-edit-opt { color: var(--ink-muted); font-weight: 400; font-size: 11px; }
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
 .pinout-edit { margin-top: 16px; }
 .pinout-edit-section {

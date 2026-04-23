@@ -256,6 +256,17 @@ function renderEdit(entry) {
                    data-path="motors_pins.right.in2" value="${mr.in2 ?? 24}">
           </label>
           <div class="meta" style="margin-top: 6px;">Wire each Pi GPIO to the driver board's IN pin of the same number (IN1 ↔ IN1, etc.). Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
+          <label class="pinout-edit-row" style="margin-top: 10px;">
+            <span class="pinout-edit-label">ENA · left speed <span class="pinout-edit-opt">(optional)</span></span>
+            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
+                   data-path="motors_pins.left.ena" data-optional="true" value="${ml.ena ?? ""}" placeholder="—">
+          </label>
+          <label class="pinout-edit-row">
+            <span class="pinout-edit-label">ENB · right speed <span class="pinout-edit-opt">(optional)</span></span>
+            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
+                   data-path="motors_pins.right.enb" data-optional="true" value="${mr.enb ?? ""}" placeholder="—">
+          </label>
+          <div class="meta" style="margin-top: 6px;">ENA/ENB are only needed for PWM speed control. Leave blank if the driver board's ENA/ENB jumpers are on (factory default) — gpiozero PWMs the direction pins instead. Remove the jumpers + wire to a GPIO + set here for speed control via the enable line.</div>
         </div>
       </div>
       <div class="pinout-edit-section">
@@ -288,14 +299,24 @@ function renderEdit(entry) {
   $("pinout-body").querySelectorAll("input[data-path]").forEach(el => {
     el.addEventListener("input", () => {
       const path = el.dataset.path.split(".");
-      const v = parseInt(el.value, 10);
-      if (Number.isNaN(v)) return;
+      const raw = el.value.trim();
       let obj = editConfig;
       for (let i = 0; i < path.length - 1; i++) {
         obj[path[i]] ||= {};
         obj = obj[path[i]];
       }
-      obj[path[path.length - 1]] = v;
+      const key = path[path.length - 1];
+      // Empty value on an optional field clears the key from config — lets
+      // the user remove an ENA/ENB assignment cleanly. Required fields
+      // ignore empty (user hasn't typed a new value yet).
+      if (raw === "") {
+        if (el.dataset.optional === "true") delete obj[key];
+        renderEdit(entry);
+        return;
+      }
+      const v = parseInt(raw, 10);
+      if (Number.isNaN(v)) return;
+      obj[key] = v;
       renderEdit(entry);
     });
   });
@@ -422,5 +443,23 @@ export function openPinoutDialog(id) {
   editConfig = null;
   $("pinout-title").textContent = `Pinout — ${entry.name}`;
   renderView(entry);
+  $("pinout-modal").showModal();
+}
+
+// Read-only view of the Pi 40-pin header, no robot context. Useful as a
+// wiring reference when you haven't paired anything yet — colors by pin
+// kind (3V3 / 5V / GND / GPIO / I²C ID EEPROM) with no claims overlaid.
+export function openPinoutReference() {
+  initOnce();
+  currentId = null;
+  editMode = false;
+  editConfig = null;
+  $("pinout-title").textContent = "GPIO reference";
+  $("pinout-body").innerHTML = `
+    ${renderBoard({})}
+    <div class="meta" style="margin-top: 12px;">
+      Physical layout of the Raspberry Pi 40-pin header. Power rails in red / orange, grounds in gray, I²C ID EEPROM in purple, GPIO in gold. Pair a robot to edit its pin assignments — the same view then highlights claimed pins.
+    </div>
+  `;
   $("pinout-modal").showModal();
 }
