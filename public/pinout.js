@@ -157,7 +157,7 @@ const ROLE_TO_TERMINAL = {
   "right enb": "enb",
 };
 
-function renderBoardWithDriver(claims, motors) {
+function renderBoardWithDriver(claims) {
   const driverPcb = `
     <rect class="driver-pcb" x="15" y="${DRIVER_Y}" width="${PI_W - 30}" height="${DRIVER_H}" rx="6"/>
     <text class="driver-title" x="${PI_W / 2}" y="${DRIVER_Y + 22}" text-anchor="middle">H-bridge driver inputs</text>
@@ -172,12 +172,15 @@ function renderBoardWithDriver(claims, motors) {
     `;
   }).join("");
 
+  // Wires derive from the same claims map used to decorate Pi pins — so
+  // view mode and edit mode render wires identically. Each motors-claimed
+  // pin has a role like "left in1" that maps to a driver terminal.
   const wires = [];
-  for (const [role, gpio] of flattenPins(motors || {})) {
-    const driverRole = ROLE_TO_TERMINAL[role];
+  for (const [physStr, info] of Object.entries(claims)) {
+    if (info?.cap !== "motors") continue;
+    const driverRole = ROLE_TO_TERMINAL[info.role];
     if (!driverRole) continue;
-    const phys = GPIO_TO_PHYS.get(gpio);
-    if (!phys) continue;
+    const phys = parseInt(physStr, 10);
     const piPt = piPinCenter(phys);
     if (!piPt) continue;
     const termIdx = TERMINAL_ROLES.indexOf(driverRole);
@@ -238,8 +241,12 @@ function renderView(entry) {
   const editBtn = connected
     ? `<button class="secondary sm" id="pinout-edit-btn">Edit pins</button>`
     : "";
+  // Show Pi + driver diagram with wires when there are motor claims;
+  // plain Pi board otherwise. The diagram is the high-value reference
+  // while wiring — users need to see it in view mode, not only edit.
+  const hasMotorClaims = Object.values(claims).some(c => c?.cap === "motors");
   $("pinout-body").innerHTML = `
-    ${renderBoard(claims)}
+    ${hasMotorClaims ? renderBoardWithDriver(claims) : renderBoard(claims)}
     <div class="row" style="margin-top: 12px;">${legend}${editBtn}</div>
   `;
   $("pinout-edit-btn")?.addEventListener("click", () => beginEdit(entry.id));
@@ -304,7 +311,7 @@ function renderEdit(entry) {
   ].join("");
   const conflicts = hard;  // only hard blocks Save
   $("pinout-body").innerHTML = `
-    ${renderBoardWithDriver(claims, motors)}
+    ${renderBoardWithDriver(claims)}
     <div class="pinout-edit">
       <div class="pinout-edit-section">
         <label class="pinout-edit-row">
