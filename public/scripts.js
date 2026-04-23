@@ -250,9 +250,21 @@ function loadTemplate(id) {
   const current = editor.value;
   // If the user has unsaved divergence from any known template, confirm.
   const isKnown = TEMPLATES.some(t => t.body === current);
-  if (current && !isKnown && !confirm(`Replace current script with "${tpl.name}"?`)) return;
+  if (current && !isKnown && !confirm(`Replace current script with "${tpl.name}"?`)) return false;
   editor.value = tpl.body;
   saveBody(tpl.body);
+  return true;
+}
+
+// Pick whichever template's body matches the editor verbatim, or "" if none
+// — keeps the dropdown reading as STATE (what's loaded) instead of an action
+// menu that fires-and-forgets.
+function syncDropdownToEditor() {
+  const sel = $("scripts-template");
+  if (!sel) return;
+  const ed = $("scripts-editor").value;
+  const match = TEMPLATES.find(t => t.body === ed);
+  sel.value = match ? match.id : "";
 }
 
 // Per-robot wrapper. Methods are thin pass-throughs to the existing capability
@@ -365,6 +377,7 @@ async function runScript() {
 export function openScriptsDialog() {
   const dlg = $("scripts-modal");
   $("scripts-editor").value = loadBody();
+  syncDropdownToEditor();
   dlg.showModal();
 }
 
@@ -373,14 +386,17 @@ export function init() {
   _wired = true;
   $("scripts-close").addEventListener("click", () => $("scripts-modal").close());
   $("scripts-run").addEventListener("click", runScript);
-  // Lead with a placeholder option so resetting sel.value to "" after a load
-  // returns to a visible "—" instead of a blank field. innerHTML overwrites
-  // any placeholder in the markup, so we re-add it here.
+  // Placeholder option for "no template loaded / editor diverged from any known
+  // template." innerHTML overwrites any placeholder in the markup, so we re-add
+  // it here. Dropdown reads as STATE (what's currently loaded) — change fires
+  // load + leaves the picked option visible. If the user has unsaved edits and
+  // cancels the confirm, snap the dropdown back to whatever the editor holds.
   const sel = $("scripts-template");
-  sel.innerHTML = `<option value="">—</option>` +
+  sel.innerHTML = `<option value="">— (custom)</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
   sel.addEventListener("change", () => {
-    if (sel.value) { loadTemplate(sel.value); sel.value = ""; }
+    if (!sel.value) return;
+    if (!loadTemplate(sel.value)) syncDropdownToEditor();
   });
   $("scripts-editor").addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
