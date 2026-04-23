@@ -348,7 +348,7 @@ button.icon:hover { background: var(--line); color: var(--ink); }
    button without competing for visual weight. Default neutral; overridden by
    the .status-* classes below based on connect state. */
 .robot {
-  padding: 14px 18px 14px 21px;  /* +3px left to clear the stripe */
+  padding: 12px 16px 12px 19px;  /* +3px left to clear the stripe */
   border-left: 3px solid var(--border-subtle);
   /* No transition on stripe color — status changes are rare (a few per
      session) and the animated repaint earns no perceptible value. */
@@ -362,23 +362,31 @@ button.icon:hover { background: var(--line); color: var(--ink); }
    .robot-meta is the secondary line under it (WiFi state, uptime, etc) —
    only rendered when there's actual data, so empty cards stay compact. */
 .robot .label-btn { font-size: 15px; }
+
+/* Secondary row pairs the meta line and the CTA on one row — both are
+   subordinate to the name. Saves ~25 px of vertical wasted space vs. the
+   previous CTA-on-its-own-row layout. Meta aligned under the name (26 px
+   matches the chevron + gap). CTA right-aligns via margin-left:auto so it
+   sits at the card's far edge whether meta is present or not. */
+.robot-secondary {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+}
 .robot-meta {
-  margin-top: 4px;
-  margin-left: 26px;  /* aligns under the name (after chevron + gap) */
+  margin-left: 26px;
   font-size: 12px;
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
+  /* Truncate so a long meta line doesn't push the CTA off the card. */
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-/* Primary action (Connect / Pair / Re-pair / Disconnect) lives on its own row
-   below the identity + meta. Reads as the card's CTA, not as a sibling of the
-   menu button. Right-aligned so the button is at the eye's natural landing
-   spot after scanning the card top-down. The ⋯ menu stays inline with the
-   identity row — different intent (more options vs. primary action). */
 .robot-cta {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
+  margin-left: auto;  /* right-aligns even when meta is empty */
 }
 
 /* Whole row is a generous click target — cursor hints it, but the visual
@@ -430,7 +438,7 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   width: 12px;
   height: 12px;
   color: var(--ink-muted);
-  opacity: 0.6;
+  opacity: 0.85;  /* 0.6 was barely visible on dark theme */
   flex-shrink: 0;
   transform: rotate(-90deg);
   transition: transform 0.2s ease-out;

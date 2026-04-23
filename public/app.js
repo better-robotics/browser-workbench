@@ -733,21 +733,23 @@ function renderEntry(entry) {
           ${nameHtml}${typeBadge}
         </button>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
-        ${metaRow}
       </div>
       <div class="robot-actions">
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>
     </div>
-    <div class="robot-cta">
-      ${connected
-        ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
-        : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
-            connecting ? "Connecting…"
-            : entry.staleHandle ? "Re-pair"
-            : entry.device ? "Connect"
-            : "Pair"
-          }</button>`}
+    <div class="robot-secondary">
+      ${metaRow}
+      <div class="robot-cta">
+        ${connected
+          ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
+          : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
+              connecting ? "Connecting…"
+              : entry.staleHandle ? "Re-pair"
+              : entry.device ? "Connect"
+              : "Pair"
+            }</button>`}
+      </div>
     </div>
     ${stateHtml}
     ${firmwareDown ? `
