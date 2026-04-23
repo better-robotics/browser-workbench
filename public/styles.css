@@ -914,6 +914,14 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 }
 .pinout-svg .motor-wire.wire-input  { stroke: #60a5fa; }
 .pinout-svg .motor-wire.wire-enable { stroke: #a855f7; stroke-dasharray: 5 3; }
+/* Supply-side note: reminder of non-wireable connections the user must
+   make themselves (GND between Pi and driver, external motor power).
+   Muted so it reads as annotation, not a configurable element. */
+.pinout-svg .driver-supply {
+  font: 400 10px ui-sans-serif, -apple-system, sans-serif;
+  fill: #9ca3af;
+  font-style: italic;
+}
 .pinout-svg .pin-label {
   font: 600 11px ui-monospace, "SF Mono", Menlo, monospace;
   fill: #e5e5e5;

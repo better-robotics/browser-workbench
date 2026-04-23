@@ -140,8 +140,8 @@ function renderBoard(claims) {
 // Low opacity keeps wires visually secondary to the pin dots themselves.
 const DRIVER_GAP = 60;
 const DRIVER_Y   = PI_H + DRIVER_GAP;          // 568
-const DRIVER_H   = 150;
-const TOTAL_H    = DRIVER_Y + DRIVER_H;        // 718
+const DRIVER_H   = 175;
+const TOTAL_H    = DRIVER_Y + DRIVER_H;        // 743
 const TERM_R     = 7;
 const TERMINAL_XS = [45, 117, 189, 261, 333, 405];
 const TERMINAL_ROLES = ["ena", "in1", "in2", "in3", "in4", "enb"];
@@ -171,6 +171,19 @@ function renderBoardWithDriver(claims) {
       <circle class="driver-pin ${kind}" cx="${cx}" cy="${TERM_CY}" r="${TERM_R}" data-role="${role}"/>
     `;
   }).join("");
+
+  // Decorative supply-side note — reminds the user of connections they
+  // must make themselves (not wireable via the dashboard config). Most
+  // common failure after removing ENA/ENB jumpers: no common GND between
+  // Pi and driver, or motor supply not hooked up. Rendered as muted text
+  // at the bottom of the driver PCB, visually subordinate to the
+  // configurable INs and ENs above.
+  const supplyY = TERM_CY + 45;
+  const supplyNote = `
+    <text class="driver-supply" x="${PI_W / 2}" y="${supplyY}" text-anchor="middle">
+      Also connect (not shown): Pi GND ↔ L298N GND · motor supply 7–12V to VS
+    </text>
+  `;
 
   // Wires derive from the same claims map used to decorate Pi pins — so
   // view mode and edit mode render wires identically. Each motors-claimed
@@ -202,6 +215,7 @@ function renderBoardWithDriver(claims) {
         ${driverPcb}
         ${terminals}
         ${wires.join("")}
+        ${supplyNote}
       </svg>
     </div>
   `;
