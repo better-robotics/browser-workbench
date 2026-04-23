@@ -25,6 +25,7 @@ import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat } from "./assistant.js";
 import { initPhones, setPhoneChatHandler } from "./phones.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
+import { initHelpers } from "./helpers.js";
 
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
@@ -1370,6 +1371,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initAssistant();
   initPhones();
   setPhoneChatHandler(text => handleRemoteChat(text, { source: "phone" }));
+  initHelpers();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
   // System Access API; no reason to pull it into first-paint. prepare.js's

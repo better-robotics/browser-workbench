@@ -7,23 +7,30 @@
 // in pip-tools.js call listPhones()/sendToPhone() to let the agent see and
 // notify paired phones.
 import { $ } from "./dom.js";
+// helpers.js owns the visible card render now; phones.js notifies via
+// setPhonesChangeHandler so this module stays unaware of the dashboard layout.
 import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 
-const _phones = new Map();  // roomId → { id, label, peer, connectedAt }
+const _phones = new Map();  // roomId → { id, label, peer, connectedAt, status, statusDetail }
 // askId → { resolve, timeout, phoneId } — outstanding ask_human requests.
 // Keyed by askId, not phoneId, so simultaneous asks to different phones
 // (or the same one, though Pip shouldn't) don't collide.
 const _pendingAsks = new Map();
 let _chatHandler = null;
 let _pendingSession = null;
+// helpers.js subscribes to phone-state changes so it can re-render the
+// "Your helpers" section. Kept as a single handler — only one consumer.
+let _changeHandler = null;
 
 export function setPhoneChatHandler(fn) { _chatHandler = fn; }
+export function setPhonesChangeHandler(fn) { _changeHandler = fn; }
 
 export function listPhones() {
   return [..._phones.values()].map(p => ({
     id: p.id, label: p.label, connectedAt: p.connectedAt,
+    status: p.status || "connected", statusDetail: p.statusDetail || "",
   }));
 }
 
@@ -243,42 +250,5 @@ function sendTargetInfo(peer) {
 }
 
 function renderPhones() {
-  const heading = $("phones-heading");
-  const list = $("phones-list");
-  if (!list || !heading) return;
-  if (_phones.size === 0) {
-    heading.hidden = true;
-    list.innerHTML = "";
-    return;
-  }
-  heading.hidden = false;
-  list.innerHTML = [..._phones.values()].map(p => {
-    const dotClass = p.status === "connected" ? "connected"
-      : p.status === "reconnecting" ? "connecting"
-      : "error";
-    const statusLine = p.status === "connected"
-      ? `Chat + joypad · ${escapeHtml(p.id.slice(0, 8))}…`
-      : p.status === "reconnecting"
-        ? `Reconnecting… · ${escapeHtml(p.statusDetail || "")}`
-        : `Offline · ${escapeHtml(p.statusDetail || "")}`;
-    return `
-      <section class="card phone-tile">
-        <div class="row">
-          <div class="robot-identity">
-            <div class="label">
-              <span class="dot ${dotClass}"></span>
-              ${escapeHtml(p.label)}
-              <span class="type-badge">PHONE</span>
-            </div>
-            <div class="status">${statusLine}</div>
-          </div>
-        </div>
-      </section>
-    `;
-  }).join("");
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  _changeHandler?.();
 }

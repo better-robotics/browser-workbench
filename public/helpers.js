@@ -1,0 +1,279 @@
+import { $, escapeHtml } from "./dom.js";
+import { listPhones, sendToPhone, setPhonesChangeHandler } from "./phones.js";
+
+// Helpers are non-mobile observers/operators (paired phones, this laptop's
+// webcam). Sibling concept to robots — same card visual language, distinct
+// backing data. Robots are controllable mobile actors; helpers are extra
+// eyes / extra hands that the operator brings into the session.
+
+const LAPTOP_ID = "laptop";
+
+// Singleton state for "this laptop's webcam". One camera per laptop is the
+// common case; if multi-cam ever matters we'll grow this into a Map.
+const _laptop = {
+  id: LAPTOP_ID,
+  label: "This laptop's camera",
+  status: "idle",     // "idle" | "starting" | "live" | "error"
+  error: null,
+  stream: null,
+  trackSettings: null,
+  startedAt: null,
+};
+
+let _videoEls = new Map();  // helperId → <video> element (live laptop cam)
+
+export function initHelpers() {
+  setPhonesChangeHandler(() => render());
+  $("helpers-pair-phone-btn")?.addEventListener("click", () => {
+    $("pair-phone-btn")?.click();
+  });
+  render();
+}
+
+export function listHelpers() {
+  const out = [];
+  for (const p of listPhones()) {
+    out.push({
+      id: `phone:${p.id}`, kind: "phone", label: p.label || "Phone",
+      status: p.status, connectedAt: p.connectedAt,
+    });
+  }
+  out.push({
+    id: LAPTOP_ID, kind: "laptop", label: _laptop.label,
+    status: _laptop.status === "live" ? "connected" : _laptop.status,
+    resolution: _laptop.trackSettings
+      ? { width: _laptop.trackSettings.width, height: _laptop.trackSettings.height }
+      : null,
+  });
+  return out;
+}
+
+export async function startHelperCamera(helperId) {
+  if (helperId === LAPTOP_ID) return await startLaptopCam();
+  if (helperId.startsWith("phone:")) {
+    return { error: "phones don't expose a video stream to the desktop yet — chat + joypad only" };
+  }
+  return { error: `unknown helper: ${helperId}` };
+}
+
+export async function stopHelperCamera(helperId) {
+  if (helperId === LAPTOP_ID) { stopLaptopCam(); return { ok: true }; }
+  if (helperId.startsWith("phone:")) {
+    return { error: "phones don't expose a video stream to the desktop yet" };
+  }
+  return { error: `unknown helper: ${helperId}` };
+}
+
+export function takeHelperSnapshot(helperId) {
+  if (helperId === LAPTOP_ID) return captureLaptopFrame();
+  if (helperId.startsWith("phone:")) {
+    return { error: "phone snapshot unavailable — paired phones don't expose a video track to the desktop" };
+  }
+  return { error: `unknown helper: ${helperId}` };
+}
+
+async function startLaptopCam() {
+  if (_laptop.status === "live") return { ok: true, already: true };
+  _laptop.status = "starting";
+  _laptop.error = null;
+  render();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    _laptop.stream = stream;
+    _laptop.status = "live";
+    _laptop.startedAt = Date.now();
+    const track = stream.getVideoTracks()[0];
+    _laptop.trackSettings = track ? track.getSettings() : null;
+    track?.addEventListener("ended", () => stopLaptopCam());
+    render();
+    return { ok: true };
+  } catch (err) {
+    _laptop.status = "error";
+    _laptop.error = err?.message || String(err);
+    _laptop.stream = null;
+    render();
+    return { error: _laptop.error };
+  }
+}
+
+function stopLaptopCam() {
+  if (_laptop.stream) {
+    for (const t of _laptop.stream.getTracks()) { try { t.stop(); } catch {} }
+  }
+  _laptop.stream = null;
+  _laptop.trackSettings = null;
+  _laptop.startedAt = null;
+  _laptop.status = "idle";
+  _laptop.error = null;
+  _videoEls.delete(LAPTOP_ID);
+  render();
+}
+
+function captureLaptopFrame(maxDim = 640, quality = 0.8) {
+  const v = _videoEls.get(LAPTOP_ID);
+  if (!v || _laptop.status !== "live") {
+    return { error: "laptop camera isn't live — call start_helper_camera first" };
+  }
+  let w = v.videoWidth, h = v.videoHeight;
+  if (!w || !h) return { error: "laptop camera frame not ready yet" };
+  if (Math.max(w, h) > maxDim) {
+    const s = maxDim / Math.max(w, h);
+    w = Math.round(w * s); h = Math.round(h * s);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  try {
+    canvas.getContext("2d").drawImage(v, 0, 0, w, h);
+    return { imageDataUrl: canvas.toDataURL("image/jpeg", quality), width: w, height: h };
+  } catch (err) {
+    return { error: `frame capture failed: ${err?.message || err}` };
+  }
+}
+
+function render() {
+  const list = $("helpers-list");
+  if (!list) return;
+  const phones = listPhones();
+  const cards = [];
+
+  for (const p of phones) cards.push(renderPhoneCard(p));
+  cards.push(renderLaptopCard());
+
+  if (phones.length === 0 && _laptop.status === "idle") {
+    // Empty-ish state: only the laptop card is here, in idle. We still show
+    // the laptop card (it's the operator's affordance) but add a thin hint.
+    list.innerHTML = `
+      ${cards.join("")}
+      <div class="helpers-empty meta">No phones paired yet — tap "Pair phone" to add one.</div>
+    `;
+  } else {
+    list.innerHTML = cards.join("");
+  }
+  wire();
+}
+
+function statusClass(p) {
+  if (p.status === "connected") return "status-connected";
+  if (p.status === "reconnecting" || p.status === "starting") return "status-connecting";
+  if (p.status === "error") return "status-error";
+  return "";
+}
+
+function renderPhoneCard(p) {
+  const cls = statusClass(p);
+  const statusText = p.status === "connected"
+    ? ""
+    : p.status === "reconnecting"
+      ? "Reconnecting…"
+      : p.status === "error"
+        ? "Offline"
+        : escapeHtml(p.status);
+  const when = p.connectedAt ? new Date(p.connectedAt).toLocaleTimeString() : "—";
+  return `
+    <section class="card robot helper ${cls}" data-helper-id="${escapeHtml(`phone:${p.id}`)}">
+      <div class="row">
+        <div class="robot-identity">
+          <button class="label-btn" data-action="toggle-expand" aria-expanded="false">
+            <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
+            ${escapeHtml(p.label || "Phone")}
+            <span class="type-badge">PHONE</span>
+          </button>
+          ${statusText ? `<div class="status">${statusText}</div>` : ""}
+        </div>
+      </div>
+      <div class="robot-secondary">
+        <div class="robot-meta">${escapeHtml(`id ${p.id.slice(0, 8)}…`)}</div>
+        <div class="robot-cta">
+          <button class="secondary sm" data-action="phone-notice" data-phone-id="${escapeHtml(p.id)}">Send notice</button>
+        </div>
+      </div>
+      <div class="robot-body" hidden>
+        <div class="meta">Connected at ${escapeHtml(when)}</div>
+        <div class="meta">Phones currently support chat + joypad. Camera passthrough not yet wired.</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderLaptopCard() {
+  const live = _laptop.status === "live";
+  const starting = _laptop.status === "starting";
+  const errored = _laptop.status === "error";
+  const cls = live ? "status-connected" : starting ? "status-connecting" : errored ? "status-error" : "";
+  const statusText = errored ? "Error" : starting ? "Starting…" : "";
+  const res = _laptop.trackSettings
+    ? `${_laptop.trackSettings.width || "?"}×${_laptop.trackSettings.height || "?"}`
+    : "";
+  const meta = live ? `Streaming · ${escapeHtml(res)}` : "Idle";
+  const action = live
+    ? `<button class="secondary sm" data-action="laptop-stop">Stop</button>`
+    : `<button class="sm" data-action="laptop-start" ${starting ? "disabled" : ""}>${starting ? "Starting…" : "Start"}</button>`;
+  const body = live
+    ? `<video class="helper-video" data-helper-video="${LAPTOP_ID}" autoplay playsinline muted></video>`
+    : errored
+      ? `<div class="meta">${escapeHtml(_laptop.error || "Camera unavailable")}</div>`
+      : `<div class="meta">Click Start to share this laptop's webcam with the dashboard. The browser will ask for permission once.</div>`;
+  return `
+    <section class="card robot helper expanded ${cls}" data-helper-id="${LAPTOP_ID}">
+      <div class="row">
+        <div class="robot-identity">
+          <button class="label-btn" data-action="toggle-expand" aria-expanded="true">
+            <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
+            ${escapeHtml(_laptop.label)}
+            <span class="type-badge">CAM</span>
+          </button>
+          ${statusText ? `<div class="status">${statusText}</div>` : ""}
+        </div>
+      </div>
+      <div class="robot-secondary">
+        <div class="robot-meta">${meta}</div>
+        <div class="robot-cta">${action}</div>
+      </div>
+      <div class="robot-body">
+        ${body}
+      </div>
+    </section>
+  `;
+}
+
+function wire() {
+  const list = $("helpers-list");
+  if (!list) return;
+
+  list.querySelectorAll('[data-action="laptop-start"]').forEach(btn => {
+    btn.addEventListener("click", () => startLaptopCam());
+  });
+  list.querySelectorAll('[data-action="laptop-stop"]').forEach(btn => {
+    btn.addEventListener("click", () => stopLaptopCam());
+  });
+  list.querySelectorAll('[data-action="phone-notice"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const phoneId = btn.dataset.phoneId;
+      const text = prompt("Notice text to send to phone:");
+      if (text == null || text.trim() === "") return;
+      sendToPhone(phoneId, text.trim());
+    });
+  });
+  list.querySelectorAll('[data-action="toggle-expand"]').forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const card = btn.closest(".helper");
+      const body = card?.querySelector(".robot-body");
+      if (!body) return;
+      const willOpen = body.hasAttribute("hidden");
+      body.toggleAttribute("hidden", !willOpen);
+      btn.setAttribute("aria-expanded", String(willOpen));
+      card.classList.toggle("expanded", willOpen);
+    });
+  });
+
+  // Mount the live MediaStream into the freshly-rendered <video> element.
+  // Has to happen after innerHTML rebuild — assigning srcObject before the
+  // element is in the DOM is fine, but we re-render on every state change so
+  // we re-attach unconditionally to be safe.
+  const v = list.querySelector(`[data-helper-video="${LAPTOP_ID}"]`);
+  if (v && _laptop.stream) {
+    v.srcObject = _laptop.stream;
+    _videoEls.set(LAPTOP_ID, v);
+  }
+}

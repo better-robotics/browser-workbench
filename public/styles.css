@@ -1904,8 +1904,30 @@ dialog[open]::backdrop { opacity: 1; }
   word-break: break-all;
 }
 
-/* ── Phones list (desktop) ────────────────────────────────────────────── */
-.phone-tile .type-badge { background: var(--border-subtle); color: var(--accent); }
+/* ── Helpers list (paired phones + this laptop's webcam) ──────────────── */
+/* Helpers reuse the .robot card visual language (status stripe, identity row,
+   secondary row, expandable body). Distinct semantics — observers/operators
+   the operator brings into a session — but the eye-shape stays consistent. */
+#helpers-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+#helpers-list > .card { margin-bottom: 0; max-width: 440px; }
+.helper .type-badge { background: var(--border-subtle); color: var(--accent); }
+.helper-video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+  display: block;
+  margin-top: 8px;
+}
+.helpers-empty {
+  grid-column: 1 / -1;
+  padding: 4px 4px 0;
+}
 
 /* ── Phone-side page (phone.html) ─────────────────────────────────────── */
 body.phone {

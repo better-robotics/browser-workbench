@@ -2,6 +2,9 @@ import { state } from "./state.js";
 import { waitOpsResponse } from "./ops-response.js";
 import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
 import { listPhones, sendToPhone, askHuman } from "./phones.js";
+import {
+  listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
+} from "./helpers.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import {
   getLatestScene as getRobotScene,
@@ -112,6 +115,48 @@ const ALL_TOOLS = [
       required: ["id", "text"],
     },
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "list_helpers",
+    description: "Returns the operator's non-mobile observers/operators: paired phones (id 'phone:<phoneId>') and this laptop's webcam (id 'laptop'). Each carries kind, label, status. Use to discover an external viewpoint when the robot has no usable camera, or when a third-party angle would resolve ambiguity.",
+    input_schema: { type: "object", properties: {}, required: [] },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "take_helper_snapshot",
+    description: "Capture one JPEG frame from a helper's video source. Use when the robot's onboard camera can't see what matters (occluded, wrong angle, no camera at all) but a helper can. Returns { imageDataUrl, width, height } on success. Phones currently can't expose video to the desktop — call only on 'laptop' or future video-capable helpers.",
+    input_schema: {
+      type: "object",
+      properties: {
+        helper_id: { type: "string", description: "Helper id from list_helpers ('laptop' or 'phone:<phoneId>')." },
+      },
+      required: ["helper_id"],
+    },
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "start_helper_camera",
+    description: "Turn on the helper's camera so subsequent take_helper_snapshot calls work. For 'laptop' this prompts the user once for browser camera permission. Idempotent — safe to call when already live.",
+    input_schema: {
+      type: "object",
+      properties: {
+        helper_id: { type: "string", description: "Helper id from list_helpers." },
+      },
+      required: ["helper_id"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "stop_helper_camera",
+    description: "Release the helper's camera. Symmetric with start_helper_camera; idempotent.",
+    input_schema: {
+      type: "object",
+      properties: {
+        helper_id: { type: "string", description: "Helper id from list_helpers." },
+      },
+      required: ["helper_id"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
     name: "get_robot_detections",
@@ -292,6 +337,24 @@ async function dispatch(name, input) {
       const text = String(input.text || "").slice(0, 300);
       const ok = sendToPhone(input.id, text);
       return ok ? { ok: true } : { error: `no phone with id ${input.id}` };
+    }
+    case "list_helpers": {
+      return listHelpers();
+    }
+    case "take_helper_snapshot": {
+      const id = String(input.helper_id || "");
+      if (!id) return { error: "helper_id is required" };
+      return takeHelperSnapshot(id);
+    }
+    case "start_helper_camera": {
+      const id = String(input.helper_id || "");
+      if (!id) return { error: "helper_id is required" };
+      return await startHelperCamera(id);
+    }
+    case "stop_helper_camera": {
+      const id = String(input.helper_id || "");
+      if (!id) return { error: "helper_id is required" };
+      return await stopHelperCamera(id);
     }
     case "get_robot_detections": {
       const entry = state.devices.get(input.id);
