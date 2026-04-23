@@ -17,13 +17,24 @@ function setStatus(msg) {
 
 async function connect() {
   if (_port) return;
-  setStatus("requesting port…");
-  try {
-    _port = await navigator.serial.requestPort();
-  } catch (err) {
-    if (err.name !== "NotFoundError") setStatus(`pick cancelled: ${err.message}`);
-    else setStatus("disconnected");
-    return;
+  // Skip the picker when we already have permission for a port. Chrome
+  // persists the grant across dialog opens AND page reloads (per origin),
+  // so a user who picked "BetterPi" or "ESP32" once doesn't get prompted
+  // again. Only prompt when there are zero or multiple permitted ports.
+  let known = [];
+  try { known = await navigator.serial.getPorts(); } catch {}
+  if (known.length === 1) {
+    _port = known[0];
+    setStatus("opening…");
+  } else {
+    setStatus("requesting port…");
+    try {
+      _port = await navigator.serial.requestPort();
+    } catch (err) {
+      if (err.name !== "NotFoundError") setStatus(`pick cancelled: ${err.message}`);
+      else setStatus("disconnected");
+      return;
+    }
   }
   // Open the port BEFORE handing it to <ewt-console>. ewt-console assumes the
   // port is already open and starts reading immediately on insert; without
