@@ -846,10 +846,17 @@ function renderEntry(entry) {
       </div>
     ` : ""}
   `;
-  for (const cap of CAPABILITIES) cap.wireActions(entry, entry.node);
-  for (const cap of entry.runtimeCaps || []) cap.wireActions(entry, entry.node);
-  for (const cap of CAPABILITIES) cap.postRender?.(entry);
-  for (const cap of entry.runtimeCaps || []) cap.postRender?.(entry);
+  // Per-cap try/catch: one cap's wireActions throwing shouldn't silently
+  // break wiring for every cap that comes after it. Surface the error so
+  // future regressions are visible instead of mysteriously-not-working.
+  const safeCall = (fn, label, cap) => {
+    try { fn(); }
+    catch (err) { console.warn(`[${label}] ${cap?.name || "?"}: ${err?.message || err}`); }
+  };
+  for (const cap of CAPABILITIES) safeCall(() => cap.wireActions(entry, entry.node), "wireActions", cap);
+  for (const cap of entry.runtimeCaps || []) safeCall(() => cap.wireActions(entry, entry.node), "wireActions", cap);
+  for (const cap of CAPABILITIES) safeCall(() => cap.postRender?.(entry), "postRender", cap);
+  for (const cap of entry.runtimeCaps || []) safeCall(() => cap.postRender?.(entry), "postRender", cap);
   // Per-capability disclosure toggles (cap-section.js renders the buttons).
   // Click hides/shows the body without a re-render and persists the choice
   // to localStorage so the user's collapse preferences stick across sessions.

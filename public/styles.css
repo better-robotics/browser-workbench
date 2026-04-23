@@ -582,6 +582,16 @@ details.tray.has-alert > summary::after {
   transition: transform 0.2s ease-out;
 }
 .cap-toggle[aria-expanded="true"] .cap-chevron { transform: rotate(0); }
+/* Plain header when there's no body to expand — same layout as cap-toggle
+   minus the click affordance. Aligns visually with toggleable headers. */
+.cap-static {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding-left: 20px;  /* matches chevron + gap on cap-toggle */
+}
 .cap-label { font-weight: 500; flex-shrink: 0; }
 .cap-state {
   color: var(--ink-muted);

@@ -47,19 +47,30 @@ export function setOpen(name, open) {
 // the bottom edge of the section — shown only when open. `action` is HTML
 // that goes in the header (typically the primary action button); always
 // visible. Pass `state` for the secondary text (e.g. "off", "L:0 R:0").
+//
+// When body is empty, the chevron is dropped — there's nothing to expand,
+// so a disclosure toggle would lie. The header renders as plain (label +
+// state + action) without the cap-toggle button.
 export function capSection({ name, label, state = "", action = "", body = "" }) {
+  const hasBody = !!body && body.trim().length > 0;
   const open = isOpen(name);
+  const labelHtml = `
+    <span class="cap-label">${escapeHtml(label)}</span>
+    ${state ? `<span class="cap-state">${escapeHtml(state)}</span>` : ""}
+  `;
+  const head = hasBody
+    ? `<button class="cap-toggle" data-cap-toggle="${escapeHtml(name)}" aria-expanded="${open}" type="button">
+         <svg class="icon-svg cap-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
+         ${labelHtml}
+       </button>`
+    : `<div class="cap-static">${labelHtml}</div>`;
   return `
     <div class="cap-section" data-cap-name="${escapeHtml(name)}">
       <div class="cap-header">
-        <button class="cap-toggle" data-cap-toggle="${escapeHtml(name)}" aria-expanded="${open}" type="button">
-          <svg class="icon-svg cap-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
-          <span class="cap-label">${escapeHtml(label)}</span>
-          ${state ? `<span class="cap-state">${escapeHtml(state)}</span>` : ""}
-        </button>
+        ${head}
         ${action}
       </div>
-      ${body ? `<div class="cap-body" ${open ? "" : "hidden"}>${body}</div>` : ""}
+      ${hasBody ? `<div class="cap-body" ${open ? "" : "hidden"}>${body}</div>` : ""}
     </div>
   `;
 }
