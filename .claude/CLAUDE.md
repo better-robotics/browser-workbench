@@ -58,6 +58,7 @@ Use case: when upgrading Claude, we can re-run a past session's inputs against t
 - **Pip / assistant** — `assistant.js`, `claude.js`, `pip-tools.js`, `replay.js`. Claude integration, tool schemas, tool executor, replay logging. Anything Pip reasons with belongs here.
 - **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`. BLE protocol, ops channel, per-capability cards + runtime handlers.
 - **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`. SD card prep, USB serial recovery, pinout config editor. Covers "getting a robot running or repaired."
+- **User code** — `scripts.js`. Browser-resident IDE for user-authored robot code. The `robot` API mirrors the BLE capability surface; user scripts are "another planner" under the same control-loop invariants as Pip. Persisted in localStorage; never deployed to the Pi. See `USER-CODE.md`.
 - **App shell** — `app.js`, `dom.js`, `state.js`, `settings.js`, `log.js`, `auth.js`, `passwords.js`, `index.html`, `styles.css`, `icons.svg`. Dashboard chrome and cross-cutting utilities.
 
 Likely next promotion candidate: **nav/** once `probe.js`, `navigate.js`, and friends land on top of the action-observation primitive.
@@ -70,5 +71,7 @@ Name what the system WON'T do, as loudly as what it will:
 - Not real-time. Decision loop is seconds, not milliseconds. Reactive control is impossible at this latency; pulse-bounded motion is how we live with that.
 - Not spatially aware. Monocular camera + VLM text — no depth, no SLAM, no metric maps. Navigation is semantic (landmarks, "further along the wall"), not geometric.
 - Not a Waymo / Roomba. Don't sell safety guarantees we can't make. Don't promise "the robot will not hit things" — promise "the robot will stop and ask when uncertain, and motion is pulse-bounded to cap any blind-motion blast radius."
+- Not a code-deploy target. User code runs in the browser, not on the Pi. The dashboard is where the brain lives (Pip already runs here); per-user logic lives where the brain lives. No GitHub Actions integration that pushes per-user code, no central sync server, no `scp`-from-the-dashboard. See `USER-CODE.md` for the full reasoning. The exception (canonical project firmware) is OTA'd via `public/firmware/`, owned by CI, and trust-rooted in the dashboard pairing.
+- Not a remote-shell host over BLE/WiFi. The dashboard's USB-C recovery xterm is the only shell surface, bounded by physical access. BLE/WiFi debug needs go through the typed ops channel (`get-log`, `get-config`, `restart-service`, …) — each verb is a deliberate, reviewable decision. Don't add a real-shell transport without a concrete use case that typed ops can't cover. See `firmware/pi_robot/SHELL.md`.
 
-When scope creeps — "can Pip just drive the robot to the kitchen?" — match it against these four. If the request requires something we've named we don't do, the honest answer is to surface that, not to quietly extend.
+When scope creeps — "can Pip just drive the robot to the kitchen?" — match it against these. If the request requires something we've named we don't do, the honest answer is to surface that, not to quietly extend.

@@ -87,6 +87,7 @@
   <button class="menu-item" id="menu-settings">Settings</button>
   <button class="menu-item" id="menu-gpio-ref" title="View the Raspberry Pi 40-pin header layout (no robot required)">GPIO reference</button>
   <button class="menu-item" id="menu-recovery" title="USB-C serial recovery console — works when BLE is dead">Recovery console</button>
+  <button class="menu-item" id="menu-scripts" title="Write JS that drives connected robots — runs in this tab, no upload">Scripts</button>
 </div>
 
 <div id="robot-menu" class="menu" popover="manual">
@@ -165,6 +166,22 @@
     <button class="icon" id="pinout-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <div id="pinout-body"></div>
+</dialog>
+
+<dialog id="scripts-modal" class="prepare-dialog scripts-modal">
+  <div class="modal-header">
+    <div class="label">Scripts</div>
+    <button class="icon" id="scripts-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
+  </div>
+  <p class="meta" style="margin: 0 0 10px;">
+    JavaScript that drives connected robots over BLE. Runs in this tab — nothing is uploaded to the Pi. <code>robot</code> is the first connected robot, <code>robots</code> is all of them. <code>sleep(ms)</code> and <code>log(...)</code> are available. Cmd/Ctrl-Enter to run. See <a href="https://github.com/jonasneves/better-robotics/blob/main/USER-CODE.md" target="_blank" rel="noopener">USER-CODE.md</a>.
+  </p>
+  <textarea id="scripts-editor" class="scripts-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+  <div class="row" style="margin: 10px 0 8px;">
+    <button class="sm" id="scripts-run">Run</button>
+    <button class="secondary sm" id="scripts-reset">Reset to example</button>
+  </div>
+  <div id="scripts-output" class="scripts-output"></div>
 </dialog>
 
 <dialog id="recovery-modal" class="prepare-dialog">

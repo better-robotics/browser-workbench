@@ -43,6 +43,8 @@ Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi
 
 **No server, no broker, no cloud in the critical path.** The browser pairs directly with the robot over BLE. WiFi, when present, is used only for content fetched from the same GitHub Pages deploy that serves the dashboard itself.
 
+**The brain lives in the browser.** The robot exposes typed primitives (move, sense, observe); the dashboard orchestrates them. This is true for the LLM-driven path (Pip's tool use) and equally true for user-authored code — the Scripts panel is a JS editor with a `robot` API that maps to BLE capabilities. No "upload code to the Pi" step. The same control-loop invariants apply: user scripts are just another planner, and the firmware's safety floor (motor watchdog, pulse caps) bounds them the same way it bounds Pip. See [USER-CODE.md](USER-CODE.md).
+
 ## Quickstart
 
 ### Using the project (no install)
@@ -74,6 +76,7 @@ Commit + push when ready. CI rebuilds firmware artifacts on every change under `
   - `gamepad.js`, `voice.js` — browser-input modules
   - `prepare.js` — SD card customization dialog
   - `recovery.js` — xterm.js USB serial console
+  - `scripts.js` — user code lives here, not on the Pi (see [USER-CODE.md](USER-CODE.md))
 
 ## Further reading
 

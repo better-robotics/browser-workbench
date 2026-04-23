@@ -965,6 +965,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const mod = await import("./recovery.js");
     mod.openRecoveryDialog();
   });
+  $("menu-scripts").addEventListener("click", async () => {
+    $("avatar-menu").hidePopover();
+    const mod = await import("./scripts.js");
+    mod.init();
+    mod.openScriptsDialog();
+  });
   $("label-close").addEventListener("click", () => $("label-modal").close());
   $("label-copy").addEventListener("click", async () => {
     try {
