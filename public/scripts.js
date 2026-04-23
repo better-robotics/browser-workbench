@@ -373,10 +373,12 @@ export function init() {
   _wired = true;
   $("scripts-close").addEventListener("click", () => $("scripts-modal").close());
   $("scripts-run").addEventListener("click", runScript);
+  // Lead with a placeholder option so resetting sel.value to "" after a load
+  // returns to a visible "—" instead of a blank field. innerHTML overwrites
+  // any placeholder in the markup, so we re-add it here.
   const sel = $("scripts-template");
-  sel.innerHTML = TEMPLATES.map(t =>
-    `<option value="${t.id}">${t.name}</option>`
-  ).join("");
+  sel.innerHTML = `<option value="">—</option>` +
+    TEMPLATES.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
   sel.addEventListener("change", () => {
     if (sel.value) { loadTemplate(sel.value); sel.value = ""; }
   });
