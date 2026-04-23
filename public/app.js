@@ -990,6 +990,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const mod = await import("./recovery.js");
     mod.openRecoveryDialog();
   });
+  $("menu-esp-serial").addEventListener("click", async () => {
+    $("avatar-menu").hidePopover();
+    const mod = await import("./esp-serial.js");
+    mod.init();
+    mod.openESPSerialDialog();
+  });
   $("menu-scripts").addEventListener("click", async () => {
     $("avatar-menu").hidePopover();
     const mod = await import("./scripts.js");

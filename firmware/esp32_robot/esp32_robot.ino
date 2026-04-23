@@ -42,6 +42,10 @@
 #define OTA_STATUS_CHAR_UUID  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
 #define FW_INFO_CHAR_UUID     "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
 #define MOTOR_CHAR_UUID       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
+// Telemetry char — system health (uptime, free heap, last reset reason).
+// Same UUID Pi uses, so the dashboard's existing telemetry handler works
+// across both platforms with no per-device branching.
+#define TELEMETRY_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9f"
 
 // Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 // Safe default on disconnect — no redundant channel required.
@@ -86,6 +90,9 @@ BLECharacteristic* ledChar        = nullptr;
 BLECharacteristic* wifiScanChar   = nullptr;
 BLECharacteristic* wifiJoinChar   = nullptr;
 BLECharacteristic* wifiStatusChar = nullptr;
+BLECharacteristic* telemetryChar  = nullptr;
+static unsigned long lastTelemetryAt = 0;
+static const unsigned long TELEMETRY_INTERVAL_MS = 10000;
 BLECharacteristic* otaDataChar    = nullptr;
 BLECharacteristic* otaStatusChar  = nullptr;
 BLECharacteristic* fwInfoChar     = nullptr;
@@ -776,6 +783,17 @@ void setup() {
   uint8_t motorInit[2] = { 0, 0 };
   motorChar->setValue(motorInit, 2);
 
+  // Telemetry: system-health observability matched to Pi's TELEMETRY_CHAR_UUID
+  // shape. ESP32 has one binary so there's no "main service down, device fine"
+  // state to recover from — the value here is *diagnostic*, not a separate
+  // recovery plane. JSON: {uptime_ms, free_heap, free_psram, reset_reason, sha}.
+  telemetryChar = service->createCharacteristic(
+    TELEMETRY_CHAR_UUID,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  telemetryChar->addDescriptor(new BLE2902());
+  telemetryChar->setValue("{}");
+
   service->start();
   bleServiceStarted = true;
 
@@ -807,10 +825,48 @@ void setup() {
   }
 }
 
+// Map esp_reset_reason() to a short human label. Useful when the dashboard
+// surfaces a recent crash — "panic" / "watchdog" tells a different story than
+// "power-on" or "deepsleep".
+static const char* resetReasonLabel(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:  return "poweron";
+    case ESP_RST_EXT:      return "ext";
+    case ESP_RST_SW:       return "sw";
+    case ESP_RST_PANIC:    return "panic";
+    case ESP_RST_INT_WDT:  return "int-wdt";
+    case ESP_RST_TASK_WDT: return "task-wdt";
+    case ESP_RST_WDT:      return "wdt";
+    case ESP_RST_DEEPSLEEP:return "deepsleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO:     return "sdio";
+    default:               return "unknown";
+  }
+}
+
+static void publishTelemetry() {
+  if (!telemetryChar) return;
+  String ip = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+  String t = "{\"uptime_ms\":" + String((unsigned long)millis())
+           + ",\"free_heap\":" + String((unsigned long)esp_get_free_heap_size())
+           + ",\"free_psram\":" + String((unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM))
+           + ",\"reset_reason\":\"" + String(resetReasonLabel(esp_reset_reason())) + "\""
+           + ",\"sha\":\"" GIT_SHA "\"";
+  if (ip.length()) t += ",\"ip\":\"" + ip + "\"";
+  t += "}";
+  telemetryChar->setValue(t.c_str());
+  if (bleServiceStarted) telemetryChar->notify();
+}
+
 void loop() {
   if (otaRestartPending) {
     delay(500);  // let the last notify + ATT response land
     ESP.restart();
+  }
+
+  if (millis() - lastTelemetryAt > TELEMETRY_INTERVAL_MS) {
+    publishTelemetry();
+    lastTelemetryAt = millis();
   }
 
   if ((motorLeft != 0 || motorRight != 0)
