@@ -27,11 +27,33 @@ const VERSION = "v1";
 const CACHE = `dashboard-${VERSION}`;
 
 // Bootstrap files cached at install time so the dashboard can cold-boot
-// offline. Everything else caches lazily as the user navigates / uses it.
-// Keep this list short — anything not here just gets cached on first fetch.
+// offline AND so dynamically-imported dialogs (recovery, scripts, etc.)
+// are ready even before the user opens them. Relative paths because the
+// dashboard deploys at a subpath (neevs.io/better-robotics/) — absolute
+// "/" would resolve to the origin root, not the SW scope.
 const BOOTSTRAP = [
-  "/", "/index.html", "/app.js", "/styles.css", "/icons.svg",
+  "./", "./index.html", "./app.js", "./styles.css", "./icons.svg",
+  // Dynamic-imported by app.js. Precaching them means the first time the
+  // user opens Recovery / Scripts / Pinout / ESP serial / SD prep, the
+  // module loads from cache instead of doing a network round-trip — and
+  // it works offline.
+  "./recovery.js", "./prepare.js", "./scripts.js", "./pinout.js", "./esp-serial.js",
 ];
+
+// Cross-origin URLs we deliberately DO cache. Default for cross-origin is
+// to pass through (their hosts own freshness), but ML models from HuggingFace
+// are large (50-200 MB) one-time downloads — vulnerable to browser cache
+// eviction under storage pressure. SW cache is durable. Caching them turns
+// "Watch with Pip" / grounding from "needs network for first session" into
+// "needs network for first model download, ever."
+function isCacheableCrossOrigin(url) {
+  // HuggingFace model files (.onnx, .safetensors, tokenizer.json, etc.).
+  // These come from the transformers.js client when from_pretrained() runs.
+  if (url.hostname === "huggingface.co") return true;
+  // The transformers.js library + its WebGPU/onnx-runtime assets.
+  if (url.hostname === "cdn.jsdelivr.net" && url.pathname.includes("@huggingface/")) return true;
+  return false;
+}
 
 self.addEventListener("install", (e) => {
   // Don't skipWaiting here — we want updates to be intentional. The page
@@ -61,13 +83,15 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  // Only handle same-origin GETs. Cross-origin (Claude bridge, CDN, etc.)
-  // pass through untouched — they own their own caching/freshness story.
-  if (url.origin !== location.origin) return;
-  // OTA bundles are big + per-device + fetched-once-per-update. Caching
-  // them risks serving stale firmware to a user who just OTA'd. Always
-  // network for these.
-  if (url.pathname.startsWith("/firmware/")) return;
+  // Decide whether this request is one we manage. Cross-origin defaults to
+  // pass-through (their hosts own freshness); allowlist the ML model + lib
+  // CDNs so they get the persistence benefit. Same-origin: cache everything
+  // except OTA bundles (per-device freshness story).
+  if (url.origin !== location.origin) {
+    if (!isCacheableCrossOrigin(url)) return;
+  } else if (url.pathname.includes("/firmware/")) {
+    return;
+  }
 
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
