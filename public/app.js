@@ -28,20 +28,95 @@ setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
 
 // Compact telemetry line below the robot-state. Only shows when the robot
-// actually publishes (Pi from fw_version onward; ESP32 skips).
-function telemetryHtml(entry) {
+// actually publishes (Pi from fw_version onward; ESP32 from telemetry char).
+function telemetryText(entry) {
   const t = entry.telemetry;
   if (!t) return "";
   const parts = [];
-  if (typeof t.uptime_s === "number") {
-    const s = t.uptime_s;
-    parts.push(s < 60 ? `up ${s}s`
-      : s < 3600 ? `up ${Math.floor(s/60)}m`
-      : `up ${Math.floor(s/3600)}h${Math.floor((s%3600)/60)}m`);
+  const upS = typeof t.uptime_s === "number" ? t.uptime_s
+            : typeof t.uptime_ms === "number" ? Math.floor(t.uptime_ms / 1000)
+            : null;
+  if (upS != null) {
+    parts.push(upS < 60 ? `up ${upS}s`
+      : upS < 3600 ? `up ${Math.floor(upS/60)}m`
+      : `up ${Math.floor(upS/3600)}h${Math.floor((upS%3600)/60)}m`);
   }
   if (typeof t.mem_free_mb === "number") parts.push(`${t.mem_free_mb} MB free`);
+  if (typeof t.free_heap === "number") parts.push(`${Math.floor(t.free_heap / 1024)} KB free`);
   if (typeof t.temp_c === "number") parts.push(`${t.temp_c.toFixed(1)}°C`);
-  return parts.length ? `<div class="telemetry">${escapeHtml(parts.join(" · "))}</div>` : "";
+  return parts.join(" · ");
+}
+function telemetryHtml(entry) {
+  // Always emit the wrapper (even empty) so patchTelemetryLine can fill it
+  // without needing renderEntry. CSS :empty hides it when no data.
+  return `<div class="telemetry">${escapeHtml(telemetryText(entry))}</div>`;
+}
+
+// The header meta line ("WiFi … · up …h · reset: …"). Reused by renderEntry
+// (full render) and patchSecondaryRow (telemetry-driven updates that would
+// otherwise flash the whole card every 10 s).
+function metaText(entry) {
+  const connected = entry.status === "connected" || entry.status === "firmware-down";
+  if (!connected) return "";
+  const parts = [];
+  const w = entry.wifiStatus;
+  if (w?.st === "joined") parts.push(`WiFi ${w.ip || w.ssid || "joined"}`);
+  else if (w?.st === "joining") parts.push("WiFi joining…");
+  else if (w?.st === "scanning") parts.push("WiFi scanning");
+  else if (w?.st === "failed")   parts.push("WiFi failed");
+  const tel = entry.telemetry;
+  const upS = tel?.uptime_s ?? (tel?.uptime_ms != null ? Math.floor(tel.uptime_ms / 1000) : null);
+  if (upS != null) {
+    parts.push(
+      upS < 60   ? `up ${upS}s`
+    : upS < 3600 ? `up ${Math.floor(upS / 60)}m`
+    : upS < 86400 ? `up ${Math.floor(upS / 3600)}h ${Math.floor((upS % 3600) / 60)}m`
+    :              `up ${Math.floor(upS / 86400)}d`
+    );
+  }
+  const rr = tel?.reset_reason;
+  if (rr && rr !== "poweron" && rr !== "sw" && rr !== "ext") parts.push(`reset: ${rr}`);
+  return parts.join(" · ");
+}
+
+// Surgical patcher for the secondary row + body telemetry line. Avoids the
+// full-card innerHTML rewrite that telemetry's 10 s notify rhythm was
+// causing — that rewrite destroyed/recreated the entire card DOM, which
+// reads as a card flash. patchOtaSection set the precedent; this generalizes
+// to the high-frequency notify channels.
+function patchSecondaryRow(entry) {
+  const node = entry.node;
+  if (!node) return;
+  const meta = node.querySelector(".robot-meta");
+  if (meta) meta.textContent = metaText(entry);
+  const tel = node.querySelector(".telemetry");
+  if (tel) tel.textContent = telemetryText(entry);
+}
+
+// Same idea for robot-status notify (rebooting / installing / ready). Lower
+// frequency than telemetry but same flash-on-full-render cost.
+function patchRobotStateLine(entry) {
+  const node = entry.node;
+  if (!node) return;
+  const liveStatus = entry.robotStatus;
+  const sticky = !liveStatus ? entry.stickyStatus : null;
+  const s = liveStatus || sticky;
+  let line = node.querySelector(".robot-state");
+  if (!s || s.st === "ready") {
+    if (line) line.remove();
+    return;
+  }
+  if (!line) {
+    line = document.createElement("div");
+    line.className = "robot-state";
+    // Insert right after the identity row so order matches renderEntry.
+    const identityRow = node.querySelector(":scope > .row");
+    if (identityRow) identityRow.after(line);
+    else node.appendChild(line);
+  }
+  line.classList.toggle("sticky", !!sticky);
+  const prefix = sticky ? "was " : "";
+  line.textContent = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
 }
 
 // Ops-response dispatch registry lives in ops-response.js so pip-tools.js
@@ -369,7 +444,7 @@ async function connect(id) {
       await statusChar.startNotifications();
       statusChar.addEventListener("characteristicvaluechanged", (e) => {
         entry.robotStatus = decodeJson(e.target.value) || null;
-        renderEntry(entry);
+        patchRobotStateLine(entry);  // surgical, no full-card flash
       });
     } catch {
       entry.robotStatus = null;
@@ -385,7 +460,7 @@ async function connect(id) {
       await telChar.startNotifications();
       telChar.addEventListener("characteristicvaluechanged", (e) => {
         entry.telemetry = decodeJson(e.target.value) || null;
-        renderEntry(entry);
+        patchSecondaryRow(entry);  // surgical patch, no full-card re-render
       });
     } catch {
       entry.telemetry = null;
@@ -712,9 +787,9 @@ function renderEntry(entry) {
       metaParts.push(`reset: ${rr}`);
     }
   }
-  const metaRow = metaParts.length
-    ? `<div class="robot-meta">${escapeHtml(metaParts.join(" · "))}</div>`
-    : "";
+  // Always emit the wrapper (even empty) so patchSecondaryRow can fill it on
+  // telemetry/wifi notify without a full re-render. CSS :empty hides it.
+  const metaRow = `<div class="robot-meta">${escapeHtml(metaParts.join(" · "))}</div>`;
   // Split on the last hyphen so the common "BetterRobot-" prefix dims and the
   // distinguishing suffix ("E9D4") carries the visual weight. Names without a
   // hyphen render plainly.

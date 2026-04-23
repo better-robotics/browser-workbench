@@ -385,6 +385,11 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Empty wrapper hides itself — the wrapper is always emitted (so the
+   patcher can fill it without renderEntry), but it shouldn't take layout
+   space when there's no data yet. */
+.robot-meta:empty { display: none; }
+.telemetry:empty { display: none; }
 .robot-cta {
   margin-left: auto;  /* right-aligns even when meta is empty */
 }
