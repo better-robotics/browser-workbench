@@ -269,19 +269,39 @@ async function restoreDevice(entry) {
 async function connect(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
+  // If the last attempt's cached handle was stale, force the chooser path —
+  // requestDevice gives us a fresh BluetoothDevice; the cached one will keep
+  // failing the same way until Chrome's pairing-list garbage-collects it.
+  if (entry.staleHandle) entry.device = null;
   if (!entry.device) {
     try {
-      log("reconnecting…", entry.name);
+      log("re-pairing…", entry.name);
       await restoreDevice(entry);
     } catch (err) {
-      if (err.name !== "NotFoundError") logFor(entry, `reconnect cancelled: ${err.message}`);
+      if (err.name !== "NotFoundError") logFor(entry, `re-pair cancelled: ${err.message}`);
       return;
     }
   }
   entry.status = "connecting";
   renderEntry(entry);
+  let server;
   try {
-    const server = await gattConnectWithTimeout(entry.device);
+    server = await gattConnectWithTimeout(entry.device);
+  } catch (err) {
+    // Cached gatt.connect failed before we got anywhere. Almost always means
+    // the BluetoothDevice handle is stale (robot rebooted, bonding rotated).
+    // Flip the button to "Re-pair" so the next click goes through the chooser
+    // — chaining requestDevice into the same click is blocked by Chrome's
+    // 5s transient-activation window vs. our 20s gatt.connect timeout.
+    entry.status = "error";
+    entry.staleHandle = true;
+    entry.lastConnectError = err.message || String(err);
+    entry.consecutiveFailures = (entry.consecutiveFailures || 0) + 1;
+    logFor(entry, `connect failed: ${entry.lastConnectError} — click Re-pair to retry with a fresh handle`);
+    renderEntry(entry);
+    return;
+  }
+  try {
     let service;
     try {
       service = await server.getPrimaryService(SERVICE_UUID);
@@ -297,6 +317,7 @@ async function connect(id) {
     // A robot advertising only the service (no chars) is still "connected".
     // Every capability is optional.
     entry.status = "connected";
+    entry.staleHandle = false;
     // Record the intent signal: this session's last explicit wish is "connected".
     // Unexpected GATT drops won't flip it — only an explicit Disconnect click will.
     entry.autoReconnect = true;
@@ -427,6 +448,7 @@ async function tryConnectHeartbeatOnly(entry, server) {
       });
     } catch { /* notify optional */ }
     entry.status = "firmware-down";
+    entry.staleHandle = false;
     entry.autoReconnect = true;
     entry.lastConnectedAt = Date.now();
     entry.consecutiveFailures = 0;
@@ -688,7 +710,10 @@ function renderEntry(entry) {
         ${connected
           ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
-              connecting ? "Connecting…" : (entry.device ? "Connect" : "Pair")
+              connecting ? "Connecting…"
+              : entry.staleHandle ? "Re-pair"
+              : entry.device ? "Connect"
+              : "Pair"
             }</button>`}
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>

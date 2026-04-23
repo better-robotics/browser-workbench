@@ -36,6 +36,13 @@ export function makeEntry(id, name, fwType = null, { autoReconnect = false, last
     autoReconnect,
     lastConnectedAt,
     device: null,
+    // Set when a cached gatt.connect() failed (typically after a robot reboot:
+    // Chrome keeps the BluetoothDevice handle, but the bonded GATT session
+    // can't be re-established without a fresh requestDevice). Causes the
+    // button to render as "Re-pair" instead of "Connect", so the next click
+    // hits the chooser path. Not persisted — fresh handles on page load
+    // start with this false.
+    staleHandle: false,
     status: "idle",
     ledChar: null, ledOn: false,
     wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
