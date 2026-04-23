@@ -624,20 +624,20 @@ function renderEntry(entry) {
   const { id, name, status } = entry;
   const firmwareDown = status === "firmware-down";
   // GATT IS connected when firmwareDown — only the main service is missing.
-  // Treat as connected for button + dot purposes so the user gets Disconnect.
+  // Treat as connected for button purposes so the user gets Disconnect.
   const connected = status === "connected" || firmwareDown;
   const connecting = status === "connecting";
-  // Connecting state is carried by the dot's amber pulse + the button label;
-  // the sub-line is reserved for error detail so the user knows whether to
-  // retry (Out of range = robot just needs to be awake) or investigate.
   const statusText = status === "error"
     ? (/no longer in range|not found/i.test(entry.lastConnectError || "") ? "Out of range" : "Error")
     : firmwareDown ? "Firmware down"
     : "";
-  const dotClass = firmwareDown ? " firmware-down"
-                 : status === "connected" ? " connected"
-                 : connecting ? " connecting"
-                 : status === "error" ? " error" : "";
+  // Card-style status hint via a colored left edge stripe (see .robot.connected
+  // etc. in styles.css). Replaces the previous in-row dot — the stripe carries
+  // status with more visual presence and the dot was redundant next to it.
+  entry.node.classList.toggle("status-connected",     status === "connected");
+  entry.node.classList.toggle("status-connecting",    connecting);
+  entry.node.classList.toggle("status-error",         status === "error");
+  entry.node.classList.toggle("status-firmware-down", firmwareDown);
 
   // Canonical capability order across robot types so the eye lands on the same
   // control in the same place on both Pi and ESP32 cards. Unknown names fall
@@ -683,10 +683,38 @@ function renderEntry(entry) {
   const typeBadge = entry.fwType
     ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())}</span>`
     : "";
-  // WiFi pill earns its slot on the collapsed view: tells the user at a glance
-  // whether fast-lane OTA is available without expanding.
-  const wifiChip = connected && entry.wifiStatus?.ip
-    ? `<span class="transport-chip">WiFi</span>` : "";
+  // Secondary metadata row — surfaces WiFi state, uptime, abnormal reset
+  // reasons. Only when connected (otherwise we don't have the data and the
+  // row would say nothing useful). Card layout earns its height; this is
+  // what fills it.
+  const metaParts = [];
+  if (connected) {
+    const w = entry.wifiStatus;
+    if (w?.st === "joined") metaParts.push(`WiFi ${w.ip || w.ssid || "joined"}`);
+    else if (w?.st === "joining") metaParts.push("WiFi joining…");
+    else if (w?.st === "scanning") metaParts.push("WiFi scanning");
+    else if (w?.st === "failed")   metaParts.push("WiFi failed");
+    const tel = entry.telemetry;
+    const upS = tel?.uptime_s ?? (tel?.uptime_ms != null ? Math.floor(tel.uptime_ms / 1000) : null);
+    if (upS != null) {
+      metaParts.push(
+        upS < 60   ? `up ${upS}s`
+      : upS < 3600 ? `up ${Math.floor(upS / 60)}m`
+      : upS < 86400 ? `up ${Math.floor(upS / 3600)}h ${Math.floor((upS % 3600) / 60)}m`
+      :              `up ${Math.floor(upS / 86400)}d`
+      );
+    }
+    // Surface reset reason only when it's something the user should know
+    // about — power-on / software resets are normal, watchdog/panic/brownout
+    // mean the device is unhealthy.
+    const rr = tel?.reset_reason;
+    if (rr && rr !== "poweron" && rr !== "sw" && rr !== "ext") {
+      metaParts.push(`reset: ${rr}`);
+    }
+  }
+  const metaRow = metaParts.length
+    ? `<div class="robot-meta">${escapeHtml(metaParts.join(" · "))}</div>`
+    : "";
   // Split on the last hyphen so the common "BetterRobot-" prefix dims and the
   // distinguishing suffix ("E9D4") carries the visual weight. Names without a
   // hyphen render plainly.
@@ -702,9 +730,10 @@ function renderEntry(entry) {
       <div class="robot-identity">
         <button class="label-btn" data-action="toggle-expand" aria-expanded="${expanded}">
           <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
-          <span class="dot${dotClass}"></span>${nameHtml}${typeBadge}${wifiChip}
+          ${nameHtml}${typeBadge}
         </button>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
+        ${metaRow}
       </div>
       <div class="robot-actions">
         ${connected

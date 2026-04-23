@@ -342,11 +342,33 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   color: var(--success);
 }
 
-/* Tight vertical padding in every state — the card hugs the row (or the row
-   plus body margin), so auto-expanded cards don't hold up an empty hero shell
-   while capabilities are still loading. The body brings its own cradle via
-   robot-body margin-top + capability section spacing. */
-.robot { padding: 8px 16px; }
+/* Card-style robot tile. Padding generous enough to read as a card (not a
+   single-line pill). Left edge stripe carries status — colored stripe is more
+   substantive than the previous in-row dot, and survives next to the action
+   button without competing for visual weight. Default neutral; overridden by
+   the .status-* classes below based on connect state. */
+.robot {
+  padding: 14px 18px 14px 21px;  /* +3px left to clear the stripe */
+  border-left: 3px solid var(--border-subtle);
+  transition: border-left-color 0.2s ease;
+}
+.robot.status-connected     { border-left-color: var(--success); }
+.robot.status-connecting    { border-left-color: var(--duke-persimmon); }
+.robot.status-error         { border-left-color: var(--danger); }
+.robot.status-firmware-down { border-left-color: var(--duke-persimmon); }
+@media (prefers-reduced-motion: reduce) { .robot { transition: none; } }
+
+/* Identity row gets a touch more presence as the card's headline.
+   .robot-meta is the secondary line under it (WiFi state, uptime, etc) —
+   only rendered when there's actual data, so empty cards stay compact. */
+.robot .label-btn { font-size: 15px; }
+.robot-meta {
+  margin-top: 4px;
+  margin-left: 26px;  /* aligns under the name (after chevron + gap) */
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* Whole row is a generous click target — cursor hints it, but the visual
    hover lives on the label-btn only (the row whitespace is forgiveness, not
