@@ -176,7 +176,20 @@ async function beginPairing() {
     setTimeout(() => { if (dialog.open) dialog.close(); }, 800);
   } catch (err) {
     if (_pendingSession === session) {
-      statusEl.textContent = `Pairing failed: ${err.message || err}`;
+      // Inline retry beats "close the dialog and click Pair again" — failure
+      // mode for pairing is almost always transient (ICE flakiness, captive
+      // portal mid-negotiation), so the right affordance is one click.
+      statusEl.innerHTML = "";
+      const msg = document.createElement("span");
+      msg.textContent = `${err.message || err} `;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "secondary sm";
+      retry.textContent = "Try again";
+      retry.style.marginLeft = "8px";
+      retry.addEventListener("click", () => beginPairing());
+      statusEl.appendChild(msg);
+      statusEl.appendChild(retry);
       _pendingSession = null;
     }
   }

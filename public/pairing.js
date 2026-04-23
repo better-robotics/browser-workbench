@@ -50,11 +50,12 @@ const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover 
 const BACKPRESSURE_HIGH = 1_000_000;
 const BACKPRESSURE_LOW  =   200_000;
 const QUEUE_MAX = 1000;
-// Fail the initial pair fast if nothing reaches "channel open" in this
-// window — otherwise the phone shows a spinner forever when the QR is old
-// or NAT traversal silently dies. 30s is long enough for ICE on typical
-// home networks but short enough that the user doesn't assume it worked.
-const PAIR_TIMEOUT_MS = 30000;
+// 30s is for ICE negotiation specifically — the post-offer handshake between
+// desktop and phone. We deliberately do NOT time the pre-offer wait (user
+// picking up phone, unlocking, scanning the QR) because that easily exceeds
+// 30s for normal humans and isn't a real failure. Pre-offer wait stays open
+// as long as the dialog is — cleanup happens on dialog close.
+const ICE_TIMEOUT_MS = 30000;
 
 // Verbose transition logging, opt-in via ?debug or #debug in the URL. When
 // set, dbg() mirrors to both console and any subscribed sinks (the floating
@@ -370,14 +371,20 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   let resolved = false;
   const pendingIce = [];
 
-  const timeoutId = setTimeout(() => {
-    if (resolved) return;
-    resolved = true;
-    dbg("desktop: pair timeout");
-    try { ws.close(); } catch {}
-    try { pc.close(); } catch {}
-    rejectPeer(new Error("Phone didn't pair within 30s. If the QR has been open a while, close and reopen the dialog to get a fresh one."));
-  }, PAIR_TIMEOUT_MS);
+  // ICE timer — armed only when the phone's offer arrives (in applySignal).
+  // Until then the room is just a WebSocket waiting; no time pressure.
+  let timeoutId = null;
+  const armIceTimeout = () => {
+    if (timeoutId) return;
+    timeoutId = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      dbg("desktop: ICE timeout");
+      try { ws.close(); } catch {}
+      try { pc.close(); } catch {}
+      rejectPeer(new Error("Phone connected but couldn't establish a peer-to-peer link within 30s. Network may be blocking WebRTC."));
+    }, ICE_TIMEOUT_MS);
+  };
 
   ws.addEventListener("open",  () => dbg("desktop ws: open"));
   ws.addEventListener("close", () => dbg("desktop ws: close"));
@@ -401,6 +408,7 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
     if (data.offer) {
       dbg("desktop: offer received");
       try { onStatus("Phone connected, negotiating…"); } catch {}
+      armIceTimeout();
       await pc.setRemoteDescription(data.offer);
       for (const c of pendingIce) { try { await pc.addIceCandidate(c); } catch {} }
       pendingIce.length = 0;
@@ -482,10 +490,12 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
       reject(err);
     };
 
+    // Phone-side ICE timer — page is already loaded by the time we get here,
+    // so this measures negotiation only (no human reaction time included).
     timeoutId = setTimeout(() => {
-      dbg("phone: pair timeout");
-      fail(new Error("Pairing took too long. Regenerate the QR on the desktop and try again."));
-    }, PAIR_TIMEOUT_MS);
+      dbg("phone: ICE timeout");
+      fail(new Error("Couldn't reach the desktop within 30s — try refreshing the QR there."));
+    }, ICE_TIMEOUT_MS);
 
     channel.addEventListener("open", () => {
       if (resolved) return;
