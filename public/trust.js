@@ -1,23 +1,18 @@
 // Trust store for paired devices.
 //
-// State model: pubkey → { label, firstPairedAt, lastSeenAt }. Pubkey is the
-// continuity primitive (matches across sessions); label is the user-visible
-// name shown in lists. Both come from the device that's identifying itself.
+// What "trust" means here: the user has previously accepted a pair
+// request from a device with this pubkey, and ticked "Trust always."
+// Future pair requests from the same key auto-accept silently (with a
+// toast). Without a trust entry, the user sees a prompt — Accept / Deny —
+// every time. Same shape as Bluetooth's bonded-devices list or iOS's
+// "Always allow" per-app permissions.
 //
-// Three derived states for any incoming ad:
-//   trusted          — pubkey is in store
-//   unknown          — pubkey absent (and no other key claims this label)
-//   identity-changed — label is in store but under a DIFFERENT pubkey
+// State model: pubkey → { label, firstPairedAt, lastSeenAt }. Pubkey is
+// the continuity primitive (matches across sessions); label is what to
+// show the user. Both come signed from the other device's discovery ad.
 //
-// "identity-changed" is the WhatsApp / iMessage warning path. Could be:
-// (a) the user reset their browser data; (b) they switched devices but
-// kept the same name; (c) a coffee-shop attacker is publishing as "Mac"
-// trying to lure a re-pair. The UI surfaces it; the user re-pairs via QR
-// to bind the new key in person.
-//
-// Persistence: localStorage under a stable key. Cleared = lose all trust;
-// pairings re-establish via QR. Same threat model as Bluetooth bonded
-// devices, intentional.
+// Persistence: localStorage. Cleared = lose all auto-accept memory;
+// future pair requests prompt again. Safe failure mode.
 
 const STORAGE_KEY = 'better-robotics:trust:v1';
 
@@ -38,6 +33,9 @@ export function isTrusted(pubkey) {
   if (!pubkey) return false;
   return !!_load()[pubkey];
 }
+// Alias — semantic clarity at the call site. Trust today means
+// auto-accept; future revisions might split (e.g. trusted-but-prompt).
+export const isAutoAccept = isTrusted;
 
 export function getTrust(pubkey) {
   if (!pubkey) return null;
@@ -90,8 +88,10 @@ export function untrust(pubkey) {
   _save(store);
 }
 
-// Three-state classifier the UI consumes directly. Pass an ad as it
-// came from discover.js (data has _pubkey + _sig already verified).
+// Three-state classifier — not used for the discovery list anymore (which
+// is now uniformly tappable; trust is decided at the prompt step), but
+// retained for the prompt UX so we can render "you've connected before"
+// vs "first time" vs "identity changed since last time" hints.
 export function classify(ad) {
   const data = (ad && ad.data) || {};
   const pubkey = data._pubkey;

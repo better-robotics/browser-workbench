@@ -2059,32 +2059,15 @@ body.phone {
 /* Trust-state affordances — filled = trusted (primary action), outlined =
    unknown (needs verification), alert = identity changed. The user reads
    the affordance shape before the text. */
-.phone-nearby-btn.trusted {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-  font-weight: 500;
+.phone-nearby-status {
+  margin: 6px 2px 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.4;
 }
-.phone-nearby-btn.unknown {
-  background: transparent;
-  color: var(--ink);
-  border-style: dashed;
+.phone-nearby-status.alert {
+  color: #c0392b;
 }
-.phone-nearby-btn.alert {
-  background: color-mix(in srgb, #c0392b 14%, transparent);
-  border-color: color-mix(in srgb, #c0392b 50%, transparent);
-  color: var(--ink);
-}
-.phone-nearby-alert {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, #c0392b 35%, transparent);
-  background: color-mix(in srgb, #c0392b 8%, transparent);
-}
-.phone-nearby-alert p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--ink); }
 .phone-dashboard-link {
   display: block;
   margin-top: 14px;
@@ -2138,38 +2121,28 @@ body.phone {
    appearing is the actual signal — so we suppress the animation rather
    than slow it down. */
 @media (prefers-reduced-motion: reduce) {
-  .presence-badge::before, .pair-presence::before { animation: none; }
+  .presence-badge::before { animation: none; }
 }
 
-/* Pair dialog: phone-ready hint appears above the QR. When set, the
-   QR collapses to a small "Show QR" disclosure since the phone on the
-   wifi can pair without it. */
-.pair-presence {
+/* Pair-request modal — AirDrop-shape. Buttons mirror native iOS alerts
+   so the affordance is familiar; the trust checkbox makes the
+   "remember this device" choice explicit and reversible. */
+.pair-request-dialog { max-width: 420px; }
+.pair-request-text {
+  margin: 6px 0 14px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.pair-request-trust-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--ink);
-  font-size: 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  cursor: pointer;
 }
-.pair-presence.alert {
-  background: color-mix(in srgb, #c0392b 12%, transparent);
-}
-.pair-presence.alert::before { background: #c0392b; }
-.pair-presence::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-  animation: presence-pulse 2s ease-out infinite;
-}
-.pair-dialog.has-ready-phones .pair-qr,
-.pair-dialog.has-ready-phones #pair-hint { display: none; }
-.pair-dialog.has-ready-phones .pair-meta { opacity: 0.6; }
+.pair-request-trust-row input { width: 18px; height: 18px; }
 .phone-input {
   width: 100%;
   box-sizing: border-box;

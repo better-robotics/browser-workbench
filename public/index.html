@@ -392,17 +392,10 @@
 
 <dialog id="pair-dialog" class="prepare-dialog pair-dialog">
   <div class="modal-header">
-    <div class="label">Pair a phone</div>
+    <div class="label">Pair a phone (cross-network)</div>
     <button class="icon" id="pair-dialog-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <!-- Shown when phone-ready ads are present on the lobby. The phone(s)
-       on this wifi will see the room appear automatically and can tap
-       it to pair — no QR scan needed. Hidden by default; phones.js
-       toggles it based on lobby state. -->
-  <div id="pair-presence" class="pair-presence" hidden>
-    <span id="pair-presence-text">Phone ready — tap "Pair with this computer" on it.</span>
-  </div>
-  <p class="hint" id="pair-hint">Scan the QR with your phone's camera, or open the URL below on the phone. From there you can see the robot's camera, drive it, and talk to Pip.</p>
+  <p class="hint" id="pair-hint">If your phone's on the same wifi, just open <strong>phone.html</strong> on it and tap this computer — no QR needed. Use the QR for cross-network pairing (different wifi, hotspot, captive portal).</p>
   <div id="pair-qr" class="pair-qr"></div>
   <div class="pair-meta">
     <div class="hint" id="pair-status">Generating room…</div>
@@ -410,6 +403,28 @@
   </div>
   <div class="modal-footer">
     <button class="secondary sm" id="pair-cancel-btn">Cancel</button>
+  </div>
+</dialog>
+
+<!-- Incoming pair-request modal. Phones.js opens this when a phone on the
+     wifi taps to pair. AirDrop-shaped: device label + Accept/Deny +
+     "Trust always" checkbox to auto-accept future requests from the
+     same pubkey. The dialog is system-modal so it preempts whatever the
+     user was doing — pairing is an explicit relationship event. -->
+<dialog id="pair-request-dialog" class="prepare-dialog pair-request-dialog">
+  <div class="modal-header">
+    <div class="label">Pair request</div>
+  </div>
+  <p class="pair-request-text">
+    <strong id="pair-request-label">Phone</strong> wants to pair with this computer.
+  </p>
+  <label class="pair-request-trust-row">
+    <input type="checkbox" id="pair-request-trust">
+    Trust this device — accept future requests automatically
+  </label>
+  <div class="modal-footer">
+    <button class="secondary sm" id="pair-request-deny">Deny</button>
+    <button class="primary sm" id="pair-request-accept">Accept</button>
   </div>
 </dialog>
 

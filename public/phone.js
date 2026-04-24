@@ -3,7 +3,7 @@ import { joinPairingRoom } from "./pairing.js";
 import { attachJoypad } from "./joypad.js";
 import { discover } from "./discover.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
-import { trust as trustDevice, classify as classifyAd } from "./trust.js";
+import { trust as trustDevice } from "./trust.js";
 
 let _peer = null;
 let _pending = false;
@@ -294,16 +294,24 @@ function wireReconnect() {
   if (link) link.hidden = false;
 }
 
-// LAN discovery — desktops with an open Pair dialog on the same wifi
-// broadcast a pair room. Render each with a trust-aware affordance:
-//   trusted          → filled "Pair with Mac" button, taps directly to pair
-//   unknown          → outlined "Mac — pair to trust" button, taps to QR scan
-//   identity-changed → inline alert with re-pair-via-QR action
+// LAN discovery — request/accept flow.
 //
-// We also PUBLISH a "phone-ready" ad in signed mode while we're in this
-// state — our pubkey rides along, so the desktop dashboard can recognize
-// "this is my phone" across sessions instead of just "some phone".
+// We publish a "better-robotics-phone" presence ad always-on while in
+// showReconnect, so dashboards on the wifi see us (and may auto-accept
+// us if they've trusted us). We subscribe for "better-robotics-mac"
+// presence ads to populate the tappable list. Tapping a Mac publishes a
+// signed pair-request targeted at its pubkey; the Mac prompts its user
+// (or auto-accepts), then publishes a pair-response with a fresh roomId.
+// We navigate to that room and the WebRTC pair starts.
+//
+// No three-state UI on the phone — trust is decided in the prompt on the
+// Mac side. Every nearby Mac is uniformly tappable.
+
 let _lobby = null;
+let _myPubkey = null;
+let _pendingRequestNonce = null;
+let _pendingRequestTimeout = null;
+
 function deviceLabel() {
   const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
   if (/iPhone/i.test(ua)) return "iPhone";
@@ -312,76 +320,102 @@ function deviceLabel() {
   return "Phone";
 }
 
-function _renderUnknownAffordance(list, ad) {
-  // Tapping an unknown ad opens the QR scanner instead of pairing
-  // directly. The QR is the in-person consent that binds the pubkey
-  // we'll then trust on subsequent ads.
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "phone-nearby-btn unknown";
-  btn.textContent = `${ad.data.label || "Computer"} — scan QR to pair`;
-  btn.addEventListener("click", () => startQrScan());
-  list.appendChild(btn);
+function _setNearbyStatus(text, kind) {
+  const status = $("phone-nearby-status");
+  if (!status) return;
+  if (!text) { status.hidden = true; status.textContent = ""; status.className = "phone-nearby-status"; return; }
+  status.hidden = false;
+  status.textContent = text;
+  status.className = "phone-nearby-status" + (kind ? " " + kind : "");
 }
 
-function _renderTrustedAffordance(list, ad) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "phone-nearby-btn trusted";
-  btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
-  btn.addEventListener("click", () => {
-    // Same destination as scanning the QR. The pubkey from this ad is
-    // already trusted, so we don't need the QR's pubkey-binding step —
-    // but the URL still carries pk so a re-load lands the same way.
-    const pk = ad.data._pubkey ? "&pk=" + ad.data._pubkey : "";
-    location.replace(location.pathname + "#pair=" + ad.data.roomId + pk);
+async function _requestPairWith(macAd) {
+  if (!_myPubkey || !macAd.data._pubkey) return;
+  const targetPubkey = macAd.data._pubkey;
+  const macLabel = macAd.data.label || "this computer";
+  const nonce = (crypto.randomUUID?.() || Math.random().toString(36).slice(2));
+  _pendingRequestNonce = nonce;
+
+  _setNearbyStatus(`Asking ${macLabel} to pair…`);
+  try {
+    await _lobby.publish(`better-robotics-pair-request:${nonce}`, {
+      app: "better-robotics-pair-request",
+      target: targetPubkey,
+      nonce,
+      label: deviceLabel(),
+    }, 30000);
+  } catch (err) {
+    _pendingRequestNonce = null;
+    _setNearbyStatus(`Couldn't reach the lobby: ${err.message || err}`, "alert");
+    return;
+  }
+
+  // 30s deadline — Mac side may have shown a prompt and the user
+  // walked away. The request ad will TTL-expire on its own.
+  if (_pendingRequestTimeout) clearTimeout(_pendingRequestTimeout);
+  _pendingRequestTimeout = setTimeout(() => {
+    if (_pendingRequestNonce !== nonce) return;
+    _pendingRequestNonce = null;
+    _setNearbyStatus(`No response from ${macLabel}. They may have missed the prompt — try again.`, "alert");
+    try { _lobby.remove(`better-robotics-pair-request:${nonce}`); } catch {}
+  }, 30000);
+}
+
+function _processIncomingResponses(ads) {
+  if (!_pendingRequestNonce || !_myPubkey) return;
+  const response = ads.find(a =>
+    a.data
+    && a.data.app === "better-robotics-pair-response"
+    && a.data.target === _myPubkey
+    && a.data.nonce === _pendingRequestNonce
+  );
+  if (!response) return;
+  const nonce = _pendingRequestNonce;
+  _pendingRequestNonce = null;
+  if (_pendingRequestTimeout) { clearTimeout(_pendingRequestTimeout); _pendingRequestTimeout = null; }
+  try { _lobby.remove(`better-robotics-pair-request:${nonce}`); } catch {}
+
+  if (response.data.accepted && response.data.roomId) {
+    if (response.data._pubkey) trustDevice(response.data._pubkey, "Computer");
+    _setNearbyStatus("Accepted — connecting…");
+    location.replace(location.pathname + "#pair=" + response.data.roomId);
     location.reload();
-  });
-  list.appendChild(btn);
+  } else {
+    _setNearbyStatus("Pair declined.", "alert");
+  }
 }
 
-function _renderIdentityChangedAffordance(list, ad, prior) {
-  const wrap = document.createElement("div");
-  wrap.className = "phone-nearby-alert";
-  const msg = document.createElement("p");
-  msg.textContent = `${ad.data.label || "This computer"}'s identity changed since last pair. Could be a browser reset — or someone else publishing under the same name. Re-scan its QR to confirm.`;
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "phone-nearby-btn alert";
-  btn.textContent = "Scan QR to re-pair";
-  btn.addEventListener("click", () => startQrScan());
-  wrap.appendChild(msg);
-  wrap.appendChild(btn);
-  list.appendChild(wrap);
-}
-
-function startNearbyDiscovery() {
+async function startNearbyDiscovery() {
   if (_lobby) return;  // idempotent — init might call us twice across reconnects
   _lobby = discover({ sign: true });
-  const wrap = $("phone-nearby");
-  const list = $("phone-nearby-list");
+  _myPubkey = await getMyPubkeyB64();
 
-  // Publish "I'm a phone, ready to pair." Random per page-load is fine —
-  // server TTL clears stale ads from prior tabs/reloads. Dashboards on
-  // the same wifi pick this up and (in signed mode) recognize the
-  // pubkey if we've paired before.
-  const phoneAdId = "better-robotics-phone-ready:" + (crypto.randomUUID?.() || Math.random().toString(36).slice(2));
+  // Publish phone presence so the dashboard sees "iPhone on wifi" even
+  // before we initiate anything. discover.js auto-republishes; the ad
+  // TTLs out within 60s of tab close.
+  const phoneAdId = "better-robotics-phone:" + _myPubkey;
   _lobby.publish(phoneAdId, {
-    app: "better-robotics-phone-ready",
+    app: "better-robotics-phone",
     label: deviceLabel(),
   }, 60000);
 
+  const wrap = $("phone-nearby");
+  const list = $("phone-nearby-list");
   if (!wrap || !list) return;
   _lobby.onChange((ads) => {
-    const desktops = ads.filter(a => a.data && a.data.app === "better-robotics-pair" && a.data.roomId);
+    _processIncomingResponses(ads);
+
+    const macs = ads.filter(a => a.data && a.data.app === "better-robotics-mac" && a.data._pubkey);
     list.innerHTML = "";
-    if (!desktops.length) { wrap.hidden = true; return; }
+    if (!macs.length) { wrap.hidden = true; return; }
     wrap.hidden = false;
-    for (const ad of desktops) {
-      const c = classifyAd(ad);
-      if (c.state === "trusted") _renderTrustedAffordance(list, ad);
-      else if (c.state === "identity-changed") _renderIdentityChangedAffordance(list, ad, c.trust);
-      else _renderUnknownAffordance(list, ad);
+    for (const ad of macs) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "phone-nearby-btn";
+      btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
+      btn.addEventListener("click", () => _requestPairWith(ad));
+      list.appendChild(btn);
     }
   });
 }

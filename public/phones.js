@@ -15,15 +15,26 @@ import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pa
 import { getLaptopStream, onLaptopChange } from "./helpers.js";
 import { discover } from "./discover.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
-import { trust as trustDevice, classify as classifyAd } from "./trust.js";
+import { trust as trustDevice, isAutoAccept, classify as classifyAd } from "./trust.js";
 
-// Single shared lobby instance — desktop publishes a pairing ad while the
-// dialog is open so a phone on the same wifi can land directly on the
-// pairing room without scanning the QR. Removed on cancel/connect so a
-// stale ad doesn't survive past its room. Signed mode: ads carry our
-// device pubkey so the phone can recognize "this is the Mac I paired
-// before" across sessions.
+// Single shared lobby in signed mode: ads carry our device pubkey so the
+// peer side knows "this is the Mac I trusted before" without re-prompting.
+//
+// Pair model is request/accept (AirDrop-shaped):
+//   - We publish "better-robotics-mac" presence ad always-on while the
+//     dashboard is loaded. Phones on the same wifi see us and can tap.
+//   - When a phone taps, it publishes a "better-robotics-pair-request"
+//     targeted at our pubkey. We surface a modal: Accept / Deny / Trust.
+//   - On Accept, we create a fresh WebRTC pair session and publish a
+//     "better-robotics-pair-response" with the roomId; the phone joins.
+//   - "Trust" stores the phone's pubkey for auto-accept on future requests.
+//
+// QR / pair dialog still exists for the cross-network case (phone not on
+// the same wifi → no shared lobby → no discovery). Becomes the fallback,
+// not the primary.
 let _lobby = null;
+let _myPubkey = null;
+const _handledRequestNonces = new Set();
 function getLobby() { return _lobby || (_lobby = discover({ sign: true })); }
 function deviceLabel() {
   const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
@@ -100,21 +111,36 @@ export function askHuman(phoneId, { question, options = [], imageDataUrl = null,
   });
 }
 
-export function initPhones() {
+export async function initPhones() {
   const pairBtn = $("pair-phone-btn");
   if (pairBtn) pairBtn.addEventListener("click", beginPairing);
   const closeBtn = $("pair-dialog-close");
   if (closeBtn) closeBtn.addEventListener("click", closePairing);
   const cancelBtn = $("pair-cancel-btn");
   if (cancelBtn) cancelBtn.addEventListener("click", closePairing);
-  // Live presence: subscribe to phone-ready ads on the same wifi so the
-  // user sees discovery is healthy before opening the pair dialog. Same
-  // lobby instance the dialog uses for publishing — getLobby is shared.
-  getLobby().onChange(renderPhonePresence);
+  // Wire the request prompt buttons.
+  $("pair-request-accept")?.addEventListener("click", () => _resolveRequestPrompt(true));
+  $("pair-request-deny")?.addEventListener("click", () => _resolveRequestPrompt(false));
+
+  // Lazily-loaded — but we need it before we can publish presence or
+  // know which incoming requests target us.
+  _myPubkey = await getMyPubkeyB64();
+
+  // Always-on Mac presence so phones on the wifi see us without us
+  // having to open a dialog. discover.js auto-republishes every 25s.
+  getLobby().publish("better-robotics-mac:" + _myPubkey, {
+    app: "better-robotics-mac",
+    label: deviceLabel(),
+  }, 60000);
+
+  getLobby().onChange((ads) => {
+    renderPhonePresence(ads);
+    _processIncomingRequests(ads);
+  });
+
   // Laptop camera → phone(s) bridge: whenever the laptop transitions, sync
-  // every paired phone's media tracks. Goes both ways — going live adds
-  // tracks, stopping removes them. Phones connected later pick up the live
-  // stream in onPhonePaired.
+  // every paired phone's media tracks. Phones connected later pick up the
+  // live stream in onPhonePaired.
   onLaptopChange((stream) => {
     for (const p of _phones.values()) syncPhoneMedia(p, stream);
   });
@@ -148,71 +174,206 @@ function closePairing() {
   $("pair-dialog").close();
 }
 
-// Count of phones currently broadcasting "ready to pair" on this wifi.
-// Classifies each into trusted/unknown/identity-changed; the dashboard
-// renders the badge with the trust state, and the pair-dialog uses it
-// to decide whether to collapse the QR (only for trusted phones — an
-// unknown phone needs the QR to establish trust).
+// Passive presence — just a count badge in the helpers heading so the
+// user knows discovery is healthy. The pair flow itself is now driven
+// by phones sending requests, not by us deciding ahead of time.
 function renderPhonePresence(ads) {
-  const phones = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone-ready");
-  const classified = phones.map(classifyAd);
-  const trusted = classified.filter(c => c.state === "trusted");
-  const identityChanged = classified.filter(c => c.state === "identity-changed");
-  const total = classified.length;
-
-  // Helpers heading badge — passive indicator. Trusted phones earn the
-  // friendly badge; an identity-change anywhere flips it to alert mode.
+  const phones = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone");
+  const total = phones.length;
   const badge = $("phone-presence");
-  if (badge) {
-    if (total === 0) {
-      badge.hidden = true;
-      badge.classList.remove("alert");
-    } else if (identityChanged.length > 0) {
-      badge.hidden = false;
-      badge.classList.add("alert");
-      badge.textContent = `${identityChanged[0].label || "Phone"} identity changed`;
-    } else {
-      badge.hidden = false;
-      badge.classList.remove("alert");
-      const label = (trusted[0] || classified[0]).label || "Phone";
-      badge.textContent = total === 1
-        ? `${label}${trusted.length ? "" : " (new)"} on wifi`
-        : `${total} phones on wifi`;
-    }
+  if (!badge) return;
+  if (total === 0) { badge.hidden = true; return; }
+  badge.hidden = false;
+  badge.classList.remove("alert");
+  badge.textContent = total === 1
+    ? `${phones[0].data.label || "Phone"} on wifi`
+    : `${total} phones on wifi`;
+}
+
+// ── Incoming pair-requests ────────────────────────────────────────
+//
+// Phone publishes { app: "better-robotics-pair-request", target: <our-pk>,
+// nonce: <random> }. We see it via the lobby subscribe, prompt the user
+// (or auto-accept if they ticked Trust last time), publish a response
+// with a fresh roomId, and accept the WebRTC peer in the background.
+//
+// Nonces are tracked so we don't double-handle a request that the lobby
+// re-broadcasts on every change.
+
+function _processIncomingRequests(ads) {
+  if (!_myPubkey) return;
+  const requests = (ads || []).filter(a =>
+    a.data
+    && a.data.app === "better-robotics-pair-request"
+    && a.data.target === _myPubkey
+    && a.data.nonce
+    && !_handledRequestNonces.has(a.data.nonce)
+  );
+  for (const req of requests) {
+    _handledRequestNonces.add(req.data.nonce);
+    _handlePairRequest(req).catch(err => log("pair-request error: " + (err.message || err), "phone"));
+  }
+}
+
+async function _handlePairRequest(req) {
+  const senderPubkey = req.data._pubkey;
+  const senderLabel  = req.data.label || "Phone";
+  const nonce        = req.data.nonce;
+  if (!senderPubkey) return;
+
+  // Trusted = "Trust always" was ticked previously. Silently accept so
+  // the user doesn't see a prompt every time they open phone.html.
+  // Deliberate parallel to AirDrop's "Everyone" / "Contacts Only" model
+  // where contacts pair with no prompt.
+  if (isAutoAccept(senderPubkey)) {
+    log(`auto-accepting paired phone "${senderLabel}"`, "phone");
+    await _respondAndHostPair(true, senderPubkey, senderLabel, nonce, false);
+    return;
   }
 
-  // Pair dialog presence pane — only collapse the QR for trusted phones.
-  // An unknown phone needs the QR to bind trust; collapsing it would
-  // strand the user (P4 in the audit).
-  const dialog = $("pair-dialog");
-  const hint = $("pair-presence-text");
-  if (dialog) {
-    const presence = $("pair-presence");
-    if (presence) {
-      if (total === 0) {
-        presence.hidden = true;
-        presence.classList.remove("alert");
-      } else if (identityChanged.length > 0) {
-        presence.hidden = false;
-        presence.classList.add("alert");
-        if (hint) hint.textContent = `${identityChanged[0].label || "Phone"}'s identity changed since last pair — re-scan the QR to confirm it's the same device.`;
-      } else if (trusted.length > 0) {
-        presence.hidden = false;
-        presence.classList.remove("alert");
-        if (hint) hint.textContent = trusted.length === 1
-          ? `${trusted[0].label || "Phone"} ready — tap "Pair with this computer" on it.`
-          : `${trusted.length} paired phones ready — tap "Pair with this computer" on the one you want.`;
-      } else {
-        presence.hidden = false;
-        presence.classList.remove("alert");
-        if (hint) hint.textContent = `New phone on wifi — scan the QR with it to pair for the first time.`;
-      }
-    }
-    // Only collapse QR when ALL ready phones are trusted (and at least one
-    // exists). Unknown or identity-changed → keep QR visible.
-    const allTrusted = total > 0 && trusted.length === total;
-    dialog.classList.toggle("has-ready-phones", allTrusted);
+  // Otherwise: prompt the user. The promise resolves when they tap a
+  // button (or the prompt times out).
+  const decision = await _showRequestPrompt(senderLabel, senderPubkey);
+  if (!decision) {
+    // Timed out / closed without choosing. Treat as deny but don't
+    // store a "deny memory" — the phone can request again.
+    await _publishResponse(false, senderPubkey, nonce, null);
+    return;
   }
+  await _respondAndHostPair(decision.accepted, senderPubkey, senderLabel, nonce, decision.trust);
+}
+
+// Modal prompt promise — single in-flight; if a second request comes
+// while one is open, queue it (rare, and simpler than racing).
+let _promptInflight = null;
+const _promptQueue = [];
+let _promptResolver = null;
+function _resolveRequestPrompt(accepted) {
+  if (!_promptResolver) return;
+  const trust = !!$("pair-request-trust")?.checked;
+  const r = _promptResolver;
+  _promptResolver = null;
+  $("pair-request-dialog")?.close();
+  r({ accepted, trust });
+}
+function _showRequestPrompt(label, pubkey) {
+  if (_promptInflight) {
+    return new Promise(resolve => _promptQueue.push({ label, pubkey, resolve }));
+  }
+  return _promptInflight = new Promise((resolve) => {
+    const dialog = $("pair-request-dialog");
+    if (!dialog) { resolve(null); _promptInflight = null; return; }
+    $("pair-request-label").textContent = label;
+    const trustCb = $("pair-request-trust");
+    if (trustCb) trustCb.checked = false;
+    _promptResolver = (decision) => {
+      _promptInflight = null;
+      resolve(decision);
+      const next = _promptQueue.shift();
+      if (next) {
+        // Re-enter for the queued one — same promise contract.
+        _showRequestPrompt(next.label, next.pubkey).then(next.resolve);
+      }
+    };
+    dialog.showModal();
+    // Auto-dismiss after 30s — phone stops waiting then anyway.
+    setTimeout(() => {
+      if (_promptResolver) _resolveRequestPrompt(false);
+    }, 30000);
+  });
+}
+
+async function _publishResponse(accepted, targetPubkey, nonce, roomId) {
+  // Response ad lives just long enough for the phone to see it, then
+  // expires. Keep TTL short so a stale "accepted" doesn't linger after
+  // the room is gone.
+  try {
+    await getLobby().publish(`better-robotics-pair-response:${nonce}`, {
+      app: "better-robotics-pair-response",
+      target: targetPubkey,
+      nonce,
+      accepted,
+      roomId: accepted ? roomId : null,
+    }, 30000);
+  } catch {}
+}
+
+async function _respondAndHostPair(accepted, senderPubkey, senderLabel, nonce, autoTrust) {
+  if (!accepted) {
+    await _publishResponse(false, senderPubkey, nonce, null);
+    return;
+  }
+  // Accept path: spin up a fresh pair room, publish accept+roomId, wait
+  // for the phone to join. _registerPairedPhone wires the data channel
+  // handlers identically to the QR flow.
+  let session;
+  try {
+    session = await hostPairingRoom({ onStatus: () => {} });
+  } catch (err) {
+    log("hostPairingRoom failed: " + (err.message || err), "phone");
+    await _publishResponse(false, senderPubkey, nonce, null);
+    return;
+  }
+  await _publishResponse(true, senderPubkey, nonce, session.roomId);
+
+  // Memorize trust BEFORE the WebRTC handshake — the user already
+  // consented in the prompt; if pairing fails, the trust still holds
+  // (next attempt won't re-prompt).
+  if (autoTrust) trustDevice(senderPubkey, senderLabel);
+
+  try {
+    const peer = await session.waitForPeer();
+    _registerPairedPhone(session.roomId, peer, senderLabel);
+  } catch (err) {
+    log("pair waitForPeer failed: " + (err.message || err), "phone");
+  }
+}
+
+// Common peer setup — used by both the QR flow (beginPairing) and the
+// request/accept flow (_respondAndHostPair). Adds the phone to _phones,
+// wires data channel handlers, sends our pair-keys greeting.
+function _registerPairedPhone(id, peer, defaultLabel) {
+  _phones.set(id, { id, label: defaultLabel || "Phone", peer, connectedAt: Date.now(), status: "connected", statusDetail: "" });
+  log("phone paired", "phone");
+  try { peer.send({ type: "pair-keys", pubkey: _myPubkey, label: deviceLabel() }); } catch {}
+  peer.onMessage((msg) => {
+    if (msg && msg.type === "pair-keys" && msg.pubkey) {
+      // Phone returns its pubkey. We may already trust it (autoTrust
+      // path), but this also catches the QR path where trust gets
+      // bound here, and refreshes the label.
+      trustDevice(msg.pubkey, msg.label || "Phone");
+      const phone = _phones.get(id);
+      if (phone && msg.label) { phone.label = msg.label; renderPhones(); }
+      return;
+    }
+    onPhoneMessage(id, peer, msg);
+  });
+  peer.onStatus((status, detail) => {
+    const phone = _phones.get(id);
+    if (!phone) return;
+    phone.status = status;
+    phone.statusDetail = detail || "";
+    renderPhones();
+    if (status === "connected") sendTargetInfo(peer);
+  });
+  peer.onClose(() => {
+    const lastDriven = _phones.get(id)?.lastTarget;
+    if (lastDriven) { try { sendPairById(lastDriven, "motors", 0, 0); } catch {} }
+    for (const [askId, p] of _pendingAsks) {
+      if (p.phoneId !== id) continue;
+      clearTimeout(p.timeout);
+      _pendingAsks.delete(askId);
+      p.resolve({ answer: null, timed_out: true });
+    }
+    _phones.delete(id);
+    log("phone disconnected", "phone");
+    renderPhones();
+  });
+  sendTargetInfo(peer);
+  // Push the laptop's current camera stream if there is one so the
+  // newly-connected phone can immediately use it as a helper.
+  const stream = getLaptopStream();
+  if (stream) syncPhoneMedia(_phones.get(id), stream);
 }
 
 async function beginPairing() {
@@ -234,17 +395,14 @@ async function beginPairing() {
   });
   _pendingSession = session;
 
-  // Bind trust to the QR. The pubkey in the URL is the in-person consent:
-  // the phone scans it, stores our pubkey as trusted, and from then on can
-  // recognize our discovery ads (signed with the same key) as "my Mac"
-  // without prompting again. Coffee-shop attacker can publish ads with
-  // their own key but can't impersonate ours without the QR.
-  const myPubkey = await getMyPubkeyB64();
+  // QR-fallback path: encode our pubkey alongside the room id so a
+  // cross-network phone can establish trust without going through the
+  // request/accept lobby (which only works on the same wifi).
+  const myPubkey = _myPubkey || await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
   url.hash = `pair=${session.roomId}&pk=${myPubkey}`;
   const urlText = url.toString();
 
-  // qrcode-generator is loaded globally in index.html.
   if (window.qrcode) {
     const qr = window.qrcode(0, "L");
     qr.addData(urlText);
@@ -256,86 +414,12 @@ async function beginPairing() {
   urlEl.textContent = urlText;
   statusEl.textContent = "Waiting for phone…";
 
-  // Advertise this pairing room to LAN peers — phone.html (loaded without a
-  // #pair= hash) shows desktops on the wifi as one-tap join targets.
-  try {
-    getLobby().publish("better-robotics-pair:" + session.roomId, {
-      app: "better-robotics-pair",
-      roomId: session.roomId,
-      label: deviceLabel(),
-      pageUrl: urlText
-    }, 60000);
-  } catch {}
-
   try {
     const peer = await session.waitForPeer();
     if (_pendingSession !== session) { peer.close(); return; }  // user cancelled
-    const id = session.roomId;
-    // Room is now occupied — drop the ad so no second phone tries to
-    // hijack the same pairing.
-    try { getLobby().remove("better-robotics-pair:" + session.roomId); } catch {}
-    _phones.set(id, { id, label: "Phone", peer, connectedAt: Date.now(), status: "connected", statusDetail: "" });
     statusEl.textContent = "Connected";
-    log("phone paired", "phone");
-
-    // Tell the phone our pubkey + label so it can confirm trust against
-    // what the QR encoded (and learn a friendly name to display). Sent
-    // immediately on pair so the phone has it before any data flow.
-    try { peer.send({ type: "pair-keys", pubkey: myPubkey, label: deviceLabel() }); } catch {}
-    peer.onMessage((msg) => {
-      // Phone returns the favor with its own pubkey + label. Trust it now —
-      // the QR-bound WebRTC channel is the in-person evidence.
-      if (msg && msg.type === "pair-keys" && msg.pubkey) {
-        trustDevice(msg.pubkey, msg.label || "Phone");
-        return;
-      }
-      onPhoneMessage(id, peer, msg);
-    });
-    // Status events from the pairing layer: reconnecting is transient, failed
-    // is terminal. We only drop the phone from the UI on terminal; reconnecting
-    // just re-renders the card with the new state badge so the user can see
-    // what's happening instead of the connection going silent.
-    peer.onStatus((status, detail) => {
-      const phone = _phones.get(id);
-      if (!phone) return;
-      phone.status = status;
-      phone.statusDetail = detail || "";
-      renderPhones();
-      // When we come back to connected after a drop, re-push target info
-      // so the phone's joypad picks the right robot.
-      if (status === "connected") sendTargetInfo(peer);
-    });
-    peer.onClose(() => {
-      // Safety stop: if this phone was driving a robot and drops offline,
-      // zero the motors so the robot doesn't keep running on its last
-      // command. Firmware watchdog would catch it in ~600ms anyway, but
-      // we can be explicit here at zero cost.
-      const lastDriven = _phones.get(id)?.lastTarget;
-      if (lastDriven) { try { sendPairById(lastDriven, "motors", 0, 0); } catch {} }
-      // Resolve any in-flight asks against this phone as timeouts so Pip
-      // unblocks gracefully; without this, tool calls would hang forever.
-      for (const [askId, p] of _pendingAsks) {
-        if (p.phoneId !== id) continue;
-        clearTimeout(p.timeout);
-        _pendingAsks.delete(askId);
-        p.resolve({ answer: null, timed_out: true });
-      }
-      _phones.delete(id);
-      log("phone disconnected", "phone");
-      renderPhones();
-    });
-    // Tell the phone what it's driving (if anything). Sent once on connect —
-    // phones.js doesn't watch state.devices for changes, so if the target
-    // robot disconnects the phone will keep showing the old name until it
-    // sends a drive message that fails silently. Acceptable for v1.
-    sendTargetInfo(peer);
-    // Phase A media: if the laptop is already streaming, pipe its tracks to
-    // this fresh phone. Future sources (robot cam, other phones) plug into
-    // syncPhoneMedia the same way.
-    syncPhoneMedia(_phones.get(id), getLaptopStream());
-    renderPhones();
+    _registerPairedPhone(session.roomId, peer, "Phone");
     _pendingSession = null;
-    // Let the user see the "Connected" text briefly before the dialog closes.
     setTimeout(() => { if (dialog.open) dialog.close(); }, 800);
   } catch (err) {
     if (_pendingSession === session) {
