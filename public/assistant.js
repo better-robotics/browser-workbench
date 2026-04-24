@@ -120,7 +120,8 @@ function finishTraceLine(li, summary, isError) {
 // imported above. Single source of truth for trace-line formatting.
 
 function scrollPanelToBottom() {
-  if (_panel) _panel.scrollTop = _panel.scrollHeight;
+  const s = document.getElementById("assistant-scroll");
+  if (s) s.scrollTop = s.scrollHeight;
 }
 
 // In-bubble ask primitive — renders a question + option buttons (or a

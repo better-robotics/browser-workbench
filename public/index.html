@@ -473,8 +473,13 @@
   <!-- Ambient notify slot: Pip volunteering ("hey, I noticed X"). One slot,
        latest replaces previous, no history. Distinct from the chat-turn stack
        below — see USER-CODE.md / assistant.js comment on the split. -->
-  <div id="assistant-notify" class="pip-notify">Hi — I'm Pip. I'll pipe up when there's something worth knowing.</div>
-  <div id="assistant-turns" class="pip-turns"></div>
+  <!-- Scrolling moves to this inner wrapper so .assistant-panel can keep
+       overflow:visible — the speech-bubble ::after tail would otherwise be
+       clipped by overflow-y:auto on the outer panel. -->
+  <div id="assistant-scroll" class="pip-scroll">
+    <div id="assistant-notify" class="pip-notify">Hi — I'm Pip. I'll pipe up when there's something worth knowing.</div>
+    <div id="assistant-turns" class="pip-turns"></div>
+  </div>
   <form id="assistant-form" class="assistant-form">
     <input id="assistant-input" class="assistant-input" type="text" autocomplete="off"
            placeholder="Ask Pip…" maxlength="4000" aria-label="Ask Pip">

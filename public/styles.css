@@ -1608,16 +1608,15 @@ dialog[open]::backdrop { opacity: 1; }
   width: min(320px, calc(100vw - 40px));
   /* Cap height so long Pip replies (tool output, multi-step reasoning)
      can't climb past the top of the viewport. Panel grows upward from
-     the bottom anchor until it hits the cap, then content scrolls inside. */
+     the bottom anchor until it hits the cap, then .pip-scroll inside
+     takes over. */
   max-height: calc(100vh - 96px);
-  overflow-y: auto;
-  /* Reserve gutter so the scrollbar appearing/disappearing doesn't reflow
-     the message width as Pip types. */
-  scrollbar-gutter: stable;
-  /* Thin, low-contrast scrollbar. Firefox reads these two props; WebKit uses
-     the ::-webkit-scrollbar rules below. Both resolve to the same visual. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-default) transparent;
+  /* overflow:visible so the ::after speech-bubble tail (bottom:-7px) can
+     escape the panel's rounded border. Flex column lets the inner scroll
+     region flex-grow and the form pin to the bottom. */
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
   margin: 0;
   /* Extra top padding reserves space for the floating close button without
      a dedicated header row. Matches the conversational-bubble pattern where
@@ -1651,13 +1650,25 @@ dialog[open]::backdrop { opacity: 1; }
 .assistant-panel .assistant-close:hover { color: var(--ink); }
 /* WebKit (Chrome, Safari) equivalents of the Firefox scrollbar-* props above.
    Track fades into the panel; thumb is the same muted hairline as the border. */
-.assistant-panel::-webkit-scrollbar { width: 6px; }
-.assistant-panel::-webkit-scrollbar-track { background: transparent; }
-.assistant-panel::-webkit-scrollbar-thumb {
+/* Inner scroll region — long Pip replies + trace lines scroll here, not on
+   the outer panel, so the ::after speech-bubble tail (bottom:-7px on .assistant-
+   panel) stays visible. min-height:0 is the flex-child escape hatch that lets
+   overflow-y:auto actually scroll instead of pushing the form out. */
+.pip-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+.pip-scroll::-webkit-scrollbar { width: 6px; }
+.pip-scroll::-webkit-scrollbar-track { background: transparent; }
+.pip-scroll::-webkit-scrollbar-thumb {
   background: var(--border-default);
   border-radius: 3px;
 }
-.assistant-panel::-webkit-scrollbar-thumb:hover { background: var(--ink-muted); }
+.pip-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-muted); }
 /* Ambient notify slot — Pip volunteering ("hey, I noticed X"). One slot,
    replaced (not stacked) on each new notify. Sits above the chat-turn stack
    so it's the first thing the user sees but never accumulates as fake history. */
