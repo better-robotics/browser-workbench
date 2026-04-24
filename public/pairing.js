@@ -168,10 +168,12 @@ class Peer {
       }
     });
 
-    // Media-track plumbing for desktop → phone camera streaming. Desktop
-    // initiates negotiation when it addTrack()s; phone's existing offer
-    // handler in _applySignal answers it. Only desktop drives this — phone
-    // is receive-only for now, so no glare to worry about.
+    // Media-track plumbing. Either side may addTrack; negotiationneeded
+    // fires, _renegotiate offers, the other side answers via the existing
+    // _applySignal offer handler (which rolls back if it catches itself
+    // mid-negotiation). Glare is bounded by _negotiating + signalingState
+    // guards. Not full Perfect Negotiation but sufficient for sequential
+    // addTrack flows (the common case: one side shares, the other receives).
     this._onTrack = null;
     this._pendingTracks = [];
     this._negotiating = false;
@@ -190,8 +192,10 @@ class Peer {
   }
 
   async _renegotiate() {
-    // Only desktop initiates media-add renegotiation. Phone is receive-only.
-    if (!this._myPeerId.startsWith("desktop-")) return;
+    // Either role may initiate a media-add renegotiation. The _negotiating
+    // flag + stable-signalingState check keep us from offering on top of
+    // an in-flight negotiation; _applySignal's rollback handles the rare
+    // glare case where both sides offer simultaneously.
     if (this._negotiating) return;
     if (this._pc.signalingState !== "stable") return;
     this._negotiating = true;
