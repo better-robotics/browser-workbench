@@ -1682,9 +1682,28 @@ dialog[open]::backdrop { opacity: 1; }
   border-radius: 0 6px 6px 0;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Cap + overflow let `max-height` animate smoothly on dismissal without
+     measuring actual content height at dismiss time. 200px comfortably
+     holds the intro greeting + any typical ambient notify. */
+  max-height: 200px;
+  overflow: hidden;
+  transition: opacity 0.4s ease, max-height 0.4s ease,
+              margin-bottom 0.4s ease, padding 0.4s ease,
+              border-left-width 0.4s ease;
 }
 .pip-notify[hidden] { display: none; }
 .pip-notify.ai-generated { color: #d4b24e; }
+.pip-notify.dismissing {
+  opacity: 0;
+  max-height: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-left-width: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pip-notify { transition: none; }
+}
 
 /* Pip turns — each chat turn is a (echo, trace, reply) triple. Auto-collapses
    to a one-liner when the next turn opens, so the active loop never has to share

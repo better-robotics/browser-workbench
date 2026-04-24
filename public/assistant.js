@@ -214,10 +214,38 @@ function close() {
   setResponding(false);  // cancel any in-flight response indicator on close
 }
 
+// Intro notify auto-collapses 7s after the first panel open (or immediately
+// on first user submit). Once dismissed, the slot becomes available for
+// ambient notifies from speakMessage(); those overwrite text + reset hidden,
+// so a prior "dismissing" class is cleared there.
+let _introDismissTimer = null;
+let _introHandled = false;
+const INTRO_LINGER_MS = 7000;
+const INTRO_COLLAPSE_MS = 420;
+function dismissIntroNotify() {
+  if (!_notify || _notify.hidden || _notify.classList.contains("dismissing")) return;
+  _notify.classList.add("dismissing");
+  setTimeout(() => {
+    _notify.hidden = true;
+    _notify.classList.remove("dismissing");
+  }, INTRO_COLLAPSE_MS);
+}
+function armIntroTimer() {
+  if (_introHandled) return;
+  _introHandled = true;
+  _introDismissTimer = setTimeout(dismissIntroNotify, INTRO_LINGER_MS);
+}
+function killIntro() {
+  if (_introDismissTimer) { clearTimeout(_introDismissTimer); _introDismissTimer = null; }
+  _introHandled = true;
+  dismissIntroNotify();
+}
+
 function open({ autoDismiss = false } = {}) {
   cancelAutoDismiss();
   if (!_panel.matches(":popover-open")) _panel.showPopover();
   setPanelOpen(true);
+  armIntroTimer();
   if (autoDismiss) scheduleAutoDismiss();
 }
 
@@ -317,6 +345,8 @@ export function speakMessage(text, { autoDismiss = true, fromAI = false } = {}) 
   if (fromAI) _notify.innerHTML = renderMd(text);
   else        _notify.textContent = text;
   _notify.classList.toggle("ai-generated", !!fromAI);
+  // Abort any in-flight intro-collapse so the new notify shows at full size.
+  _notify.classList.remove("dismissing");
   _notify.hidden = false;
   _history.push({ role: "assistant", content: text });
   if (_history.length > HISTORY_LIMIT) _history.splice(0, _history.length - HISTORY_LIMIT);
@@ -357,6 +387,7 @@ async function handleSubmit(e) {
   _abort = false;
   _input.disabled = true;
   cancelAutoDismiss();  // user is engaged — don't fade out under them
+  killIntro();  // first real question — intro is no longer useful
 
   _history.push({ role: "user", content: text });
   // Open the new turn FIRST — collapsing prior turns and clearing the active
@@ -506,6 +537,18 @@ export function initAssistant() {
     if (!sum) return;
     sum.closest(".pip-turn")?.classList.toggle("collapsed");
   });
+  // Pip is popover-shaped, so it follows the project's popover dismiss rules
+  // (CLAUDE.md: outside-click + Escape). Capture phase on the click listener
+  // so stopPropagation in other handlers can't swallow the dismiss.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && _panel.matches(":popover-open")) close();
+  });
+  document.addEventListener("click", (e) => {
+    if (!_panel.matches(":popover-open")) return;
+    if (_panel.contains(e.target)) return;
+    if (_bubble.contains(e.target)) return;
+    close();
+  }, true);
   watchDialogs();
   // Hoist the bubble into the top layer so it floats above any modal dialog
   // — user can ask Pip proactively about what they're currently looking at.
