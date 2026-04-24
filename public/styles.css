@@ -2337,6 +2337,30 @@ body.phone {
   text-overflow: ellipsis;
 }
 
+/* Panic button — panic-red always, because its purpose is to be found fast
+   when the robot is doing the wrong thing. Status line auto-hides after ~3s. */
+.phone-command { display: flex; flex-direction: column; gap: 6px; }
+.phone-stop-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: var(--accent-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+.phone-stop-btn:disabled { opacity: 0.6; }
+.phone-command-status {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+.phone-command-status.ok    { color: var(--ink); }
+.phone-command-status.alert { color: var(--danger); }
+
 /* ask_human modal on the phone. Preempts chat / drive so the user notices
    Pip is waiting on them. Image is the robot's current frame; options row
    for tappable answers, free-text form when Pip asks open-ended. Skip

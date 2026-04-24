@@ -59,6 +59,51 @@ function setEcho(text) {
   else      { el.textContent = "";         el.hidden = true;  }
 }
 
+// Phone → desktop → BLE → robot relay. Correlation id round-trips so the
+// phone can resolve the right pending promise when multiple commands race
+// (e.g. a double-tap of Stop while the first is in flight).
+//
+// PROTOCOL PARITY — must match phones.js onPhoneMessage / dispatchRobotCommand:
+//   phone → desktop  { type:"robot-command",        id, capability, args }
+//   desktop → phone  { type:"robot-command-result", id, ok, data? | error? }
+const _pendingCommands = new Map();  // id → { resolve, timeout }
+function sendRobotCommand(capability, args = {}, timeoutMs = 5000) {
+  if (!_peer) return Promise.resolve({ ok: false, error: "not paired" });
+  const id = (crypto.randomUUID && crypto.randomUUID())
+    || `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      if (!_pendingCommands.has(id)) return;
+      _pendingCommands.delete(id);
+      resolve({ ok: false, error: "timed out" });
+    }, timeoutMs);
+    _pendingCommands.set(id, { resolve, timeout });
+    _peer.send({ type: "robot-command", id, capability, args });
+  });
+}
+
+function showCommandStatus(text, kind) {
+  const el = $("phone-command-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "phone-command-status" + (kind ? " " + kind : "");
+  el.hidden = false;
+  clearTimeout(showCommandStatus._t);
+  showCommandStatus._t = setTimeout(() => { el.hidden = true; }, 3000);
+}
+
+function wireStopButton() {
+  const btn = $("phone-stop-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const r = await sendRobotCommand("stop");
+    btn.disabled = false;
+    if (r.ok) showCommandStatus(`Stopped${r.data?.robot ? ` · ${r.data.robot}` : ""}`, "ok");
+    else showCommandStatus(r.error || "Failed", "alert");
+  });
+}
+
 function handleSubmit(e) {
   e.preventDefault();
   const input = $("phone-input");
@@ -154,6 +199,14 @@ function onPeerTrack(e) {
 
 function onPeerMessage(msg) {
   if (msg.type === "ask") { showAsk(msg); return; }
+  if (msg.type === "robot-command-result") {
+    const pending = _pendingCommands.get(msg.id);
+    if (!pending) return;  // late reply after timeout — drop silently
+    clearTimeout(pending.timeout);
+    _pendingCommands.delete(msg.id);
+    pending.resolve({ ok: !!msg.ok, data: msg.data, error: msg.error });
+    return;
+  }
   if (msg.type === "chat-reply") {
     setMessage(msg.text || "(no response)");
     _pending = false;
@@ -525,6 +578,7 @@ async function init() {
     $("phone-input").disabled = false;
     $("phone-input").focus();
     wireJoypad();
+    wireStopButton();
     wireBackgroundStop();
   } catch (err) {
     setStatus("error", "Failed");

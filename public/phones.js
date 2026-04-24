@@ -12,6 +12,7 @@ import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
+import { state } from "./state.js";
 import { getLaptopStream, onLaptopChange } from "./helpers.js";
 import { discover } from "./discover.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
@@ -436,6 +437,49 @@ async function onPhoneMessage(id, peer, msg) {
     sendPairById(target.id, "motors", l, r);
     return;
   }
+  if (msg.type === "robot-command") {
+    const reqId = msg.id;
+    const reply = (body) => { try { peer.send({ type: "robot-command-result", id: reqId, ...body }); } catch {} };
+    try {
+      const result = await dispatchRobotCommand(msg.capability, msg.args || {});
+      reply(result);
+    } catch (err) {
+      reply({ ok: false, error: String(err.message || err) });
+    }
+    return;
+  }
+}
+
+// Phone-issued commands relayed over WebRTC. Whitelist here is the trust
+// boundary — the phone is already authenticated by the pair ceremony, but
+// we still refuse anything not explicitly enumerated so a malformed message
+// can't reach the BLE ops channel.
+//
+// Target selection: most-recently-connected robot with the required
+// characteristic. `lastConnectedAt` is a plain timestamp, so the newer
+// session wins when multiple robots are paired.
+async function dispatchRobotCommand(capability, args) {
+  const cap = String(capability || "");
+  if (cap === "stop") {
+    const target = pickMotorsTargetMostRecent();
+    if (!target) return { ok: false, error: "no robot connected" };
+    try {
+      await sendPairById(target.id, "motors", 0, 0);
+      return { ok: true, data: { robot: target.name, applied: { l: 0, r: 0 } } };
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) };
+    }
+  }
+  return { ok: false, error: "unknown capability" };
+}
+
+function pickMotorsTargetMostRecent() {
+  let best = null;
+  for (const e of state.devices.values()) {
+    if (e.status !== "connected" || !e.motorsChar) continue;
+    if (!best || (e.lastConnectedAt || 0) > (best.lastConnectedAt || 0)) best = e;
+  }
+  return best;
 }
 
 function sendTargetInfo(peer) {

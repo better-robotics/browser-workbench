@@ -74,6 +74,13 @@
     <div class="phone-scene-label" id="phone-scene-source">Camera</div>
     <div class="phone-scene-text" id="phone-scene-text"></div>
   </section>
+  <!-- Panic button — relays `{capability:"stop"}` through the paired
+       desktop's BLE session. Always enabled; response surfaces inline so
+       the user sees "no robot connected" instead of a silent no-op. -->
+  <section class="phone-command" id="phone-command">
+    <button id="phone-stop-btn" type="button" class="phone-stop-btn">Stop robot</button>
+    <p id="phone-command-status" class="phone-command-status" hidden></p>
+  </section>
   <section class="phone-drive" id="phone-drive" hidden>
     <div class="phone-drive-header">
       <div class="label">Drive</div>
