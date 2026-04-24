@@ -2072,7 +2072,14 @@ body.phone {
   min-height: 100dvh;
   max-width: 480px;
   margin: 0 auto;
-  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  /* viewport-fit=cover: extend horizontal padding through the notch / home
+     indicator in landscape so nested surfaces (nearby list, reconnect card,
+     dashboard link) never render under the bezel. */
+  padding:
+    20px
+    calc(20px + env(safe-area-inset-right))
+    calc(20px + env(safe-area-inset-bottom))
+    calc(20px + env(safe-area-inset-left));
   gap: 16px;
 }
 .phone-header {
@@ -2126,8 +2133,6 @@ body.phone {
 .phone-nearby-label {
   margin: 0;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--ink-muted);
 }
 .phone-nearby-btn {
@@ -2157,13 +2162,16 @@ body.phone {
   color: #c0392b;
 }
 .phone-dashboard-link {
-  display: block;
-  margin-top: 14px;
-  text-align: center;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;  /* iOS HIG tap target — this is a real mode-switch */
+  margin-top: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
   color: var(--ink-muted);
   text-decoration: underline;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 .phone-install {
   display: flex;
@@ -2189,8 +2197,6 @@ body.phone {
   color: var(--accent);
   font-size: 11px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 /* Identity-changed alert variant — same shape, warning palette. The
    alert form is meaningful without colour alone (text reads "identity
@@ -2219,6 +2225,17 @@ body.phone {
    than slow it down. */
 @media (prefers-reduced-motion: reduce) {
   .presence-badge::before { animation: none; }
+}
+/* Dark-mode contrast: duke-royal-blue on the 14%-over-#1a1d20 composite
+   lands at ~2.0:1, below WCAG AA for small text. Lift the text to a
+   brighter blue that clears 4.5:1 while keeping the "blue badge" read. */
+@media (prefers-color-scheme: dark) {
+  .presence-badge {
+    color: #5aa9d6;
+  }
+  .presence-badge::before {
+    background: #5aa9d6;
+  }
 }
 
 /* Pair-request modal — AirDrop-shape. Buttons mirror native iOS alerts
