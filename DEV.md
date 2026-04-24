@@ -9,7 +9,6 @@ One-page cheat sheet for diagnostic flags, console handles, and debug paths. If 
 - `?prepare` — opens the Customize-card SD-prep dialog on load. Implementation: `app.js`.
 - `?robot=<name>` — pre-selects a robot by name (useful for direct-link workflows). Implementation: `app.js`.
 - `?no-grounding-preload` — skip the background download of the spatial detector when Watch is enabled. VLM scene captions still work; `get_robot_detections` will load the model on first call instead (with a ~30–60s wait). Use on slow / metered connections. Implementation: `grounding.js`.
-  - *Note (2026-04-22)*: the detector is currently **disabled** via `GROUNDING_ENABLED = false` in `grounding.js`. Both OWL-ViT and OWLv2 trigger a `Cast` node placement failure on onnxruntime-web (neither WebGPU nor WASM can host the op). Flip the flag back to `true` once a working detector path is wired (different model family, server-side detection, or a newer onnxruntime release). While disabled, `preloadGrounding()` is a no-op and `get_robot_detections` is hidden from Pip's TOOLS — Pip falls back to `ask_human_via_phone` for spatial disambiguation.
 
 ### Phone (`phone.html`)
 - `?debug` or `#debug` — same pairing debug as above; the floating panel is visible on the phone too.

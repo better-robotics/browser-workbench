@@ -1,47 +1,25 @@
-// Open-vocabulary object detection — OWL-ViT via transformers.js. Fills
-// the spatial gap that get_robot_scene (text-only VLM) can't address: Pip
-// can ask "where in the frame is the yellow can?" and get bounding boxes
-// instead of guessing from a free-form caption.
-//
-// Architecturally parallel to perception.js: same transformers.js loader
-// pattern, same lazy first-call model download, same WebGPU-when-available
-// fallback to WASM. Detections and scene descriptions are independent
-// signals — Pip can use either or both.
-//
-// Output shape: [{ label, score, bbox: { x, y, w, h, cx, cy } }] with all
-// coordinates normalized to [0,1] (x=0 is left edge, y=0 is top). cx/cy
-// are the center of the box, pre-computed because Pip's spatial reasoning
-// almost always wants "where is the center" not "where is the corner".
-//
-// Cost envelope:
-//   - One-time ~300-600MB model download on first use (IndexedDB-cached).
-//   - First inference after load: ~3-5s (warmup).
-//   - Steady-state: ~1-2s on WebGPU, ~3-5s on WASM fallback.
-//   - Called on-demand only (no continuous loop), so cost is per-decision.
+// Open-vocabulary object detection via transformers.js. Output shape:
+// [{ label, score, bbox: { x, y, w, h, cx, cy } }] with coordinates
+// normalized to [0,1]; cx/cy is the box center (x=0 left, y=0 top).
 
 import { drawFrameToCanvas } from "./perception.js";
 
-// Feature flag — set to false while the in-browser detector is unusable.
-// OWLv2 and OWL-ViT both emit a Cast node that onnxruntime-web can't
-// place on any execution provider (WebGPU and WASM both refuse), so
-// detectOnce always throws. Rather than keep Pip trying a broken tool
-// on every spatial decision, we gate it at the source:
-//   - preloadGrounding() becomes a no-op (saves the ~300MB download)
-//   - detectOnce() returns a structured error
-//   - pip-tools.js filters get_robot_detections out of the advertised TOOLS
-// Re-enable by flipping to true when a working detector path is wired
-// (different model family, server-side detection, or a future onnxruntime
-// release that covers the missing op).
-export const GROUNDING_ENABLED = false;
+export const GROUNDING_ENABLED = true;
 
+// Keep in sync with perception.js / local-llm.js so a single runtime copy
+// is loaded when multiple pipelines coexist. Unversioned URL tracks the
+// latest v4.x, which ships the native WebGPU EP (broader op coverage
+// than onnxruntime-web's old WebGPU backend — fixes the Cast placement
+// failure that previously killed OWLv2).
 const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
-// OWLv2 has a cleaner ONNX graph than OWL-ViT — the base-patch32 variant
-// tripped onnxruntime-web's WASM backend on an unsupported Cast(13) op in
-// the wild. OWLv2 also tends to outperform its predecessor on open-vocab
-// tasks. Size is comparable (~300MB quantized).
-const MODEL_ID = "Xenova/owlv2-base-patch16";
+// Grounding DINO tiny — officially supported zero-shot-object-detection
+// model in transformers.js (landed in v3.3). q4f16 variant is ~151MB,
+// WebGPU-friendly. OWLv2 was rejected because its ONNX graph tripped
+// onnxruntime-web's older backend on an unplaceable Cast(13) op.
+const MODEL_ID = "onnx-community/grounding-dino-tiny-ONNX";
+const MODEL_DTYPE = "q4f16";
 const MAX_DIM = 640;
-const DEFAULT_THRESHOLD = 0.1;
+const DEFAULT_THRESHOLD = 0.25;
 const DEFAULT_TOPK = 5;
 
 let _pipe = null;
@@ -51,20 +29,14 @@ let _onProgress = () => {};
 export function onGroundingProgress(cb) { _onProgress = cb || (() => {}); }
 export function isGroundingLoaded() { return !!_pipe; }
 
-// Perception layer owns when the detector loads — not Pip's tool calls.
-// Called from startWatching() in perception.js so "enable Watch" triggers
-// both the VLM load (required for scene captions) and the detector load
-// (required for spatial grounding) in parallel. Fire-and-forget: a
-// detector failure shouldn't block Watch, since VLM scenes are still
-// useful on their own. Any error surfaces naturally when Pip later calls
-// get_robot_detections.
+// Called from perception.js startWatching so detector + VLM loads share
+// the same user-gated moment. Fire-and-forget; errors surface at tool-call
+// time so a detector failure doesn't block VLM scene captions. Opt out
+// with ?no-grounding-preload (see DEV.md).
 export function preloadGrounding() {
   if (!GROUNDING_ENABLED) return;
-  // URL opt-out for bandwidth-sensitive scenarios (mobile hotspot,
-  // users who only want VLM scene captions without spatial grounding).
-  // Documented in DEV.md.
   if (typeof location !== "undefined" && /\bno-grounding-preload\b/.test(location.search + location.hash)) return;
-  ensurePipe().catch(() => { /* surface at tool-call time, not here */ });
+  ensurePipe().catch(() => {});
 }
 
 async function ensurePipe() {
@@ -72,16 +44,15 @@ async function ensurePipe() {
   if (_loadingPromise) return _loadingPromise;
   _loadingPromise = (async () => {
     const { pipeline } = await import(TRANSFORMERS_URL);
-    // WebGPU has broader ONNX op coverage than the default WASM backend.
-    // Cast(13) in the detection head fails on WASM for both OWL-ViT and
-    // OWLv2; WebGPU runs it. Falls back to WASM if WebGPU isn't available
-    // so we don't hard-fail on browsers without WebGPU support.
     try {
       _pipe = await pipeline("zero-shot-object-detection", MODEL_ID, {
         device: "webgpu",
+        dtype: MODEL_DTYPE,
         progress_callback: (p) => { try { _onProgress(p); } catch {} },
       });
     } catch {
+      // WASM fallback — no dtype hint (q4f16 is WebGPU-oriented); lets
+      // transformers.js pick a WASM-compatible variant automatically.
       _pipe = await pipeline("zero-shot-object-detection", MODEL_ID, {
         progress_callback: (p) => { try { _onProgress(p); } catch {} },
       });
@@ -91,26 +62,36 @@ async function ensurePipe() {
   return _loadingPromise;
 }
 
-// Run detector on the current camera frame for a set of open-vocabulary
-// queries. Queries are short noun phrases — "yellow can", "doorway",
-// "chair". Up to ~5 per call keeps inference cost manageable.
+// Grounding DINO's text encoder requires lowercase queries terminated by a
+// period — mandated by the processor (see model card). "Yellow can" silently
+// returns no hits; "yellow can." works. Normalize here so Pip's tool contract
+// (free-form noun phrases) stays unchanged.
+function normalizeQuery(q) {
+  const s = String(q || "").trim().toLowerCase();
+  if (!s) return "";
+  return s.endsWith(".") ? s : `${s}.`;
+}
+
 export async function detectOnce(entry, queries, { threshold = DEFAULT_THRESHOLD, topk = DEFAULT_TOPK } = {}) {
   if (!Array.isArray(queries) || queries.length === 0) return [];
   const canvas = drawFrameToCanvas(entry, MAX_DIM);
   if (!canvas) return null;
   const pipe = await ensurePipe();
-  // transformers.js pipeline returns pixel coords; normalize with known
-  // canvas dims so Pip's spatial reasoning stays resolution-agnostic.
   const imageUrl = canvas.toDataURL("image/jpeg", 0.85);
-  const raw = await pipe(imageUrl, queries, { threshold, topk });
+  const normalized = queries.map(normalizeQuery).filter(Boolean);
+  if (normalized.length === 0) return [];
+  const raw = await pipe(imageUrl, normalized, { threshold, topk });
   const W = canvas.width, H = canvas.height;
   return raw.map(r => {
     const x0 = r.box.xmin / W;
     const y0 = r.box.ymin / H;
     const x1 = r.box.xmax / W;
     const y1 = r.box.ymax / H;
+    // Strip the trailing period so Pip sees its original query back,
+    // not the Grounding-DINO-normalized form.
+    const label = typeof r.label === "string" ? r.label.replace(/\.$/, "") : r.label;
     return {
-      label: r.label,
+      label,
       score: r.score,
       bbox: {
         x: x0, y: y0,
