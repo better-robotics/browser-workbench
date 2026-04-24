@@ -17,6 +17,7 @@ import {
   renderPerceptionPromptField,
   wirePerceptionPrompt,
 } from "../../perception.js";
+import { notifyRobotStreamChange } from "../../phones.js";
 
 const OP_BEGIN   = 0x01;
 const OP_CHUNK   = 0x02;
@@ -111,6 +112,10 @@ export function makeWebrtcInstallableCap(schema) {
       entry[streamField] = e.streams[0];
       const video = entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`);
       if (video) video.srcObject = entry[streamField];
+      // Forward the new stream to any paired phones. Camera cap name is
+      // "camera" in practice, so entry.cameraStream is what phones.js picks
+      // up via entry[streamField] -> entry.cameraStream.
+      if (streamField === "cameraStream") notifyRobotStreamChange(entry);
     };
     pc.onicecandidate = async (e) => {
       if (!e.candidate) return;
@@ -153,6 +158,7 @@ export function makeWebrtcInstallableCap(schema) {
     try { await entry[signalField]?.writeValueWithResponse(new Uint8Array([OP_STOP])); } catch {}
     if (entry[pcField]) { try { entry[pcField].close(); } catch {} entry[pcField] = null; }
     entry[streamField] = null;
+    if (streamField === "cameraStream") notifyRobotStreamChange(entry);
     entry[statusState] = { st: "idle" };
     renderEntry(entry);
   }

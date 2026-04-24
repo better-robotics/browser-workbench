@@ -1710,6 +1710,11 @@ body.phone {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
+  /* Global html/body rule above uses overflow:hidden for the desktop
+     app-shell. phone.html's layout expects the body to scroll (content
+     overflows naturally — see .phone-chat comment below), so override. */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .phone-main {
   display: flex;

@@ -164,6 +164,33 @@ function syncPhoneMedia(phone, stream) {
   phone.laptopSenders = senders;
 }
 
+// Robot camera → phone bridge. Parallel to syncPhoneMedia but keyed per
+// robot id since a dashboard may have multiple robots streaming at once.
+// pairing.js's negotiationneeded handler re-offers after addTrack, so the
+// track lands on the phone automatically. MJPEG cams (ESP32) don't have
+// a MediaStream — only WebRTC cams (Pi) flow through here.
+function syncRobotMedia(phone, entry) {
+  if (!phone || phone.status === "failed") return;
+  if (!phone.robotSenders) phone.robotSenders = new Map();
+  const prev = phone.robotSenders.get(entry.id) || [];
+  for (const s of prev) { try { phone.peer.removeTrack(s); } catch {} }
+  phone.robotSenders.delete(entry.id);
+  const stream = entry.cameraStream;
+  if (!stream) return;
+  const senders = [];
+  for (const t of stream.getVideoTracks()) {
+    const s = phone.peer.addTrack(t, stream);
+    if (s) senders.push(s);
+  }
+  if (senders.length) phone.robotSenders.set(entry.id, senders);
+}
+
+// Called from webrtc-installable.js when a robot's cameraStream starts or
+// stops. Fans out to every paired phone so they pick up / drop the track.
+export function notifyRobotStreamChange(entry) {
+  for (const p of _phones.values()) syncRobotMedia(p, entry);
+}
+
 function closePairing() {
   if (_pendingSession) {
     try { getLobby().remove("better-robotics-pair:" + _pendingSession.roomId); } catch {}
@@ -345,6 +372,12 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   // newly-connected phone can immediately use it as a helper.
   const stream = getLaptopStream();
   if (stream) syncPhoneMedia(_phones.get(id), stream);
+  // Same for any robot cameras that are already streaming — phone sees
+  // the robot's view as soon as it pairs, not only if it pairs first.
+  const phone = _phones.get(id);
+  for (const entry of state.devices.values()) {
+    if (entry.cameraStream) syncRobotMedia(phone, entry);
+  }
 }
 
 async function beginPairing() {
