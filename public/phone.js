@@ -1,6 +1,7 @@
 import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pairing.js";
 import { attachJoypad } from "./joypad.js";
+import { discover } from "./discover.js";
 
 let _peer = null;
 let _pending = false;
@@ -279,6 +280,37 @@ function wireReconnect() {
   $("phone-scanner-cancel")?.addEventListener("click", stopQrScan);
 }
 
+// LAN discovery — desktops with an open Pair dialog on the same wifi
+// broadcast a pair room. Render each as a one-tap join button so the
+// reconnect surface offers "skip the QR" before the camera scan.
+let _lobby = null;
+function startNearbyDiscovery() {
+  if (_lobby) return;  // idempotent — init might call us twice across reconnects
+  _lobby = discover();
+  const wrap = $("phone-nearby");
+  const list = $("phone-nearby-list");
+  if (!wrap || !list) return;
+  _lobby.onChange((ads) => {
+    const desktops = ads.filter(a => a.data && a.data.app === "better-robotics-pair" && a.data.roomId);
+    list.innerHTML = "";
+    if (!desktops.length) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    for (const ad of desktops) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "phone-nearby-btn";
+      btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
+      btn.addEventListener("click", () => {
+        // Same code path as scanning the QR: navigate to the same URL the
+        // QR encodes. location.replace avoids a back-button trap.
+        location.replace(location.pathname + "#pair=" + ad.data.roomId);
+        location.reload();
+      });
+      list.appendChild(btn);
+    }
+  });
+}
+
 async function init() {
   wireReconnect();
   const match = location.hash.match(/^#pair=(.+)$/);
@@ -286,6 +318,7 @@ async function init() {
     setStatus("error", "Not paired");
     setMessage("Tap “Scan QR to connect” below, or open the dashboard on your desktop and tap “Pair phone” to generate a code.");
     showReconnect("No pairing code yet.");
+    startNearbyDiscovery();
     return;
   }
   const roomId = match[1];
@@ -323,6 +356,7 @@ async function init() {
       $("phone-input").disabled = true;
       $("phone-cam-section").hidden = true;
       showReconnect("Lost the desktop. Scan a fresh QR to reconnect.");
+      startNearbyDiscovery();
     });
     $("phone-form").addEventListener("submit", handleSubmit);
     $("phone-input").disabled = false;
@@ -333,6 +367,7 @@ async function init() {
     setStatus("error", "Failed");
     setMessage(`Couldn't pair: ${err.message || err}`);
     showReconnect("Pair failed — try a fresh QR from the desktop.");
+    startNearbyDiscovery();
   }
 }
 

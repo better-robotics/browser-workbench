@@ -2032,6 +2032,29 @@ body.phone {
   word-break: break-word;
 }
 .phone-form { margin: 0; }
+/* Discovery list shown when phone.html loads without a #pair= hash. Each
+   button takes the user to the same room they would have reached via QR. */
+.phone-nearby { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.phone-nearby-label {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+.phone-nearby-btn {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.phone-nearby-btn:hover { background: var(--surface-raised, var(--surface)); }
 .phone-input {
   width: 100%;
   box-sizing: border-box;

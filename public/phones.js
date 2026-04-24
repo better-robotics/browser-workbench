@@ -13,6 +13,21 @@ import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { getLaptopStream, onLaptopChange } from "./helpers.js";
+import { discover } from "./discover.js";
+
+// Single shared lobby instance — desktop publishes a pairing ad while the
+// dialog is open so a phone on the same wifi can land directly on the
+// pairing room without scanning the QR. Removed on cancel/connect so a
+// stale ad doesn't survive past its room.
+let _lobby = null;
+function getLobby() { return _lobby || (_lobby = discover()); }
+function deviceLabel() {
+  const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  if (/Mac/i.test(ua)) return "Mac";
+  if (/Windows/i.test(ua)) return "Windows";
+  if (/Linux/i.test(ua)) return "Linux";
+  return "Computer";
+}
 
 const _phones = new Map();  // roomId → { id, label, peer, connectedAt, status, statusDetail }
 // askId → { resolve, timeout, phoneId } — outstanding ask_human requests.
@@ -116,6 +131,9 @@ function syncPhoneMedia(phone, stream) {
 }
 
 function closePairing() {
+  if (_pendingSession) {
+    try { getLobby().remove("better-robotics-pair:" + _pendingSession.roomId); } catch {}
+  }
   _pendingSession?.cancel();
   _pendingSession = null;
   $("pair-dialog").close();
@@ -156,10 +174,24 @@ async function beginPairing() {
   urlEl.textContent = urlText;
   statusEl.textContent = "Waiting for phone…";
 
+  // Advertise this pairing room to LAN peers — phone.html (loaded without a
+  // #pair= hash) shows desktops on the wifi as one-tap join targets.
+  try {
+    getLobby().publish("better-robotics-pair:" + session.roomId, {
+      app: "better-robotics-pair",
+      roomId: session.roomId,
+      label: deviceLabel(),
+      pageUrl: urlText
+    }, 60000);
+  } catch {}
+
   try {
     const peer = await session.waitForPeer();
     if (_pendingSession !== session) { peer.close(); return; }  // user cancelled
     const id = session.roomId;
+    // Room is now occupied — drop the ad so no second phone tries to
+    // hijack the same pairing.
+    try { getLobby().remove("better-robotics-pair:" + session.roomId); } catch {}
     _phones.set(id, { id, label: "Phone", peer, connectedAt: Date.now(), status: "connected", statusDetail: "" });
     statusEl.textContent = "Connected";
     log("phone paired", "phone");

@@ -39,9 +39,15 @@
 
   <!-- Reconnect surface — shown when there's no pair code in the URL, or
        after a connection drop. Lets the user re-pair without bouncing back
-       to the desktop: scan the QR with the phone's own camera. -->
+       to the desktop: scan the QR with the phone's own camera. The
+       nearby list above the scanner is filled by phone.js when any
+       desktop on the same wifi is broadcasting a pair room. -->
   <section class="phone-reconnect" id="phone-reconnect" hidden>
     <div class="phone-reconnect-message" id="phone-reconnect-message"></div>
+    <div class="phone-nearby" id="phone-nearby" hidden>
+      <p class="phone-nearby-label">On your wifi</p>
+      <div id="phone-nearby-list"></div>
+    </div>
     <button id="phone-scan-btn">Scan QR to connect</button>
     <div class="phone-scanner" id="phone-scanner" hidden>
       <video class="phone-scanner-video" id="phone-scanner-video" playsinline muted></video>
