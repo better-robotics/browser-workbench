@@ -12,6 +12,7 @@
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="apple-touch-icon" href="icon.svg">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="BetterRobotics">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Phones land on phone.html by default. The dashboard needs Web
@@ -226,12 +227,12 @@
     <div class="hint" id="setting-pip-backend-hint"></div>
     <div id="setting-pip-anthropic-key-row" class="pip-key-row" hidden>
       <label for="setting-pip-key" class="settings-title">Anthropic API key</label>
-      <input type="password" id="setting-pip-key" autocomplete="off" placeholder="sk-ant-…" spellcheck="false">
+      <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-key" autocomplete="off" placeholder="sk-ant-…" spellcheck="false"></form>
       <div class="hint">Stored in this browser only (localStorage). Goes directly to api.anthropic.com — never crosses our infrastructure. Treat like a password.</div>
     </div>
     <div id="setting-pip-openai-key-row" class="pip-key-row" hidden>
       <label for="setting-pip-openai-key" class="settings-title">OpenAI API key</label>
-      <input type="password" id="setting-pip-openai-key" autocomplete="off" placeholder="sk-…" spellcheck="false">
+      <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-openai-key" autocomplete="off" placeholder="sk-…" spellcheck="false"></form>
       <div class="hint">Stored in this browser only. Goes directly to api.openai.com. Default model is gpt-4o-mini (cheap; tool-call capable). Treat like a password.</div>
     </div>
     <div id="setting-pip-local-row" class="pip-local-row" hidden>
@@ -376,7 +377,7 @@
   </div>
   <div class="field">
     <label for="prep-password">Sudo password</label>
-    <input id="prep-password" type="password" autocomplete="new-password">
+    <form autocomplete="off" onsubmit="return false"><input id="prep-password" type="password" autocomplete="new-password"></form>
     <div class="hint" style="margin-top: 4px;">Leave blank for key-only SSH. Set one to enable password SSH too.</div>
   </div>
   <div class="field">

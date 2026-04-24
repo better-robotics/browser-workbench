@@ -47,13 +47,16 @@ export function preloadGrounding() {
 
 // q4f16 is fastest but needs the WebGPU shader-f16 extension (absent on
 // some Intel iGPUs + older Android GPUs — symptom there is an opaque
-// "Cannot read properties of undefined" inside the pipeline because a
-// binding never resolved). Cascade from fastest-but-pickiest to
-// broadest-but-slowest so install-once-work-everywhere is the default.
+// "Cannot read properties of undefined (reading 'getBindGroupLayout')"
+// thrown from the pipeline because a binding never resolved). Cascade
+// from fastest-but-pickiest to broadest-but-slowest. The explicit "wasm"
+// final attempt is the CPU-only path — much slower, but a real fallback
+// when WebGPU can't build shader bindings on this GPU/driver.
 const INIT_ATTEMPTS = [
   { device: "webgpu", dtype: "q4f16" },
   { device: "webgpu", dtype: "q4"    },
   { device: "webgpu"                 },
+  { device: "wasm"                   },
   {                                  },
 ];
 
