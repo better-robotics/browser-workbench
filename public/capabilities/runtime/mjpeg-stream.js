@@ -18,6 +18,7 @@ import {
   wirePerceptionPrompt,
 } from "../../perception.js";
 import { capSection } from "./cap-section.js";
+import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
 
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
@@ -55,6 +56,7 @@ export function makeMjpegStreamCap(schema) {
     cleanup(entry)  {
       entry[runningField] = false;
       if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
+      stopMjpegForward(entry);
       entry[profileField] = null;
     },
 
@@ -114,12 +116,26 @@ export function makeMjpegStreamCap(schema) {
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", () => {
         entry[runningField] = true;
         renderEntry(entry);
+        // Canvas-restream after render so the <img> exists. Load event
+        // inside startMjpegForward handles the "img not decoded yet" case.
+        const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
+        if (img) startMjpegForward(entry, img);
       });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click", () => {
         if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
+        stopMjpegForward(entry);
         entry[runningField] = false;
         renderEntry(entry);
       });
+      // Post-render rebind: when the card re-renders (e.g. renderEntry fired
+      // from elsewhere) and the stream is already running, the old <img> is
+      // gone and we're drawing into nothing. Re-point at the fresh img.
+      if (entry[runningField] && entry._mjpegForward) {
+        const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
+        if (img && img !== entry._mjpegForward.imgEl) {
+          startMjpegForward(entry, img);
+        }
+      }
       wirePerceptionToggle(entry, node, {
         watchingAction: actionWatch, watchingField, onRender: renderEntry,
       });
