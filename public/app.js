@@ -24,6 +24,7 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat } from "./assistant.js";
 import { initPhones, setPhoneChatHandler } from "./phones.js";
+import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers } from "./helpers.js";
 
@@ -631,6 +632,32 @@ function updateQrHint() {
   const show = !!hinted && !known && !!navigator.bluetooth;
   hint.hidden = !show;
   if (show) $("qr-hint-name").textContent = hinted;
+}
+
+// Robots advertise their presence on the same /discover lobby that phones
+// use. Pi-side: firmware/pi_robot/wifi_discover.py. Dashboard renders an
+// "N online" badge in the robots heading + offers a one-tap setup card
+// in the empty state when an unknown robot appears on the wifi.
+let _robotLobby = null;
+let _wifiRobots = [];
+function initRobotPresence() {
+  if (_robotLobby) return;
+  _robotLobby = discover();
+  _robotLobby.onChange((ads) => {
+    _wifiRobots = (ads || []).filter(a =>
+      a.data && a.data.app === "better-robotics-robot" && a.data.robotId
+    );
+    renderRobotPresence();
+  });
+}
+function renderRobotPresence() {
+  const badge = $("robot-presence");
+  if (!badge) return;
+  if (_wifiRobots.length === 0) { badge.hidden = true; return; }
+  badge.hidden = false;
+  badge.textContent = _wifiRobots.length === 1
+    ? `${_wifiRobots[0].data.label || "Robot"} on wifi`
+    : `${_wifiRobots.length} robots on wifi`;
 }
 
 function render() {
@@ -1381,6 +1408,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initPhones();
   setPhoneChatHandler(text => handleRemoteChat(text, { source: "phone" }));
   initHelpers();
+  initRobotPresence();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
   // System Access API; no reason to pull it into first-paint. prepare.js's
