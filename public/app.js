@@ -1392,6 +1392,11 @@ document.addEventListener("DOMContentLoaded", () => {
     openai:    "Calls api.openai.com directly with your API key. Tool-calling translated from Anthropic's tool_use shape to OpenAI's function_calling shape — same Pip behavior, different backend.",
     local:     "Runs in this browser via WebGPU. Experimental — tool calls may need retries, output capped at 512 tokens. Requires Chrome/Edge.",
   };
+  const visionRow   = $("setting-pip-vision-row");
+  const visionInput = $("setting-pip-vision");
+  // Vision tool only works on Claude-shape backends. OpenAI image-in-
+  // tool_result isn't wired; local LFM has no vision.
+  const VISION_BACKENDS = new Set(["bridge", "anthropic"]);
   function syncBackendUI() {
     const b = settings.pipBackend || "bridge";
     backendSelect.value = b;
@@ -1399,14 +1404,20 @@ document.addEventListener("DOMContentLoaded", () => {
     anthropicKeyRow.hidden = b !== "anthropic";
     openaiKeyRow.hidden    = b !== "openai";
     localRow.hidden        = b !== "local";
+    visionRow.hidden       = !VISION_BACKENDS.has(b);
     anthropicKeyInput.value = settings.pipApiKey || "";
     openaiKeyInput.value    = settings.pipOpenaiKey || "";
+    visionInput.checked     = !!settings.pipVisionEnabled;
   }
   syncBackendUI();
   backendSelect.addEventListener("change", () => {
     settings.pipBackend = backendSelect.value;
     saveSettings();
     syncBackendUI();
+  });
+  visionInput.addEventListener("change", () => {
+    settings.pipVisionEnabled = visionInput.checked;
+    saveSettings();
   });
   // Save keys on blur, not per-keystroke — avoids persisting partial pastes
   // and keeps the storage write off the typing critical path.
