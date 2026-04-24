@@ -53,6 +53,17 @@ Three design rules for anything that couples an LLM / VLM to the robot's motion.
 - **Confidence-based handoff is core policy, not a tool.** `ask_human_via_phone` isn't an escape hatch, it's the terminal rung of the decision cascade. The model should ask to be overridden rather than wait to be overridden. Any new planner-layer feature that doesn't have a "defer upward" path is incomplete.
 - **Pip reachability has a silent fallback.** `ask()` / `askWithTools()` retry via the local LFM model when the primary backend returns null AND `settings.pipLocalInstalled` is true (user opted in once; weights live in IndexedDB). A null Pip reply means BOTH the primary and the local retry returned null — not just the primary. Diagnose accordingly.
 
+# Model discipline
+
+Different model shapes are good at different jobs. Treat them as distinct primitives, not as interchangeable "AI". The project has been bitten by planner-layer attempts to paper over a capability gap with prompt-engineering — don't.
+
+- **VLM (SmolVLM via `perception.js`, exposed as `get_robot_scene` / `ask_robot_scene`): semantic caption only.** Answers "what's in the frame." Does NOT answer "where in the frame" — left/right/near/far from caption text are confabulations, even when stated confidently. Task-contextualized questions via `ask_robot_scene` help with semantic cross-examination (colors, counts), not with spatial grounding. Rule: never commit a directional motor pulse based on VLM text alone.
+- **Grounded detector (OWLv2 via `grounding.js`, exposed as `get_robot_detections`): bounding boxes.** THE primitive for spatial (left/right/near/far). Returns normalized `{cx, cy, w, h}` — `cx < 0.45` is left, `> 0.55` is right. May be disabled (`GROUNDING_ENABLED = false`) due to onnxruntime Cast-op bugs; when disabled, `get_robot_detections` is filtered out of the tool list. If spatial is required and the detector is absent, the correct move is `ask_human`, not guessing from VLM captions.
+- **Claude (planner): seconds-latency, multi-turn, tool-calling.** Strong at decomposing goals, weak at closed-loop visual servo (the 2–5s round-trip makes tight loops impossible). Can view images natively but shouldn't be relied on for pixel-accurate bbox coords. Belongs at the PLANNING layer; tight loops must live below.
+- **Local LFM2.5 (via `local-llm.js`): fallback for offline / API-outage.** Reduced tool-calling reliability (512-token output ceiling, retries needed). Auto-engaged when primary returns null AND `settings.pipLocalInstalled` is true.
+
+Generalizes: before proposing to "improve the VLM prompt" to get spatial answers, check whether the correct primitive already exists (it usually does) and is just disabled / unused. Adding a new prompt path that duplicates a disabled detector is debt.
+
 # Connection-first init
 
 Same shape as safety-below-planner, applied to boot order: **connection infrastructure (BLE, WiFi, USB-CDC) initializes BEFORE capability infrastructure (camera, perception, motors, sensors).** When constrained resources (DMA-capable heap on ESP32, file handles on Pi, etc.) force a tradeoff, connection wins.

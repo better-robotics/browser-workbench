@@ -19,6 +19,20 @@ import {
 // option buttons (or a free-text input). Without injection we fall back to the
 // phone path; ask_human surfaces an error if neither transport is available.
 let _askInChat = null;
+
+// Per-robot timestamps of recent ask_robot_scene calls. Surface count in the
+// executor return so Pip sees "you've asked N times in the last 60s" and
+// escalates to ask_human when still uncertain — anti-loop signal without
+// trying to detect semantic contradiction (noisy heuristic).
+const _recentSceneAsks = new Map();
+const SCENE_ASK_WINDOW_MS = 60_000;
+function trackSceneAsk(robotId) {
+  const now = Date.now();
+  const arr = (_recentSceneAsks.get(robotId) || []).filter(t => now - t < SCENE_ASK_WINDOW_MS);
+  arr.push(now);
+  _recentSceneAsks.set(robotId, arr);
+  return arr.length;
+}
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED } from "./grounding.js";
 import { wrapExecutor, getRecentActions } from "./replay.js";
@@ -92,7 +106,7 @@ const ALL_TOOLS = [
   },
   {
     name: "ask_robot_scene",
-    description: "Runs ONE on-demand VLM inference on the robot's current camera frame with a question you supply. Use this to cross-examine a fact from get_robot_scene — VLM sometimes hallucinates (especially colors, small counts), and asking a second, NEUTRALLY-framed question often reveals the hallucination. IMPORTANT: prefer open questions over leading ones: 'what color is the wall?' not 'is the wall brown?'; 'how many doors are visible?' not 'are there two doors?'. Leading prompts prime the VLM and get the same confabulation echoed back. Requires Watch to already be on (model loaded); fails otherwise. Each call spends ~1-1.5s of GPU time, so use sparingly — don't cross-check trivia.",
+    description: "Runs ONE on-demand VLM inference on the robot's current camera frame with a question you supply. Use this to cross-examine a fact from get_robot_scene — VLM sometimes hallucinates (especially colors, small counts), and asking a second, NEUTRALLY-framed question often reveals the hallucination. IMPORTANT: prefer open questions over leading ones: 'what color is the wall?' not 'is the wall brown?'; 'how many doors are visible?' not 'are there two doors?'. Leading prompts prime the VLM and get the same confabulation echoed back. SPATIAL QUESTIONS ARE UNRELIABLE — this tool is TEXT, not bounding boxes; 'is the can to the left?' will get you a plausible-sounding guess that's frequently wrong. For left/right/near/far use get_robot_detections; if that's not in your tools, escalate via ask_human instead of asking this tool a spatial question. Response includes `recent_asks`: the count of ask_robot_scene calls for this robot in the last 60s. If recent_asks ≥ 3 and you're still uncertain, STOP — call ask_human. Requires Watch to already be on (model loaded); fails otherwise. Each call spends ~1-1.5s of GPU time, so use sparingly — don't cross-check trivia.",
     input_schema: {
       type: "object",
       properties: {
@@ -177,7 +191,7 @@ const ALL_TOOLS = [
   },
   {
     name: "move_motor",
-    description: "Issues a time-bounded motor pulse on the robot: runs motors at (l, r) for duration_ms milliseconds, then firmware auto-stops. THE ONLY way to move the robot from Pip — there is no persistent-motion equivalent in the LLM tool surface (that's reserved for the human's joystick). Arguments: l and r are signed wheel speeds [-100, 100]; firmware clamps LLM-issued magnitude to ±40 and duration to [50, 2000]ms, so anything outside that range is silently capped. Use short, small pulses for exploratory motion and re-observe the scene after — large commits to a direction without re-checking are how the robot gets stuck or collides. Not acknowledged (fire-and-forget); returns { ok, applied:{l,r,duration_ms} } with the actually-sent values or { ok:false, error }.",
+    description: "Issues a time-bounded motor pulse on the robot: runs motors at (l, r) for duration_ms milliseconds, then firmware auto-stops. THE ONLY way to move the robot from Pip — there is no persistent-motion equivalent in the LLM tool surface (that's reserved for the human's joystick). Arguments: l and r are signed wheel speeds [-100, 100]; firmware clamps LLM-issued magnitude to ±40 and duration to [50, 2000]ms, so anything outside that range is silently capped. Use short, small pulses for exploratory motion and re-observe the scene after — large commits to a direction without re-checking are how the robot gets stuck or collides. STOPPING RULE: if this is your 3rd+ pulse toward the same target without a clear scene change between, you are stuck — stop calling this and escalate via ask_human. Iteration-limit crashes mean the planner loop didn't notice the loop; the stopping rule exists to prevent that. Not acknowledged (fire-and-forget); returns { ok, applied:{l,r,duration_ms} } with the actually-sent values or { ok:false, error }.",
     input_schema: {
       type: "object",
       properties: {
@@ -337,11 +351,12 @@ async function dispatch(name, input) {
       }
       const q = String(input.question || "").trim();
       if (!q) return { error: "question is required" };
+      const recent_asks = trackSceneAsk(input.id);
       try {
         const text = await observeOnce(e, q);
-        return { text: text || null };
+        return { text: text || null, recent_asks };
       } catch (err) {
-        return { error: err.message || String(err) };
+        return { error: err.message || String(err), recent_asks };
       }
     }
     case "send_to_phone": {
