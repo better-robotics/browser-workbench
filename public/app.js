@@ -1211,11 +1211,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const localStatusEl   = $("setting-pip-local-status");
   const localProgressEl = $("setting-pip-local-progress");
   const localInstallBtn = $("setting-pip-local-install");
+  const localDotEl      = $("setting-pip-local-dot");
   const HINTS = {
     bridge:    "Routes through the AI Bridge extension. Token stays in Keychain via native messaging — never exposed to the page.",
     anthropic: "Calls api.anthropic.com directly with your API key. Works without the AI Bridge extension. Key stays in this browser.",
     openai:    "Calls api.openai.com directly with your API key. Tool-calling translated from Anthropic's tool_use shape to OpenAI's function_calling shape — same Pip behavior, different backend.",
-    local:     "Runs LFM2.5-1.2B-Thinking-ONNX in this browser via WebGPU. ~1.2 GB download, then offline-capable.",
+    local:     "Runs in this browser via WebGPU. Experimental — tool calls may need retries, output capped at 512 tokens. Requires Chrome/Edge.",
   };
   function syncBackendUI() {
     const b = settings.pipBackend || "bridge";
@@ -1247,19 +1248,27 @@ document.addEventListener("DOMContentLoaded", () => {
   // Local-LLM install + load status. Wired even when the row is hidden so the
   // status reflects loads kicked off from a previous session opening.
   function refreshLocalUI(s) {
+    // Reset dot + button variant; set per-state below.
+    localDotEl.className = "dot";
+    localInstallBtn.className = "";
     if (s.status === "loading") {
-      localStatusEl.textContent = `Loading ${s.file || "files"} (${s.progress || 0}%)`;
+      const file = s.file ? ` ${s.file}` : "";
+      localStatusEl.textContent = `Loading${file} (${s.progress || 0}%)`;
+      localDotEl.classList.add("connecting");
       localProgressEl.hidden = false;
       localProgressEl.value = s.progress || 0;
       localInstallBtn.disabled = true;
       localInstallBtn.textContent = "Loading…";
     } else if (s.status === "ready") {
       localStatusEl.textContent = "Ready";
+      localDotEl.classList.add("connected");
       localProgressEl.hidden = true;
       localInstallBtn.disabled = false;
+      localInstallBtn.className = "secondary";
       localInstallBtn.textContent = "Reload";
     } else if (s.status === "error") {
       localStatusEl.textContent = `Error: ${s.error || "unknown"}`;
+      localDotEl.classList.add("error");
       localProgressEl.hidden = true;
       localInstallBtn.disabled = false;
       localInstallBtn.textContent = "Retry";
@@ -1267,7 +1276,7 @@ document.addEventListener("DOMContentLoaded", () => {
       localStatusEl.textContent = "Not installed";
       localProgressEl.hidden = true;
       localInstallBtn.disabled = false;
-      localInstallBtn.textContent = "Install (~1.2 GB)";
+      localInstallBtn.textContent = "Install (1.2 GB)";
     }
   }
   onLocalLoadStateChange(refreshLocalUI);

@@ -646,11 +646,33 @@ details.tray.has-alert > summary::after {
   border-radius: 6px;
   color: var(--ink);
 }
+/* Local LFM2.5 row — status pill on the left, primary CTA on the right.
+   The hint text below carries the experimental caveat already; no second
+   title in this row (the dropdown above named the choice). */
+.pip-local-row { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.local-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.local-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  min-width: 0;
+}
+.local-status > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 #setting-pip-local-progress {
   display: block;
   width: 100%;
-  margin-top: 6px;
-  height: 8px;
+  height: 4px;
 }
 
 /* Service-worker update banner. Sits at the bottom-center of the viewport
