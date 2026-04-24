@@ -331,6 +331,31 @@ export function speakMessage(text, { autoDismiss = true, fromAI = false } = {}) 
   open({ autoDismiss });
 }
 
+// Proactive Pip — producers (app.js, ble.js, …) call emitPipEvent(name, data)
+// for system state changes worth volunteering about. Templates live here so
+// the message voice stays consistent. Throttled per event-key so a flapping
+// robot doesn't spam. Silent while Pip is mid-response (_pending) — don't
+// interrupt the user's in-flight answer.
+const PIP_EVENT_TEMPLATES = {
+  "robot.disconnected": ({ name }) =>
+    `${name || "Robot"} just disconnected. Want me to look at the log?`,
+  "robot.service_crashed": ({ name }) =>
+    `Heads up — pi-robot.service went inactive on ${name || "the robot"}. The board is still reachable on wifi, but capabilities are offline until it restarts.`,
+};
+const PIP_EVENT_THROTTLE_MS = 60_000;
+const _lastPipEmit = new Map();
+export function emitPipEvent(name, data = {}) {
+  if (_pending) return;
+  const template = PIP_EVENT_TEMPLATES[name];
+  if (!template) return;
+  const key = `${name}:${data.id || data.name || ""}`;
+  const now = Date.now();
+  if (now - (_lastPipEmit.get(key) || 0) < PIP_EVENT_THROTTLE_MS) return;
+  _lastPipEmit.set(key, now);
+  const text = template(data);
+  if (text) speakMessage(text, { autoDismiss: true });
+}
+
 async function notify(dialogEl) {
   const context = dialogEl.dataset.pipContext;
   if (!context) return;

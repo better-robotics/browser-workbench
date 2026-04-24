@@ -22,7 +22,7 @@ import { initVoice } from "./voice.js";
 // calls in the DOMContentLoaded wiring below.
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
-import { initAssistant, handleRemoteChat } from "./assistant.js";
+import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
 import { initPhones, setPhoneChatHandler } from "./phones.js";
 import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
@@ -573,6 +573,12 @@ function onDisconnected(id) {
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];
   renderEntry(entry);
+  // autoReconnect===false means user explicitly clicked disconnect — they
+  // know what happened; no Pip nudge. Unexpected drops (BLE range / robot
+  // power / service crash while still BLE-connected) are the useful signal.
+  if (entry.autoReconnect !== false) {
+    emitPipEvent("robot.disconnected", { id, name: entry.name });
+  }
 }
 
 async function forgetDevice(id) {
@@ -640,6 +646,10 @@ function updateQrHint() {
 // in the empty state when an unknown robot appears on the wifi.
 let _robotLobby = null;
 let _wifiRobots = [];
+// Per-robot last-observed pi_robot service state. Used to detect active →
+// (inactive|failed|unknown) transitions — worth a proactive Pip nudge because
+// the robot is still reachable on wifi but capabilities have gone offline.
+const _lastRobotServiceState = new Map();
 function initRobotPresence() {
   if (_robotLobby) return;
   _robotLobby = discover();
@@ -647,6 +657,15 @@ function initRobotPresence() {
     _wifiRobots = (ads || []).filter(a =>
       a.data && a.data.app === "better-robotics-robot" && a.data.robotId
     );
+    for (const ad of _wifiRobots) {
+      const id = ad.data.robotId;
+      const now = ad.data.pi_robot;
+      const was = _lastRobotServiceState.get(id);
+      if (was === "active" && now && now !== "active") {
+        emitPipEvent("robot.service_crashed", { name: ad.data.label || id });
+      }
+      _lastRobotServiceState.set(id, now);
+    }
     renderRobotPresence();
   });
 }
