@@ -200,13 +200,6 @@ function render() {
   for (const p of phones) cards.push(renderPhoneCard(p));
   cards.push(renderLaptopCard());
   list.innerHTML = cards.join("");
-  // Phone-paired-without-robot is rare but valid; the helpers section needs
-  // to appear in that case even though app.js's render() (devices size === 0)
-  // wouldn't otherwise show it. Mirror the same condition here.
-  if (phones.length > 0) {
-    $("helpers-heading").hidden = false;
-    list.hidden = false;
-  }
   wire();
 }
 
