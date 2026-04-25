@@ -23,7 +23,7 @@ import { initVoice } from "./voice.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
-import { initPhones, setPhoneChatHandler, broadcastTargetInfo } from "./phones.js";
+import { initPhones, setPhoneChatHandler, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
 import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
@@ -109,6 +109,13 @@ function patchArucoOverlay(entry, { markers, frameCount, error }) {
       status.classList.remove("aruco-locked");
       status.textContent = `Scanning · ${frameCount} frame${frameCount === 1 ? "" : "s"} · no marker yet`;
     }
+    // Push to phone-as-eye holder so they see lock state without checking
+    // the dashboard. Only on lock-state transitions to keep the data
+    // channel quiet (10 Hz of no-marker pings would be churn for nothing).
+    if (entry.attachedFromPhoneId && entry.arucoLastLocked !== false) {
+      sendArucoStatus(entry.attachedFromPhoneId, { locked: false, detail: "Scanning for marker…" });
+      entry.arucoLastLocked = false;
+    }
     return;
   }
   const { frameW, frameH } = markers[0];
@@ -131,6 +138,17 @@ function patchArucoOverlay(entry, { markers, frameCount, error }) {
     status.classList.add("aruco-locked");
     const ids = markers.map(m => `id ${m.id}`).join(", ");
     status.textContent = `Tracking ${ids} · frame ${frameCount}`;
+  }
+  // Phone-side lock indicator. Send on transition into locked AND on
+  // marker-id change while locked; suppress while still locked on the
+  // same id to avoid 10 Hz traffic.
+  if (entry.attachedFromPhoneId) {
+    const primaryId = markers[0].id;
+    if (entry.arucoLastLocked !== true || entry.arucoLastMarkerId !== primaryId) {
+      sendArucoStatus(entry.attachedFromPhoneId, { locked: true, markerId: primaryId });
+      entry.arucoLastLocked = true;
+      entry.arucoLastMarkerId = primaryId;
+    }
   }
 }
 

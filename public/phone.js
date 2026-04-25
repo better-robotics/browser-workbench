@@ -220,6 +220,22 @@ function onPeerMessage(msg) {
     } else {
       section.hidden = true;
     }
+  } else if (msg.type === "aruco-status") {
+    // Desktop pushes lock state when this phone is mounted on a robot. The
+    // operator holding the phone overhead can't see the dashboard overlay,
+    // so this is the in-hand confirmation that detection is working.
+    const box = document.getElementById("phone-aruco-lock");
+    const text = document.getElementById("phone-aruco-lock-text");
+    if (!box || !text) return;
+    box.hidden = false;
+    if (msg.locked) {
+      box.classList.add("locked");
+      text.textContent = `Marker locked · id ${msg.markerId}`;
+    } else {
+      box.classList.remove("locked");
+      text.textContent = msg.detail || "Scanning for marker…";
+    }
+    return;
   } else if (msg.type === "target-info") {
     // Desktop tells us which robot the joypad will drive. If null, hide
     // both the drive surface AND the panic stop button — neither makes

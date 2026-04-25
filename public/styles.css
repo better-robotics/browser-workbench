@@ -2140,6 +2140,25 @@ body.phone textarea {
   aspect-ratio: 4 / 3;
   object-fit: cover;
 }
+/* Phone-side ArUco lock indicator. Shown when this phone is mounted on a
+   robot and the dashboard is pushing detection state — operator holding
+   the phone overhead can see "marker locked" without checking the
+   dashboard. Lifts to a green register on lock. */
+.aruco-lock {
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  background: var(--surface);
+  font-size: 14px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+.aruco-lock.locked {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+  font-weight: 500;
+}
 /* Reconnect surface — visible only when not paired or after a drop. Hosts
    the QR scanner so the user can re-pair without going back to the desktop. */
 .phone-reconnect {
