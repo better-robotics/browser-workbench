@@ -71,11 +71,11 @@ function attachedCameraHtml(entry) {
           <video class="robot-camera" data-attached-camera-id="${escapeHtml(entry.id)}" autoplay playsinline muted></video>
           <svg class="aruco-overlay" data-aruco-overlay-id="${escapeHtml(entry.id)}"></svg>
         </div>
-        <div class="meta aruco-status" data-aruco-status-id="${escapeHtml(entry.id)}">
-          Aiming for an ArUco marker on the robot.
-          <a href="https://chev.me/arucogen/" target="_blank" rel="noopener">Print one</a>
-          (Original ArUco, id 0).
+        <div class="meta aruco-help">
+          <a href="https://chev.me/arucogen/" target="_blank" rel="noopener">Print marker</a>
+          — "Original ArUco" dictionary, id 0, tape flat on top of the robot.
         </div>
+        <div class="meta aruco-status" data-aruco-status-id="${escapeHtml(entry.id)}">Loading detector…</div>
       </div>
     </div>
   `;
@@ -85,15 +85,30 @@ function attachedCameraHtml(entry) {
 // each tick — mutates the SVG in place so a 10 Hz detection rhythm
 // doesn't trigger full-card re-renders that would destroy other
 // in-flight UI (perception prompt, hover state, etc).
-function patchArucoOverlay(entry, markers) {
+//
+// `frameCount` in the status is load-bearing diagnostic — without it,
+// "detector still loading", "loop running but nothing found", and
+// "loop wedged" all read identically to the operator.
+function patchArucoOverlay(entry, { markers, frameCount, error }) {
   const node = entry.node;
   if (!node) return;
   const svg = node.querySelector(`svg[data-aruco-overlay-id="${entry.id}"]`);
   if (!svg) return;
   const status = node.querySelector(`[data-aruco-status-id="${entry.id}"]`);
+  if (error) {
+    if (svg) svg.innerHTML = "";
+    if (status) {
+      status.classList.remove("aruco-locked");
+      status.textContent = `Detector error: ${error}`;
+    }
+    return;
+  }
   if (markers.length === 0) {
     svg.innerHTML = "";
-    if (status) status.classList.remove("aruco-locked");
+    if (status) {
+      status.classList.remove("aruco-locked");
+      status.textContent = `Scanning · ${frameCount} frame${frameCount === 1 ? "" : "s"} · no marker yet`;
+    }
     return;
   }
   const { frameW, frameH } = markers[0];
@@ -114,9 +129,8 @@ function patchArucoOverlay(entry, markers) {
   svg.innerHTML = pieces.join("");
   if (status) {
     status.classList.add("aruco-locked");
-    status.textContent = markers.length === 1
-      ? `Tracking marker id ${markers[0].id}`
-      : `Tracking ${markers.length} markers`;
+    const ids = markers.map(m => `id ${m.id}`).join(", ");
+    status.textContent = `Tracking ${ids} · frame ${frameCount}`;
   }
 }
 
@@ -971,7 +985,7 @@ function renderEntry(entry) {
     startArucoTracking(
       entry.id,
       () => entry.node?.querySelector(`video[data-attached-camera-id="${entry.id}"]`),
-      (markers) => patchArucoOverlay(entry, markers),
+      (result) => patchArucoOverlay(entry, result),
     );
   } else {
     stopArucoTracking(entry.id);

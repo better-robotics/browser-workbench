@@ -90,14 +90,25 @@ async function detectFromSource(source) {
 
 const _loops = new Map();  // robotId → loop record
 
+const _debug = typeof location !== "undefined" && /\bdebug\b/.test(location.search + location.hash);
+function dbg(...args) { if (_debug) console.log("[aruco]", ...args); }
+
 // Start a polling loop against `sourceFn()` (returns the live <video> /
 // <img> each tick — re-resolved every iteration so a card re-render that
-// swaps the element doesn't break tracking). `onMarkers(markers)` fires
-// after each detect; called with [] when no markers found, so the overlay
-// can clear too.
-export function startTracking(robotId, sourceFn, onMarkers) {
+// swaps the element doesn't break tracking).
+//
+// `onResult({markers, frameCount, error})` fires after each detect AND on
+// load-error; status:
+//   - markers: array (possibly empty) — drives the overlay
+//   - frameCount: monotonic — proves the loop is actually running, even
+//     when detection never finds anything (without this, "loading" /
+//     "scanning empty" / "broken" all look the same to the operator)
+//   - error: present on load-failure (script-load reject, missing
+//     window.AR, getImageData throwing). Surface verbatim — this is
+//     dashboard-side, fixes belong on the dashboard.
+export function startTracking(robotId, sourceFn, onResult) {
   if (_loops.has(robotId)) return;
-  const loop = { stopped: false, timer: null };
+  const loop = { stopped: false, timer: null, frameCount: 0 };
   _loops.set(robotId, loop);
   const tick = async () => {
     if (loop.stopped) return;
@@ -105,11 +116,19 @@ export function startTracking(robotId, sourceFn, onMarkers) {
     if (source) {
       try {
         const markers = await detectFromSource(source);
+        loop.frameCount += 1;
+        if (markers.length) dbg("detected", markers.map(m => `id=${m.id}`).join(", "), `frame=${loop.frameCount}`);
         if (!loop.stopped) {
-          try { onMarkers(markers); } catch (err) { console.warn("[aruco] onMarkers", err); }
+          try { onResult({ markers, frameCount: loop.frameCount }); }
+          catch (err) { console.warn("[aruco] onResult", err); }
         }
       } catch (err) {
-        if (!loop.stopped) console.warn("[aruco] detect", err.message || err);
+        const msg = err.message || String(err);
+        console.warn("[aruco] detect", msg);
+        if (!loop.stopped) {
+          try { onResult({ markers: [], frameCount: loop.frameCount, error: msg }); }
+          catch {}
+        }
       }
     }
     if (!loop.stopped) loop.timer = setTimeout(tick, POLL_MS);
