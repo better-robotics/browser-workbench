@@ -43,7 +43,19 @@ Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi
 
 **No server, no broker, no cloud in the critical path.** The browser pairs directly with the robot over BLE. WiFi, when present, is used only for content fetched from the same GitHub Pages deploy that serves the dashboard itself.
 
-**The brain lives in the browser.** The robot exposes typed primitives (move, sense, observe); the dashboard orchestrates them. This is true for the LLM-driven path (Pip's tool use) and equally true for user-authored code — the Scripts panel is a JS editor with a `robot` API that maps to BLE capabilities. No "upload code to the Pi" step. The same control-loop invariants apply: user scripts are just another planner, and the firmware's safety floor (motor watchdog, pulse caps) bounds them the same way it bounds Pip. See [USER-CODE.md](USER-CODE.md).
+**The brain lives in the browser.** The robot exposes typed primitives (move, sense, observe); the dashboard orchestrates them. This is true for the LLM-driven path (Pip — Claude as tool-using planner, with an in-browser SmolVLM for scene captions and OWLv2 for spatial bounding boxes) and equally true for user-authored code — the Scripts panel is a JS editor with a `robot` API that maps to BLE capabilities. No "upload code to the Pi" step. The same control-loop invariants apply: user scripts and Pip are both planners, and the firmware's safety floor (motor watchdog, pulse caps) bounds them identically. See [USER-CODE.md](USER-CODE.md).
+
+## What it isn't
+
+Loud scope walls — match new ideas against these before extending:
+
+- **Not autonomous.** The human is always one `ask_human` away by design. Confidence-based handoff is core policy, not an escape hatch.
+- **Not real-time.** Decision loop is seconds, not milliseconds. Reactive control is impossible at this latency; pulse-bounded motion is how we live with that — every LLM motor command carries a `duration_ms` and the firmware auto-stops at the end.
+- **Not spatially aware.** Monocular camera + VLM text + bbox detector — no depth, no SLAM, no metric maps. Navigation is semantic, not geometric.
+- **Not a code-deploy target.** User code runs in the browser, not on the Pi. No CI push, no sync server, no `scp`. See [USER-CODE.md](USER-CODE.md).
+- **Not a remote-shell host over BLE/WiFi.** The dashboard's USB-C recovery xterm is the only shell surface, bounded by physical access. BLE/WiFi debug goes through typed ops verbs (`get-log`, `get-config`, `restart-service`, …).
+- **Not a fleet manager.** One operator, one robot at a time. Multi-robot lists render for completeness; workflow assumes single-target focus.
+- **Not a primary-online product.** Works on cafe wifi, after API outages, with no network at all (offline shell + local LFM fallback once installed). Cloud is augmentation.
 
 ## Quickstart
 
@@ -69,7 +81,19 @@ Commit + push when ready. CI rebuilds firmware artifacts on every change under `
 
 - `firmware/esp32_robot/` — ESP32 firmware (LED, WiFi onboarding, OTA, motors).
 - `firmware/pi_robot/` — Raspberry Pi firmware (Python + `bless`). Same service UUID and characteristic UUIDs as the ESP32 — indistinguishable from the dashboard's side. [Details + troubleshooting](firmware/pi_robot/README.md).
-- `public/` — the dashboard (static ES modules, no build step). Subsystem map + where new files belong: `.claude/CLAUDE.md` → "Subsystem map".
+- `public/` — the dashboard (static ES modules, no build step). `docs/` is a symlink here for GitHub Pages.
+- `tests/` — pure-function unit tests; `make smoke`. Manual checklist in [SMOKE.md](SMOKE.md).
+- `.claude/` — agent + project context (working model, direction, scope discipline, model discipline).
+
+The dashboard is flat by convention; naming prefixes carry the subsystem boundary:
+
+- **Pair layer** (`pairing.js`, `phones.js`, `phone.js`, `phone.html`) — desktop ↔ phone WebRTC link.
+- **Perception** (`perception.js`, `grounding.js`) — in-browser SmolVLM + OWLv2 for scene captions and spatial bounding boxes.
+- **Pip / assistant** (`assistant.js`, `claude.js`, `pip-tools.js`, `replay.js`, `local-llm.js`) — Claude integration, tool schemas, executor, replay logging, offline LFM fallback.
+- **Robot ops** (`ble.js`, `ops-response.js`, `capabilities/`) — BLE protocol, typed-ops channel, per-capability cards + runtime handlers.
+- **Robot lifecycle** (`prepare.js`, `recovery.js`, `pinout.js`) — SD-card prep, USB serial recovery, pinout config editor.
+- **User code** (`scripts.js`) — browser-resident IDE; the `robot` API mirrors BLE capabilities. See [USER-CODE.md](USER-CODE.md).
+- **App shell** (`app.js`, `dom.js`, `state.js`, `settings.js`, `log.js`, `auth.js`, `passwords.js`, `index.html`, `styles.css`).
 
 ## Further reading
 
@@ -81,10 +105,6 @@ Commit + push when ready. CI rebuilds firmware artifacts on every change under `
 ## Browser support
 
 Web Bluetooth works in Chrome, Edge, and Opera on desktop and Android. Not Safari. Firefox only behind a flag. Deliberate constraint — the laptop is the central brain.
-
-## Status
-
-End-to-end loop works on Pi 4 and ESP32-CAM-MB hardware: pair over BLE, toggle LED, onboard WiFi, OTA firmware (single-file or multi-file bundle), drive motors with a safe-by-construction watchdog, print QR labels, WebRTC camera streaming (install-on-demand over BLE), in-browser xterm.js recovery console over USB-CDC-ACM. Multi-robot pairing landed. Three-plane architecture validated in code. Next: more capabilities on top of the same protocol shape.
 
 ## License
 

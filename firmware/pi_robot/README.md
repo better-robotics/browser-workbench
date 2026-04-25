@@ -4,12 +4,28 @@ Python robot firmware for the Raspberry Pi. Mirrors `firmware/esp32_robot/` — 
 
 ## BLE service
 
-Core characteristics under one service UUID (others — motors, ops, telemetry, camera-signal/-status — are advertised dynamically via `fw-info` per the device's configured capabilities):
+All characteristics live under one service UUID. Presence is config-driven (`/boot/firmware/pi-robot.conf`) and reported per-robot in `fw-info`; the dashboard renders only what's advertised. Wire shapes for the always-present characteristics:
 
 - `led` — read/write/notify. 1 byte: 0 or 1.
 - `wifi-scan` — read/notify. JSON array of `{s, r, p}` (ssid, 0..100 strength, 1 if secured). Reading triggers a rescan; results arrive via notify.
 - `wifi-join` — write. JSON `{s, p}` (ssid, password). Empty password for open networks.
-- `wifi-status` — read/notify. JSON `{st, ssid, err}`. `st` ∈ `idle|joining|joined|failed`.
+- `wifi-status` — read/notify. JSON `{st, ssid, err, ip?}`. `st` ∈ `idle|joining|joined|failed`.
+- `fw-info` — read. JSON `{type, url, caps, bundle_url, version, authorized?}`.
+- `robot-status` — notify. JSON `{st, msg?}` — top-level state, sticky-on-disconnect.
+- `telemetry` — notify (~6s). JSON `{uptime_s, mem_free_mb, temp_c?}`.
+- `ops` / `ops-response` — write / chunked notify. Typed verbs: `get-log`, `get-config`, `restart-service`, `reboot`, `install-pkg`, `enroll-key`. Each verb is a deliberate, reviewable decision; this is the BLE/WiFi debug surface in lieu of a remote shell.
+- `motors` — write. Pulse-bounded; auto-stop watchdog in firmware.
+- `ota-control` / `ota-data` — single-file and bundle OTA, sha256-verified.
+- `camera-signal` / `camera-status` — registered only when the camera stack imports successfully; WebRTC SDP/ICE chunked over a symmetric protocol to OTA.
+- `identity-pubkey` — read. Ed25519 public key in `/var/lib/pi-robot/peer-key.json`.
+- `admin` — write. Reserved for low-level ops (e.g. install-on-demand for camera deps).
+
+## Companion services
+
+Two services run alongside `pi-robot.service`, each independently restartable:
+
+- **`pi-robot-heartbeat.service`** — minimal always-on BLE advertiser (`heartbeat.py`). Keeps the robot observable when `pi-robot.service` is down: dashboard shows a "firmware-down" banner with the LAN IP and a recovery button. The connection-first invariant — connectivity outlives capabilities.
+- **`pi-robot-wifi-discover.service`** — posts signed Ed25519 ads to `signal.neevs.io/discover` whenever WiFi is up, so the dashboard can list a robot before BLE pairing range.
 
 ## Device identity
 

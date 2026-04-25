@@ -1,13 +1,8 @@
 # User code lives in the browser, not on the robot
 
-A structural decision, captured here so it doesn't get re-litigated.
-
-## What we don't do
-
-We don't ship a way to upload arbitrary user code to a Pi or ESP32. No
-GitHub Actions integration that pushes per-user code to robots. No central
-sync server. No `scp`-from-the-dashboard. No "drop your `.py` into this
-folder and it'll run."
+There is no way to upload arbitrary user code to a Pi or ESP32 — no GH
+Actions push, no sync server, no `scp`-from-the-dashboard, no "drop a
+`.py` into this folder."
 
 ## What we do instead
 
@@ -102,20 +97,6 @@ planner is driving. `robot.move()` calls `pulseMotors`, which carries the
 same ±40 magnitude / 50–2000 ms duration caps the LLM is bound by, and
 the firmware enforces those caps regardless of dashboard-side clamps.
 
-What we DON'T need (and don't build):
-
-- **Code signing.** The dashboard's pubkey-pinned pairing is the trust.
-  Browser code is already inside that trust boundary.
-- **Sandbox.** The browser's same-origin model is the sandbox. The
-  firmware's capability boundary is the *real* sandbox — it's what stops
-  a runaway script from spinning the wheels at full power for 10 minutes.
-- **Review pipeline.** It's the user's browser tab.
-- **GH Actions integration.** Right pattern for canonical firmware (one
-  source of truth, project-owned). Wrong pattern for per-user code (N
-  users, N trust contexts, N pipelines, all to solve a deploy problem
-  that doesn't need to exist).
-- **Central sync server.** Adds a backend the project explicitly refuses.
-
 ## When would Pi-side user code be the right answer?
 
 Only if a robot needs to run useful behavior with the dashboard
@@ -126,7 +107,4 @@ so it's not a current need.
 If it ever becomes one, the right path is to **reuse the existing OTA
 pipeline** (drop user code into a `/home/robot/user/` slot via BLE OTA;
 have `pi_robot.py` import it via a typed plugin API) rather than invent
-GH Actions integration or a sync server. That's the version of this
-problem worth solving when a real use case demands it.
-
-Until then, this doc is the answer.
+GH Actions integration or a sync server.

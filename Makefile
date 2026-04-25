@@ -101,6 +101,7 @@ publish-pi-firmware:
 	# forgetting to update this list.
 	find firmware/pi_robot/ -maxdepth 1 -type f \
 		-not -name 'README.md' \
+		-not -name 'SHELL.md' \
 		-exec cp {} public/firmware/pi_robot/ \;
 	rm -f public/firmware/pi_robot/wheels/*.whl
 	pip download --no-deps --platform manylinux2014_aarch64 --python-version 311 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions

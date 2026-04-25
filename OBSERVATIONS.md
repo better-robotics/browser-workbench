@@ -1,14 +1,8 @@
 # Pip's proactive messages come from project state, not external feeds
 
-A structural decision, captured here so it doesn't get re-litigated.
-
-## What we don't do
-
-We don't run a scheduled pipeline that scrapes external robotics sources
-(X, Reddit, HN, ArXiv, Hackaday RSS) and drips them into the dashboard as
-"here's what's new in Pi / ESP32 land." No GitHub Action cron that
-commits a trending-feed JSON as the primary input to Pip's messages. No
-notification backend. No content channel the user subscribes to.
+There is no scheduled pipeline scraping external robotics sources (X,
+Reddit, HN, ArXiv, Hackaday RSS) and dripping them into the dashboard as
+"here's what's new." No notification backend, no content channel.
 
 ## What we do instead
 
@@ -87,21 +81,6 @@ exists guarantees we pay pipeline maintenance for output that
 state-aware messaging would dominate on relevance anyway. Build the
 floor first.
 
-## What we DON'T need (and don't build)
-
-- **GitHub Action cron scraping X / Reddit / HN.** The `pulse` pattern
-  (see `~/Github/jonasneves/pulse/.github/workflows/fetch-trending.yml`)
-  is the right template *when* external content earns its way in. It
-  hasn't.
-- **A notifications backend.** No server to push from, no inbox
-  abstraction, no delivery guarantees. Observations appear inline in
-  the dashboard and are forgotten when dismissed.
-- **A relevance scoring service.** The filter lives in the browser
-  where iteration is cheap; shipping it as infra inverts the cost curve.
-- **Subscription / preferences UI.** Users don't subscribe to a
-  coworker's observations. Frequency is tied to activity boundaries,
-  not to a user-configured schedule.
-
 ## When would an external feed earn its way in?
 
 Only when the state-aware layer has saturated — when Pip has mined out
@@ -126,5 +105,3 @@ Order matters: build the state-aware layer first, let it saturate, then
 add the corpus as a secondary input. Skipping to the feed is the
 classic "we built the pipeline before we knew what we were filtering
 for."
-
-Until then, this doc is the answer.

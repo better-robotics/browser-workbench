@@ -91,11 +91,9 @@ The pattern generalizes: any new on-device infrastructure should ask "if this re
 
 # Replay
 
-Every Pip tool call is persisted to IndexedDB via `replay.wrapExecutor()` in `pip-tools.js`. Records carry `{sessionId, name, input, output, error, startedAt, endedAt, durationMs}`. Image data URLs (from `ask_human_via_phone`'s robot-camera attach) stay in the record — the point is to reconstruct "what did Pip see when it made that call?"
+Every Pip tool call is persisted to IndexedDB so a session can be re-run offline against a new model and decisions compared — comma.ai's replay-your-drive pattern, scoped to our tool surface. Image data URLs from `ask_human_via_phone` stay in the record so "what did Pip see when it made that call?" reconstructs accurately.
 
-Dev handles exposed on `window`: `replayDownload()` → saves full JSON of the store; `replayAll()` → in-memory array; `replayClear()` → wipes; `replaySession` → current session id. Callable from DevTools console or the `?debug` overlay.
-
-Use case: when upgrading Claude, we can re-run a past session's inputs against the new model offline and compare decisions. No hardware, no user, no risk. comma.ai's replay-your-drive pattern, scoped to our tool surface.
+Wire-up via `replay.wrapExecutor()` in `pip-tools.js`. Surface (record shape, `window.*` handles) is in `DEV.md`.
 
 # Subsystem map
 
