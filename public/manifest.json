@@ -9,6 +9,7 @@
   "background_color": "#000000",
   "theme_color": "#000000",
   "orientation": "any",
+  "launch_handler": { "client_mode": "focus-existing" },
   "categories": ["utilities", "productivity"],
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
