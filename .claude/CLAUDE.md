@@ -64,6 +64,18 @@ Different model shapes are good at different jobs. Treat them as distinct primit
 
 Generalizes: before proposing to "improve the VLM prompt" to get spatial answers, check whether the correct primitive already exists (it usually does) and is just disabled / unused. Adding a new prompt path that duplicates a disabled detector is debt.
 
+# Transport discipline
+
+Each transport has a job. Mixing them, or proposing a new one, should require naming what existing one fails — most "we need X protocol" requests are answered by an existing transport's verbs.
+
+- **BLE (control plane).** Low latency, proximity-authenticated for free, lossy. THE control channel between dashboard and robot. Anything that sets motor speed, toggles an LED, or commits state goes here.
+- **Typed ops (over BLE).** Structured verbs on a single characteristic — `get-log`, `get-config`, `restart-service`, `get-status`, `wifi-scan`, `wifi-join`. Each verb is a deliberate, reviewable decision. Don't add a real-shell transport; add a typed verb that does the specific thing.
+- **WebRTC (phone ↔ desktop).** Authenticated by the pair ceremony (Ed25519 pubkey + signed pair-request). Carries chat, camera frames, ask-human responses, robot-command relays. Trusted peer; phone can request things the desktop will gate.
+- **Wifi-discover (presence plane).** Pi → signal.neevs.io REST `/discover` ads, signed (Ed25519). Answers "is this robot online" — passive, not control. TTL-bounded so disappearance is automatic. Future-foundation for any signed wifi exchange that earns its keep.
+- **USB-CDC (recovery plane).** Last-resort serial console, runs as its own systemd unit so a `pi-robot.service` crash doesn't take serial recovery with it. Bounded by physical access — that's the safety story.
+
+The pattern: **control = BLE, observe = wifi/discover, recover = USB.** Never add a new transport without a concrete use case the existing three can't cover.
+
 # Connection-first init
 
 Same shape as safety-below-planner, applied to boot order: **connection infrastructure (BLE, WiFi, USB-CDC) initializes BEFORE capability infrastructure (camera, perception, motors, sensors).** When constrained resources (DMA-capable heap on ESP32, file handles on Pi, etc.) force a tradeoff, connection wins.
@@ -110,5 +122,8 @@ Name what the system WON'T do, as loudly as what it will:
 - Not a code-deploy target. User code runs in the browser, not on the Pi. The dashboard is where the brain lives (Pip already runs here); per-user logic lives where the brain lives. No GitHub Actions integration that pushes per-user code, no central sync server, no `scp`-from-the-dashboard. See `USER-CODE.md` for the full reasoning. The exception (canonical project firmware) is OTA'd via `public/firmware/`, owned by CI, and trust-rooted in the dashboard pairing.
 - Not a remote-shell host over BLE/WiFi. The dashboard's USB-C recovery xterm is the only shell surface, bounded by physical access. BLE/WiFi debug needs go through the typed ops channel (`get-log`, `get-config`, `restart-service`, …) — each verb is a deliberate, reviewable decision. Don't add a real-shell transport without a concrete use case that typed ops can't cover. See `firmware/pi_robot/SHELL.md`.
 - Not a content pipeline. Pip's proactive messages are observations from project state (replay records, robot telemetry, user scripts, direction docs) — not a scheduled feed of external robotics content. The `pulse`-style GH Action scraper is the right template *when* external content earns its way in, but it's a secondary input to a browser-side filter, never the primary signal. Build the state-aware layer first; skipping to the feed is building a pipeline before you know what you're filtering for. See `OBSERVATIONS.md`.
+- Not a robot-fleet manager. One operator, one robot at a time, mostly. The dashboard renders multi-robot lists for completeness, but workflow / Pip / scripts assume a single-target focus. "Orchestrate two robots simultaneously" is out of scope; two operators on two dashboards is the supported shape.
+- Not a vision-first system. Text + bounding-box is the primary representation Pip reasons over (cheap, structured, debuggable). Direct image inspection (`view_robot_frame`) is opt-in and last-resort — frames leaving the device is a privacy + cost change the user owns. New features should reach for VLM/detector/text first; only escalate to vision when the cheaper primitives genuinely can't answer.
+- Not a primary-online product. Dashboard works on cafe wifi, after API outages, with no network at all (offline shell + local LFM fallback once installed). Cloud is augmentation. Features that *require* the network without an offline-degraded path don't belong here.
 
 When scope creeps — "can Pip just drive the robot to the kitchen?" — match it against these. If the request requires something we've named we don't do, the honest answer is to surface that, not to quietly extend.

@@ -271,10 +271,14 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
       try {
         const result = await executor(tu.name, tu.input);
         onToolEnd?.({ name: tu.name, input: tu.input, result, error: null, durationMs: performance.now() - startedAt });
-        // _pipContent sentinel: executor wants to return Anthropic content
-        // blocks directly (e.g. {type:"image"} from view_robot_frame) instead
-        // of a JSON-stringified object. Passed through so Claude sees the
-        // image natively in its next turn.
+        // _pipContent sentinel — micro-protocol any executor can use.
+        // Default contract: executor returns a JS object, we JSON-stringify
+        // it. Opt-in: executor returns { _pipContent: [...blocks] } where
+        // blocks follow Anthropic's tool_result content shape (text +
+        // image are the useful ones). Used by view_robot_frame to attach
+        // the actual image so Claude's next turn sees pixels, not base64.
+        // Future tools that want the same: return { _pipContent: [...] };
+        // no plumbing change needed.
         const content = (result && result._pipContent)
           ? result._pipContent
           : JSON.stringify(result);

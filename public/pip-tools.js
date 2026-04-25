@@ -35,6 +35,21 @@ function trackSceneAsk(robotId) {
   _recentSceneAsks.set(robotId, arr);
   return arr.length;
 }
+
+// Per-robot run of consecutive move_motor calls without an intervening scene
+// observation. The "3 pulses without a clear scene change" rule was prose in
+// PIP_SYSTEM and the move_motor description; making it executor-enforced
+// turns guidance into mechanism — the model can't violate what it can't
+// reach. Reset by any get_robot_scene / ask_robot_scene / get_robot_detections
+// / view_robot_frame call (any of those is a legitimate "look between moves").
+const _pulseRun = new Map();
+const PULSE_RUN_LIMIT = 3;
+function bumpPulseRun(robotId) {
+  const n = (_pulseRun.get(robotId) || 0) + 1;
+  _pulseRun.set(robotId, n);
+  return n;
+}
+function resetPulseRun(robotId) { _pulseRun.set(robotId, 0); }
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
 import { wrapExecutor, getRecentActions } from "./replay.js";
@@ -364,6 +379,7 @@ async function dispatch(name, input) {
       if (!e) return { error: `no robot with id ${input.id}` };
       if (!isWatchingRobot(input.id)) return { watching: false };
       const scene = getRobotScene(input.id);
+      resetPulseRun(input.id);  // legitimate look-between-moves
       if (!scene) return { watching: true, text: null };
       return {
         watching: true,
@@ -380,6 +396,7 @@ async function dispatch(name, input) {
       const q = String(input.question || "").trim();
       if (!q) return { error: "question is required" };
       const recent_asks = trackSceneAsk(input.id);
+      resetPulseRun(input.id);  // legitimate look-between-moves
       try {
         const text = await observeOnce(e, q);
         return { text: text || null, recent_asks };
@@ -391,6 +408,7 @@ async function dispatch(name, input) {
       if (!isVisionAvailable()) return { error: "vision is disabled or backend doesn't support images" };
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
+      resetPulseRun(input.id);  // legitimate look-between-moves
       // 640px is larger than the 320 ask_human uses — Claude's vision wants
       // detail, phone thumbnails don't. Quality bumped too (0.85 vs 0.75)
       // for the same reason. JPEG stays the format; PNG would bloat the
@@ -440,6 +458,7 @@ async function dispatch(name, input) {
       }
       const queries = Array.isArray(input.queries) ? input.queries.map(String).slice(0, 5) : [];
       if (queries.length === 0) return { error: "queries is required (up to 5 short noun phrases)" };
+      resetPulseRun(input.id);  // legitimate look-between-moves
       try {
         const detections = await detectOnce(entry, queries);
         if (detections === null) {
@@ -457,6 +476,17 @@ async function dispatch(name, input) {
       }
     }
     case "move_motor": {
+      // Hard stop after 3 consecutive pulses without an intervening scene
+      // observation. The rule was prose in PIP_SYSTEM and the tool
+      // description; making it executor-enforced means the model can't
+      // violate what it can't reach. Look-between-moves resets the run.
+      const run = bumpPulseRun(input.id);
+      if (run > PULSE_RUN_LIMIT) {
+        return {
+          ok: false,
+          error: `stop-rule triggered: ${run - 1} consecutive pulses without an intervening scene check. Call get_robot_scene / ask_robot_scene / get_robot_detections / view_robot_frame, or escalate to ask_human — you're not closing on the target.`,
+        };
+      }
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
     }
     case "ask_human": {
