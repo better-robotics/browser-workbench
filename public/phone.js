@@ -11,8 +11,9 @@ let _peer = null;
 let _pending = false;
 let _joypad = null;
 
-// Install prompt. Chromium (Android Chrome) fires beforeinstallprompt; iOS
-// Safari never does — we show manual Share→Add-to-Home-Screen copy.
+// Install prompt. Chromium fires beforeinstallprompt; iOS Safari never does
+// — for iOS we show manual Share→Add-to-Home-Screen copy. Affordance lives
+// in the app-menu popover (parallels the dashboard's wordmark popover).
 let _deferredInstallPrompt = null;
 function _isStandalone() {
   return window.matchMedia?.("(display-mode: standalone)").matches
@@ -21,29 +22,20 @@ function _isStandalone() {
 function _isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 }
-function _renderInstall() {
-  const wrap = $("phone-install");
-  if (!wrap) return;
-  if (_isStandalone()) { wrap.hidden = true; return; }
-  const hint = $("phone-install-hint");
-  if (_deferredInstallPrompt) {
-    hint.textContent = "Opens natively and reconnects faster.";
-    wrap.hidden = false;
-  } else if (_isIOS()) {
-    hint.textContent = "Tap Share, then Add to Home Screen.";
-    wrap.hidden = false;
-  } else {
-    wrap.hidden = true;
-  }
+function _updateInstallMenuItem() {
+  const btn = $("menu-install");
+  if (!btn) return;
+  if (_isStandalone()) { btn.hidden = true; return; }
+  btn.hidden = !(_deferredInstallPrompt || _isIOS());
 }
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   _deferredInstallPrompt = e;
-  _renderInstall();
+  _updateInstallMenuItem();
 });
 window.addEventListener("appinstalled", () => {
   _deferredInstallPrompt = null;
-  _renderInstall();
+  _updateInstallMenuItem();
 });
 
 function setStatus(state, text) {
@@ -229,15 +221,19 @@ function onPeerMessage(msg) {
       section.hidden = true;
     }
   } else if (msg.type === "target-info") {
-    // Desktop tells us which robot the joypad will drive. If null, hide the
-    // drive surface so we don't look like we're controlling something.
+    // Desktop tells us which robot the joypad will drive. If null, hide
+    // both the drive surface AND the panic stop button — neither makes
+    // sense when there's nothing to control / stop.
     const driveSection = $("phone-drive");
+    const cmdSection = $("phone-command");
     const targetEl = $("phone-drive-target");
     if (msg.target?.name) {
       driveSection.hidden = false;
+      if (cmdSection) cmdSection.hidden = false;
       targetEl.textContent = `Driving: ${msg.target.name}`;
     } else {
       driveSection.hidden = true;
+      if (cmdSection) cmdSection.hidden = true;
       targetEl.textContent = "No robot connected";
       _joypad?.reset();
     }
@@ -445,16 +441,50 @@ function wireReconnect() {
   // what's missing if they land somewhere it doesn't work.
   const link = $("phone-dashboard-link");
   if (link) link.hidden = false;
-  $("phone-install-btn")?.addEventListener("click", async () => {
+}
+
+function wireAppMenu() {
+  const btn = $("app-menu-btn");
+  const menu = $("app-menu");
+  if (!btn || !menu) return;
+  btn.addEventListener("click", (e) => {
+    if (menu.matches(":popover-open")) { menu.hidePopover(); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 6}px`;
+    menu.style.left = `${Math.max(8, rect.left)}px`;
+    menu.style.right = "auto";
+    menu.showPopover?.();
+  });
+  document.addEventListener("click", (e) => {
+    if (!menu.matches(":popover-open")) return;
+    if (e.target.closest("#app-menu")) return;
+    if (e.target.closest("#app-menu-btn")) return;
+    menu.hidePopover();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
+  });
+  // Pull VERSION from sw.js (CI stamps it on every dashboard-asset change).
+  fetch("sw.js").then(r => r.ok ? r.text() : "").then(t => {
+    const m = t.match(/VERSION\s*=\s*"([^"]+)"/);
+    if (m) $("app-menu-version").textContent = m[1];
+  }).catch(() => {});
+  $("menu-install").addEventListener("click", async () => {
+    menu.hidePopover();
     if (_deferredInstallPrompt) {
       _deferredInstallPrompt.prompt();
       try { await _deferredInstallPrompt.userChoice; } catch {}
       _deferredInstallPrompt = null;
-      _renderInstall();
+      _updateInstallMenuItem();
+      return;
     }
-    // iOS: no programmatic trigger. The hint already tells the user what to do.
+    if (_isIOS()) {
+      const pop = $("install-ios-popover");
+      pop?.showPopover?.();
+    }
   });
-  _renderInstall();
+  $("menu-repo").addEventListener("click", () => menu.hidePopover());
+  _updateInstallMenuItem();
 }
 
 // LAN discovery — request/accept flow.
@@ -573,11 +603,12 @@ async function startNearbyDiscovery() {
 
 async function init() {
   wireReconnect();
+  wireAppMenu();
   const match = location.hash.match(/^#pair=(.+)$/);
   if (!match) {
     setStatus("error", "Not paired");
-    setMessage("Tap “Scan QR to connect” below, or open the dashboard on your desktop and tap “Pair phone” to generate a code.");
-    showReconnect("No pairing code yet.");
+    setMessage("");
+    showReconnect("");
     startNearbyDiscovery();
     return;
   }

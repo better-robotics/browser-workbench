@@ -536,6 +536,17 @@ function sendTargetInfo(peer) {
   });
 }
 
+// Re-broadcast to all paired phones when a robot connects/disconnects on the
+// desktop. Without this, a phone that paired BEFORE any robot was connected
+// stayed wedged with target=null (joypad + panic-stop hidden) because the
+// only target-info send was at pair time.
+export function broadcastTargetInfo() {
+  for (const p of _phones.values()) {
+    if (p.status === "failed") continue;
+    try { sendTargetInfo(p.peer); } catch {}
+  }
+}
+
 function renderPhones() {
   _changeHandler?.();
 }

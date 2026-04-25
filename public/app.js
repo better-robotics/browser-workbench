@@ -23,7 +23,7 @@ import { initVoice } from "./voice.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
-import { initPhones, setPhoneChatHandler } from "./phones.js";
+import { initPhones, setPhoneChatHandler, broadcastTargetInfo } from "./phones.js";
 import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers } from "./helpers.js";
@@ -485,6 +485,10 @@ async function connect(id) {
       try { await cap.probe(entry, service); } catch { /* optional */ }
     }
     await probeRuntimeCaps(entry, service);
+    // Tell paired phones that motors / target are now available. Without
+    // this, a phone that paired before the robot connected stays wedged
+    // with target=null forever (joypad + panic-stop hidden).
+    try { broadcastTargetInfo(); } catch {}
   } catch (err) {
     entry.status = "error";
     entry.lastConnectError = err.message || String(err);
@@ -556,6 +560,8 @@ function onDisconnected(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
   entry.status = "idle";
+  // Phones see target=null and tuck the joypad / panic-stop away.
+  try { broadcastTargetInfo(); } catch {}
   // Remember the last-known status for 30s so 'rebooting' → disconnect reads
   // as "was rebooting" on the card instead of an unexplained drop.
   if (entry.robotStatus) {

@@ -1724,11 +1724,11 @@ body.phone {
   min-height: 100dvh;
   max-width: 480px;
   margin: 0 auto;
-  /* viewport-fit=cover: extend horizontal padding through the notch / home
-     indicator in landscape so nested surfaces (nearby list, reconnect card,
-     dashboard link) never render under the bezel. */
+  /* viewport-fit=cover: extend padding through the notch / home indicator
+     on all four sides so the wordmark, status, and bottom button never
+     render under the iOS status bar or home indicator. */
   padding:
-    20px
+    calc(20px + env(safe-area-inset-top))
     calc(20px + env(safe-area-inset-right))
     calc(20px + env(safe-area-inset-bottom))
     calc(20px + env(safe-area-inset-left));
@@ -1744,6 +1744,21 @@ body.phone {
   font-weight: 600;
   color: var(--duke-light-blue);
 }
+.phone-brand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.phone-brand-btn:hover { background: var(--line); }
+.phone-brand-caret { width: 14px; height: 14px; opacity: 0.6; }
 .phone-status {
   display: inline-flex;
   align-items: center;

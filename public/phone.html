@@ -22,12 +22,29 @@
 <body class="phone">
 <main class="phone-main">
   <header class="phone-header">
-    <div class="phone-brand">Pip</div>
+    <button class="phone-brand phone-brand-btn" id="app-menu-btn" type="button" aria-label="About this app" aria-haspopup="menu">
+      Pip
+      <svg class="phone-brand-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
     <span class="phone-status" id="phone-status">
       <span class="dot" id="phone-status-dot"></span>
       <span id="phone-status-text">Pairing…</span>
     </span>
   </header>
+
+  <div id="app-menu" class="menu" popover="manual">
+    <div class="menu-meta">
+      <span class="menu-meta-label">Version</span>
+      <span class="menu-meta-value" id="app-menu-version">—</span>
+    </div>
+    <button class="menu-item" id="menu-install">Install on this phone</button>
+    <a class="menu-item" id="menu-repo" href="https://github.com/jonasneves/better-robotics" target="_blank" rel="noopener">GitHub repo</a>
+  </div>
+
+  <div id="install-ios-popover" class="help-popover" popover>
+    <strong>Install on iPhone / iPad</strong><br>
+    Tap the <strong>Share</strong> button in Safari, then <strong>Add to Home Screen</strong>.
+  </div>
   <section class="phone-chat">
     <div id="phone-echo" class="phone-echo" hidden></div>
     <p id="phone-message" class="phone-message">Connecting to your desktop…</p>
@@ -78,19 +95,16 @@
          Hidden unless Web Bluetooth is available (no point sending iPhone
          Safari users to a page they can't use). phone.js unhides. -->
     <a id="phone-dashboard-link" class="phone-dashboard-link" href="./?desktop=1" hidden>Open dashboard view</a>
-    <div id="phone-install" class="phone-install" hidden>
-      <button id="phone-install-btn" type="button" class="secondary sm">Install Pip on this phone</button>
-      <p id="phone-install-hint" class="hint"></p>
-    </div>
   </section>
   <section class="phone-scene" id="phone-scene" hidden>
     <div class="phone-scene-label" id="phone-scene-source">Camera</div>
     <div class="phone-scene-text" id="phone-scene-text"></div>
   </section>
   <!-- Panic button — relays `{capability:"stop"}` through the paired
-       desktop's BLE session. Always enabled; response surfaces inline so
-       the user sees "no robot connected" instead of a silent no-op. -->
-  <section class="phone-command" id="phone-command">
+       desktop's BLE session. Hidden until target-info reports a robot
+       connected; an always-visible red Stop with no robot to stop is
+       hostile affordance. -->
+  <section class="phone-command" id="phone-command" hidden>
     <button id="phone-stop-btn" type="button" class="phone-stop-btn">Stop robot</button>
     <p id="phone-command-status" class="phone-command-status" hidden></p>
   </section>
