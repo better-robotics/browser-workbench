@@ -124,6 +124,97 @@ central abstraction. Phase 1 ships even without phase 3 landing
 on phase 3 being "right" — phase 3 is best validated on real
 hardware sessions, not on imagined cases.
 
+**G. Draw-a-path-from-overhead-phone.** Trigger: operator holds the
+phone above the robot, sees the floor + the robot from above, finger-
+draws a line on the phone screen, and the robot follows it. Builds
+directly on the phone-as-eye work (item F-adjacent — the phone's
+WebRTC stream already arrives at the dashboard). The hard sub-problem
+isn't drawing or motor control — it's pose. Without knowing where
+the robot is in the image every frame, the closed loop doesn't close
+and the robot drifts off the path within seconds.
+
+Shape (the right primitives, in order of "what's load-bearing"):
+- **Pose via fiducial marker (ArUco) on top of robot.** Boring,
+  deterministic, sub-pixel pose, ~10-20 ms per frame in JS, gives a
+  known-size scale reference for free. Markerless tracking is a
+  research project; ArUco is a tape-this-on-and-it-works primitive.
+  This is the right MVP. Markerless can earn its way later.
+- **Where compute lives:** phone is I/O (camera out, drawing strokes
+  in over the existing WebRTC data channel) — no CV on phone.
+  Dashboard runs ArUco + controller + emits BLE motor pulses. Robot
+  unchanged. Same control-plane / data-plane split as everything
+  else.
+- **Tech recs:** `js-aruco2` (~100 KB pure JS) is enough for 5-10 Hz
+  pose. Reach for OpenCV.js (~10 MB WASM) only if measurement says
+  js-aruco can't keep up. Pure-pursuit controller in plain JS
+  (~50 lines). Three.js / WebGPU / WebNN are NOT load-bearing for
+  this — three.js is a 3D renderer (use only for debug overlay if
+  needed later); WebGPU is overkill for marker matching.
+- **Control loop:** ArUco detect (~15 ms) + plan (~1 ms) + BLE
+  WithResponse write (~50 ms) ≈ 70 ms / iteration → ~14 Hz. Each
+  iteration emits a short pulse (`duration_ms ≈ 100 ms`); firmware
+  watchdog auto-stops if the next iteration doesn't arrive. The
+  existing pulse-bounded-motion + watchdog invariants are the
+  correct safety floor — this is "another planner above the
+  capability" and lives under the same discipline as Pip / user
+  scripts.
+- **New Pip tool surface:** `get_robot_pose(robot_id)` returns
+  `{x, y, theta, confidence}` from the fiducial detector when a
+  marker-bearing camera is available on the robot. Pip can use it
+  for grounded spatial reasoning beyond what `get_robot_detections`
+  provides (which is image-coords-only). Optional, not on the MVP
+  critical path.
+
+Phases:
+1. **Marker + dashboard pose pipeline.** Print + tape ArUco on the
+   robot. Wire `js-aruco2` against the phone's video stream when
+   it's mounted on a robot. Render the detected pose as a small
+   debug overlay on the robot card so we can SEE it works before
+   trusting it for control. No motors yet.
+2. **Phone-side drawing.** `<canvas>` overlay on phone.html
+   viewfinder; touch listeners build a stroke-point array; send
+   over the existing WebRTC data channel as a typed message
+   (`{type: "path", points: [[x, y], ...]}`). Dashboard receives
+   and stores; renders the path on the same debug overlay. Still
+   no motors.
+3. **Closed-loop follower.** Pure-pursuit driving the most-recent
+   path; pulse-bounded each iteration; safety stops on marker-loss
+   ≥ 1 s, end-of-path, or new tap-to-cancel from the phone.
+   Confidence-based handoff (CLAUDE.md invariant): low marker
+   confidence → ask_human rather than guess.
+
+Validation criterion: tape marker on Pi rover, hold phone overhead,
+draw a curved path on the phone screen, watch the robot trace the
+curve to within ~5 cm of the drawn line over 1-2 m. If shipping
+leaves the rover drifting off-line within a few seconds, or if the
+loop falls below 5 Hz on the target devices, the primitive isn't
+load-bearing and we redesign before extending.
+
+Scope honesty (CLAUDE.md update gated on validation): today scope
+says "Not spatially aware. Monocular camera + VLM text — no depth,
+no SLAM, no metric maps. Navigation is semantic (landmarks, 'further
+along the wall'), not geometric." Phase 1 of this work flips that
+partially — fiducial marker = ground-plane metric pose for the
+robot, when an overhead camera is available. Not full SLAM, not
+depth, but a real 2D ground-truth primitive. CLAUDE.md should be
+updated to "Spatial awareness is fiducial-bounded — when an overhead
+camera + marker is present, the robot has a known 2D pose; otherwise
+the existing semantic-only invariant holds." DO NOT update CLAUDE.md
+until phase 3 lands and the validation criterion passes — claiming
+a capability before it works is the worst kind of scope drift.
+
+Skeptical angle worth holding: this is a meaningful primitive, not
+a one-off feature. Two failure modes to watch:
+- "Marker lost" handling. The phone is held by a human; it WILL
+  shake, tilt, occlude. Over 1 s of marker loss → safety stop. Not
+  optional; this IS the safety story for this loop.
+- The "phone overhead" geometry assumption. If the user holds the
+  phone at an angle, the floor isn't co-planar with the image. For
+  short paths and small angles, marker pixel position is good
+  enough as a proxy for ground position. For larger paths, a
+  homography (4 known floor points OR phone IMU + marker scale)
+  earns its way. Defer until path length actually demands it.
+
 ### Background-rank items (known, not urgent)
 
 ### 1. ESP32 URL-trigger OTA still fails with http -1 on CAM-MB (superseded by lane work)
