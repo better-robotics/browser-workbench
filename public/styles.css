@@ -1687,6 +1687,10 @@ dialog[open]::backdrop { opacity: 1; }
    make them compete; rows separated by a divider read subordinate. */
 #helpers-list {
   display: block;
+  /* Cap matches the robot-card cap so the row's right-aligned action sits
+     close to its identity instead of flying out to the page edge — without
+     card chrome, the full-page-width geometry reads as disconnected. */
+  max-width: 440px;
   margin-bottom: 16px;
 }
 #helpers-list > .card {
