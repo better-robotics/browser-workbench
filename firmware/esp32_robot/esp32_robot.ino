@@ -69,6 +69,11 @@
 // users have use cases (weak WiFi / standard / camera-heavy demo), not
 // individual sliders for framesize/quality/fb_count.
 #define CAMERA_PROFILE_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2"
+// Flash LED — the white LED on GPIO 4 of the AI-Thinker board. Single-byte
+// 0..100 brightness via PWM. Distinct from `led` (red status LED on GPIO 33)
+// because they're physically different lights. Useful as a torch when the
+// VLM needs to see in low-light scenes.
+#define FLASH_CHAR_UUID            "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3"
 
 // Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 // Safe default on disconnect — no redundant channel required.
@@ -110,31 +115,34 @@ const uint16_t LLM_MAX_DURATION_MS = 2000;
 // namespace) at boot, mirroring the Pi's pi-robot.conf shape. Compile-time
 // values are the safe defaults for ESP32-CAM-MB:
 //
-//   LED_PIN = 33  → red status LED on the AI-Thinker module
-//   motors  = {l: in1=14, in2=15, r: in1=13, in2=4}
+//   LED_PIN     = 33 → red status LED on the AI-Thinker module
+//   FLASH_PIN   = 4  → white flash LED on the AI-Thinker module (PWM 0..100)
+//   motors      = {l: in1=14, in2=15, r: in1=13, in2=12}
 //
 // Pin allocation reality on this chip is brutal. The camera consumes 15
 // GPIOs; what's left:
 //   - 13, 14, 15: SD card data pins, free when SD is unused. SAFE.
-//   - 4:  white flash LED. PWM on this pin makes the LED visibly
-//         flicker with motor speed — cosmetic only, not damaging.
-//   - 2, 12: strap pins. L298N's internal ~22k pull-ups on its IN pins
-//         fight the strap requirements (12 must be LOW at boot for 3.3V
-//         flash voltage; 2 must be LOW/floating, otherwise download mode).
-//         Usable only with external 10k pull-downs.
+//   - 4:  white flash LED. Now reserved for FLASH_PIN so the LED is
+//         independently controllable instead of flickering with motor PWM.
+//   - 2, 12: strap pins. GPIO 12 must be LOW at boot for 3.3V flash
+//         voltage. The L298N's IN pins are typically high-impedance CMOS
+//         (no internal pull-up on the common blue board), so GPIO 12
+//         stays LOW at boot via internal pull-down — safe. If your
+//         specific L298N has an internal pull-up on IN3, the chip won't
+//         boot (symptom: continuous `ets Jul 29` in serial); fix is one
+//         external 10k pull-down from GPIO 12 to GND.
 //   - 16: PSRAM CS / UART2_RXD on some AI-Thinker revisions. PSRAM is
-//         active on this board (psram=1 in fw-info), and driving GPIO 16
-//         as PWM there will corrupt camera framebuffers. Avoid.
+//         active (psram=1 in fw-info); avoid.
 //
-// So 13/14/15/4 is "always works, just a flickering LED" — the right
-// default to ship. ENA/ENB jumpers stay ON (5V — H-bridge always
-// enabled), PWM rides the IN pins. Forward = IN1=PWM, IN2=LOW; reverse
-// = IN1=LOW, IN2=PWM. Same 2-pin-per-motor pattern the Pi uses.
+// ENA/ENB jumpers on the L298N stay ON (5V — H-bridge always enabled),
+// PWM rides the IN pins. Forward = IN1=PWM, IN2=LOW; reverse = IN1=LOW,
+// IN2=PWM. Same 2-pin-per-motor pattern the Pi uses.
 int LED_PIN = 33;
+int FLASH_PIN = 4;
 int MOTOR_L_IN1 = 14;
 int MOTOR_L_IN2 = 15;
 int MOTOR_R_IN1 = 13;
-int MOTOR_R_IN2 = 4;
+int MOTOR_R_IN2 = 12;
 // LEDC PWM config for the H-bridge inputs. 1 kHz keeps motor whine
 // inaudible without the L298N's input filtering struggling. 8-bit = duty
 // in [0..255] from a signed [-100..100] input.
@@ -183,6 +191,9 @@ BLECharacteristic* otaDataChar    = nullptr;
 BLECharacteristic* otaStatusChar  = nullptr;
 BLECharacteristic* fwInfoChar     = nullptr;
 BLECharacteristic* motorChar      = nullptr;
+BLECharacteristic* flashChar      = nullptr;
+static uint8_t flashLevel = 0;  // 0..100 — current PWM brightness
+static bool _flash_attached = false;
 
 int8_t motorLeft = 0;
 int8_t motorRight = 0;
@@ -590,6 +601,11 @@ static void publishFwInfo() {
   info += "{\"name\":\"led\",\"type\":\"toggle\",\"pin\":";
   info += String(LED_PIN);
   info += "}";
+  if (_flash_attached) {
+    info += ",{\"name\":\"flash\",\"type\":\"level\",\"range\":[0,100],\"pin\":";
+    info += String(FLASH_PIN);
+    info += "}";
+  }
   info += ",{\"name\":\"wifi\",\"type\":\"wifi-scan\"}";
   // Motor pin assignments mirror Pi's get-config shape so the future
   // pinout editor (working.md item D) can render both platforms with
@@ -750,6 +766,16 @@ class LedCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
     std::string value = ch->getValue();
     if (value.length() > 0) applyLed(value[0] != 0);
+  }
+};
+
+// Single-byte 0..100 brightness write. Anything outside the range is
+// clamped — Pip and the dashboard slider should both stay in [0, 100],
+// but a hand-crafted BLE write shouldn't be able to overdrive the LED.
+class FlashCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
+    std::string value = ch->getValue();
+    if (value.length() > 0) applyFlash((uint8_t)value[0]);
   }
 };
 
@@ -1003,11 +1029,38 @@ static void loadPinConfig() {
   Preferences pins;
   pins.begin("pins", true);  // read-only
   LED_PIN     = pins.getInt("led",        LED_PIN);
+  FLASH_PIN   = pins.getInt("flash",      FLASH_PIN);
   MOTOR_L_IN1 = pins.getInt("m_l_in1",    MOTOR_L_IN1);
   MOTOR_L_IN2 = pins.getInt("m_l_in2",    MOTOR_L_IN2);
   MOTOR_R_IN1 = pins.getInt("m_r_in1",    MOTOR_R_IN1);
   MOTOR_R_IN2 = pins.getInt("m_r_in2",    MOTOR_R_IN2);
   pins.end();
+}
+
+// Flash LED PWM. Same ledc API as motors; separate channel so motor PWM
+// duty doesn't bleed into the flash output. 1 kHz / 8-bit duty matches
+// motors — keeps LEDC config uniform.
+static void initFlashPwm() {
+  _flash_attached = ledcAttach(FLASH_PIN, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  if (!_flash_attached) {
+    Serial.printf("flash: ledcAttach(%d) failed\n", FLASH_PIN);
+    return;
+  }
+  ledcWrite(FLASH_PIN, 0);
+  Serial.printf("flash: PWM ready on GPIO %d\n", FLASH_PIN);
+}
+
+static void applyFlash(uint8_t level) {
+  if (level > 100) level = 100;
+  flashLevel = level;
+  if (_flash_attached) {
+    uint32_t duty = ((uint32_t)level * 255) / 100;
+    ledcWrite(FLASH_PIN, duty);
+  }
+  if (flashChar) {
+    flashChar->setValue(&flashLevel, 1);
+    if (bleServiceStarted) flashChar->notify();
+  }
 }
 
 // Attach LEDC PWM to the four motor input pins. Failure on any single
@@ -1047,6 +1100,7 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);  // off
   initMotorPwm();
+  initFlashPwm();
   // Stop the wheels on any clean restart (OTA reboot, ESP.restart, etc.)
   // so the L298N doesn't hold the last duty for the ~500 ms it takes to
   // reset the firmware. Brownout / panic don't fire this — same as the Pi.
@@ -1055,6 +1109,7 @@ void setup() {
       ledcWrite(MOTOR_L_IN1, 0); ledcWrite(MOTOR_L_IN2, 0);
       ledcWrite(MOTOR_R_IN1, 0); ledcWrite(MOTOR_R_IN2, 0);
     }
+    if (_flash_attached) ledcWrite(FLASH_PIN, 0);
   });
 
   // Tried `esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT)` here to
@@ -1113,6 +1168,18 @@ void setup() {
   ledChar->setCallbacks(new LedCallbacks());
   uint8_t initial = 0;
   ledChar->setValue(&initial, 1);
+
+  // Flash LED — only when ledcAttach succeeded; otherwise the cap is hidden
+  // from fw-info too. No half-broken state where the dashboard offers a
+  // slider and writes silently get dropped.
+  if (_flash_attached) {
+    flashChar = service->createCharacteristic(
+      FLASH_CHAR_UUID,
+      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+    );
+    flashChar->setCallbacks(new FlashCallbacks());
+    flashChar->setValue(&flashLevel, 1);
+  }
 
   wifiScanChar = service->createCharacteristic(
     WIFI_SCAN_CHAR_UUID,

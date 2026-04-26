@@ -1147,6 +1147,15 @@ details.tray.has-alert > summary::after {
 }
 .motor-sliders input[type="range"] { flex: 1; accent-color: var(--accent); }
 
+/* Level slider — single-axis brightness control (flash LED today). Sits
+   in the cap-section action slot, where toggle/signed-pair would put a
+   button. Width keeps it compact in the right column. */
+.level-slider {
+  width: 140px;
+  accent-color: var(--accent);
+  vertical-align: middle;
+}
+
 /* Joypad — 2D drag surface with a knob that follows the pointer. Drives
    throttle (Y) + turn (X); firmware-side differential mixing lives in JS
    (signed-pair.js). touch-action:none stops mobile browsers from stealing

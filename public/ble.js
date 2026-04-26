@@ -32,6 +32,9 @@ export const SNAPSHOT_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1"
 // Firmware persists to Preferences and restarts. Current profile + available
 // profile names live in fw-info's camera cap entry.
 export const CAMERA_PROFILE_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2";
+// Flash — single-byte 0..100 PWM brightness on the white flash LED. Distinct
+// from the led toggle (which is the red status LED on a different pin).
+export const FLASH_CHAR_UUID             = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3";
 
 // Chunked-frame protocol shared by OTA and camera signaling: begin carries a
 // u32 big-endian length, chunks append, commit parses + acts, stop tears down.
@@ -41,6 +44,7 @@ export const CHUNK_BYTES = 180;  // safe under ATT MTU on macOS/Chrome.
 // fit in one ~180 B ATT read) — the dashboard looks up chars by cap name.
 export const UUIDS_BY_CAP = {
   led:    LED_CHAR_UUID,
+  flash:  FLASH_CHAR_UUID,
   motors: MOTOR_CHAR_UUID,
   wifi:   { scan: WIFI_SCAN_CHAR_UUID, join: WIFI_JOIN_CHAR_UUID, status: WIFI_STATUS_CHAR_UUID },
   ota:    { data: OTA_DATA_CHAR_UUID, status: OTA_STATUS_CHAR_UUID },
