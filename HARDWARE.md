@@ -14,6 +14,23 @@ Buy: AI Thinker ESP32-CAM-MB sells widely on Amazon and AliExpress. Gotcha: conf
 
 The 24-pin socket on the AI-Thinker board accepts OV2640, OV3660, and OV5640 modules — Espressif's `esp_camera` driver auto-detects the sensor. Firmware uses the stock AI-Thinker pin map (XCLK 0, SIOD 26, SIOC 27, data 5/18/19/21/36/39/34/35, VSYNC 25, HREF 23, PCLK 22, PWDN 32). VGA (640×480) JPEG, framebuffers in PSRAM, ~15 fps. Once WiFi is joined the firmware starts an MJPEG HTTP server on `:81/stream`, broadcasts its LAN IP on `wifi-status`, and advertises a `camera` capability of type `mjpeg-stream` in fw-info. The dashboard opens the stream as a plain `<img>` once both pieces are present. Dashboard browser must share a network with the robot — this is the WiFi data plane, not BLE.
 
+### Motor wiring (L298N)
+
+Default firmware pins: left `IN1=14, IN2=15`, right `IN1=13, IN2=4`. Tradeoffs are spelled out in the firmware comments above the declarations; the short version: those four are the only safe combination on this chip. Camera + PSRAM consume 15 GPIOs; the remaining survivors are 13/14/15/4 (and GPIO 4 doubles as the white flash LED, so it'll flicker visibly when the right motor is driven — cosmetic only).
+
+**Leave the L298N's ENA/ENB jumpers ON.** The 5V tie-up keeps the H-bridge always enabled and lets PWM ride the IN pins themselves. Forward = `IN1=PWM, IN2=LOW`; reverse = swap. Same 2-pin-per-motor pattern the Pi uses with gpiozero. Trying to do separate IN + ENA/ENB control needs 6 GPIOs we don't have.
+
+GPIO 15 is a strap pin (must be HIGH at boot for normal serial output). L298N's IN pins are high-impedance CMOS, but if your specific board has a weak pull-down on IN that fights the strap, add a 10k pull-up from GPIO 15 to 3.3V. Symptom: garbled serial during the first second of boot. Functionally harmless if you don't need that bootloader log.
+
+### Optional hardware mods (for stability under load)
+
+The AI-Thinker module's onboard AMS1117 LDO sags hard when WiFi TX bursts coincide with camera DMA + BLE radio activity. The firmware disables the brownout detector to survive this (otherwise the chip would reset mid-stream every few seconds), but the proper hardware fix is two capacitors:
+
+- **470 µF electrolytic + 0.1 µF ceramic across the AMS1117 3.3V output.** Solder between the 3V3 and GND pins on the back of the AI-Thinker module. Absorbs camera-flash and WiFi TX transients. Single biggest reliability mod for ESP32-CAM.
+- **100 µF on the 5V rail near the AI-Thinker 5V pin** (after the CAM-MB's LDO). Mostly relevant when battery-powered through the MB's 5V pin where there's no big bulk cap upstream — USB from a Mac is generally fine without it.
+
+Both are well-documented and any electrolytic + ceramic of that order works. The brownout-disabled firmware works without these, but you're trading "auto-protect on real undervolt" for "doesn't reset on transient dips."
+
 ## Forward path: ESP32-C6 and ESP32-S3
 
 Source compiles for both. **CI doesn't publish prebuilt binaries yet.** Flashing means cloning the repo and running `make flash` locally. Once a board is in hand to validate, CI can add targets and the dashboard's Flash button will route via `manifest.json`.
