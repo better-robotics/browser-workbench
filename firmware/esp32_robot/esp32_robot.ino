@@ -394,19 +394,10 @@ static bool initCamera() {
   }
   Serial.printf("camera ok, psram=%d, profile=%s\n",
                 psramFound(), cameraProfileName(cameraProfile));
-  // OV2640 ships with bland defaults — lift baseline visual quality so the
-  // VLM + grounded detector get cleaner input. Sensor-agnostic calls only
-  // (these work on OV3660 / OV5640 too, in case a future board swaps).
-  // Skipping vflip/hmirror — those are chassis-mount-dependent and belong
-  // in a per-robot config rather than a global default.
-  sensor_t* s = esp_camera_sensor_get();
-  if (s) {
-    s->set_brightness(s, 1);              // -2..2; lifts dim indoor scenes
-    s->set_saturation(s, -1);             // -2..2; OV2640 oversaturates reds
-    s->set_aec2(s, 1);                    // DSP-side AEC, smoother than sensor-only
-    s->set_awb_gain(s, 1);                // auto white-balance gain on
-    s->set_gainceiling(s, GAINCEILING_4X); // default 2X is too low for indoors
-  }
+  // Sensor-side tuning (set_aec2, set_gainceiling, etc.) was attempted but
+  // broke OV2640 on this die revision (all-black frames after init). Stock
+  // defaults work; revisit when we have a per-sensor compatibility matrix
+  // or the user wants a runtime knob to set them themselves.
   return true;
 }
 
