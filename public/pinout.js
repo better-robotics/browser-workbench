@@ -3,6 +3,7 @@ import { state } from "./state.js";
 import { getConfig } from "./capabilities/runtime/command.js";
 import { onOpsResponse } from "./ops-response.js";
 import { uploadFile } from "./capabilities/ota.js";
+import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
 
 // BCM GPIO numbers are what capability config and firmware use; the physical
 // pin number is what the header silkscreen shows. Users wire against physical
@@ -661,8 +662,185 @@ export function openPinoutDialog(id) {
   editMode = false;
   editConfig = null;
   $("pinout-title").textContent = `Pinout — ${entry.name}`;
-  renderView(entry);
+  if (entry.fwType === "esp32") {
+    renderEsp32View(entry);
+  } else {
+    renderView(entry);
+  }
   $("pinout-modal").showModal();
+}
+
+// ESP32 path — read current pin assignments straight from fw-info (no
+// get-config round-trip needed; the firmware already advertises them on
+// the led/flash/motors cap entries). Edit in place; save by writing JSON
+// to the PIN_CONFIG char (firmware persists to NVS + restarts).
+
+function esp32PinsFromFwInfo(entry) {
+  const caps = entry?.fwInfo?.caps || [];
+  const led    = caps.find(c => c.name === "led")?.pin;
+  const flash  = caps.find(c => c.name === "flash")?.pin;
+  const motors = caps.find(c => c.name === "motors")?.pins;
+  return {
+    led:     led    ?? 33,
+    flash:   flash  ?? 4,
+    m_l_in1: motors?.left?.in1  ?? 14,
+    m_l_in2: motors?.left?.in2  ?? 15,
+    m_r_in1: motors?.right?.in1 ?? 13,
+    m_r_in2: motors?.right?.in2 ?? 12,
+  };
+}
+
+// Camera-reserved set on AI-Thinker ESP32-CAM. These can't be reassigned
+// from the dashboard — they're physically wired to the camera socket.
+const ESP32_CAMERA_RESERVED = new Set([0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39]);
+
+function esp32PinNote(pin) {
+  if (ESP32_CAMERA_RESERVED.has(pin)) return "camera";
+  if (pin === 1 || pin === 3) return "UART (sacrifices serial)";
+  if (pin === 2)  return "strap (must be HIGH/floating at boot)";
+  if (pin === 12) return "strap (must be LOW at boot — most blue L298N boards work; some need a 10k pull-down)";
+  if (pin === 16 || pin === 17) return "PSRAM on some AI-Thinker revisions — risky";
+  if (pin === 4)  return "white flash LED";
+  if (pin === 33) return "red status LED";
+  if (pin >= 13 && pin <= 15) return "safe (SD pins, free when SD unused)";
+  return "";
+}
+
+function renderEsp32View(entry) {
+  const pins = esp32PinsFromFwInfo(entry);
+  const row = (label, key) => {
+    const note = esp32PinNote(pins[key]);
+    return `<div class="pinout-edit-row">
+      <span class="pinout-edit-label">${label}</span>
+      <code>GPIO ${pins[key]}</code>
+      ${note ? `<span class="meta">· ${escapeHtml(note)}</span>` : ""}
+    </div>`;
+  };
+  const connected = entry?.status === "connected";
+  const editBtn = connected
+    ? `<button class="secondary sm" id="pinout-edit-btn">Edit pins</button>`
+    : "";
+  $("pinout-body").innerHTML = `
+    ${renderEsp32Board()}
+    <div class="pinout-edit">
+      <div class="pinout-edit-section">
+        ${row("LED",        "led")}
+        ${row("Flash",      "flash")}
+        ${row("Left IN1",   "m_l_in1")}
+        ${row("Left IN2",   "m_l_in2")}
+        ${row("Right IN1",  "m_r_in1")}
+        ${row("Right IN2",  "m_r_in2")}
+      </div>
+    </div>
+    <div class="row" style="margin-top: 12px;">
+      <div class="meta">Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned.</div>
+      ${editBtn}
+    </div>
+  `;
+  $("pinout-edit-btn")?.addEventListener("click", () => beginEsp32Edit(entry));
+}
+
+function beginEsp32Edit(entry) {
+  editMode = true;
+  editConfig = esp32PinsFromFwInfo(entry);
+  renderEsp32Edit(entry);
+}
+
+function renderEsp32Edit(entry) {
+  const c = editConfig;
+  const usedBy = {};
+  for (const k of ["led", "flash", "m_l_in1", "m_l_in2", "m_r_in1", "m_r_in2"]) {
+    (usedBy[c[k]] ||= []).push(k);
+  }
+  const dup = Object.entries(usedBy).filter(([, v]) => v.length > 1);
+  const cameraHits = Object.entries(c).filter(([, p]) => ESP32_CAMERA_RESERVED.has(p));
+
+  const input = (label, key) => {
+    const note = esp32PinNote(c[key]);
+    return `<div class="pinout-edit-row">
+      <span class="pinout-edit-label">${label}</span>
+      <input type="text" inputmode="numeric" class="pinout-edit-input"
+             data-key="${key}" value="${c[key]}">
+      ${note ? `<span class="meta">${escapeHtml(note)}</span>` : ""}
+    </div>`;
+  };
+
+  const warn = [
+    dup.length
+      ? `<div class="pinout-warn">Conflict: ${dup.map(([g, v]) => `GPIO ${g} assigned to ${v.join(" + ")}`).join("; ")}</div>`
+      : "",
+    cameraHits.length
+      ? `<div class="pinout-warn">Camera-reserved: ${cameraHits.map(([k, p]) => `GPIO ${p} (${k})`).join("; ")} — must be reassigned before saving.</div>`
+      : "",
+  ].filter(Boolean).join("");
+
+  const blocked = dup.length > 0 || cameraHits.length > 0;
+  $("pinout-body").innerHTML = `
+    ${renderEsp32Board()}
+    <div class="pinout-edit">
+      <div class="pinout-edit-section">
+        ${input("LED",        "led")}
+        ${input("Flash",      "flash")}
+        ${input("Left IN1",   "m_l_in1")}
+        ${input("Left IN2",   "m_l_in2")}
+        ${input("Right IN1",  "m_r_in1")}
+        ${input("Right IN2",  "m_r_in2")}
+      </div>
+      ${warn}
+    </div>
+    <div class="row" style="margin-top: 12px; justify-content: flex-end;">
+      <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>
+      <button class="sm" id="pinout-save-btn" ${blocked ? "disabled" : ""}>Save + restart</button>
+    </div>
+  `;
+  $("pinout-body").querySelectorAll("input[data-key]").forEach(el => {
+    el.addEventListener("input", () => {
+      const v = parseInt(el.value, 10);
+      if (!Number.isNaN(v)) {
+        editConfig[el.dataset.key] = v;
+        renderEsp32Edit(entry);  // re-render to refresh conflict + note rows
+        // Restore focus + cursor to the just-edited input.
+        const back = $("pinout-body").querySelector(`input[data-key="${el.dataset.key}"]`);
+        if (back) { back.focus(); back.setSelectionRange(back.value.length, back.value.length); }
+      }
+    });
+  });
+  $("pinout-cancel-btn").addEventListener("click", () => {
+    editMode = false; editConfig = null; renderEsp32View(entry);
+  });
+  $("pinout-save-btn").addEventListener("click", () => saveEsp32Edit(entry));
+}
+
+async function saveEsp32Edit(entry) {
+  // Range check (firmware also validates, but reject early so the user
+  // gets a focused error instead of a silent ignore over BLE).
+  for (const key of ["led", "flash", "m_l_in1", "m_l_in2", "m_r_in1", "m_r_in2"]) {
+    const v = editConfig[key];
+    if (!Number.isInteger(v) || v < 0 || v > 39) {
+      alert(`${key}: GPIO ${v} is out of range [0, 39].`);
+      return;
+    }
+  }
+  $("pinout-body").innerHTML = `<div class="meta">Writing pin config + restarting…</div>`;
+  try {
+    if (!entry.device?.gatt?.connected) throw new Error("not connected");
+    const svc = await entry.device.gatt.getPrimaryService(SERVICE_UUID);
+    const ch  = await svc.getCharacteristic(PIN_CONFIG_CHAR_UUID);
+    await ch.writeValueWithResponse(encodeJson(editConfig));
+    // Robot reboots immediately; BLE drops. Close the dialog so the user
+    // sees the reconnect happen on the card.
+    editMode = false;
+    editConfig = null;
+    $("pinout-modal").close();
+  } catch (err) {
+    $("pinout-body").innerHTML = `
+      <div class="meta" style="color: var(--danger);">Save failed: ${escapeHtml(err.message || String(err))}</div>
+      <div class="row" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="secondary sm" id="pinout-retry-btn">Retry</button>
+      </div>
+    `;
+    $("pinout-retry-btn")?.addEventListener("click", () => renderEsp32Edit(entry));
+  }
 }
 
 // Read-only view, no robot context. Two boards under one toggle: the Pi
