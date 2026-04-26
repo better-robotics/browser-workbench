@@ -108,19 +108,30 @@ const uint16_t LLM_MAX_DURATION_MS = 2000;
 // values are the safe defaults for ESP32-CAM-MB:
 //
 //   LED_PIN = 33  → red status LED on the AI-Thinker module
-//   motors  = {l: in1=14, in2=15, r: in1=13, in2=16}
+//   motors  = {l: in1=14, in2=15, r: in1=13, in2=4}
 //
-// The ESP32-CAM has only 4 truly safe non-strap GPIOs once the camera is
-// wired (13, 14, 15, 16). To avoid GPIO 2 / GPIO 12 strap-pin conflicts
-// with L298N's internal pull-ups (which would brick boot), we drive PWM
-// on the IN pins themselves and leave the L298N's ENA/ENB jumpers ON
-// (5V — H-bridge always enabled). Forward = IN1=PWM, IN2=LOW; reverse
+// Pin allocation reality on this chip is brutal. The camera consumes 15
+// GPIOs; what's left:
+//   - 13, 14, 15: SD card data pins, free when SD is unused. SAFE.
+//   - 4:  white flash LED. PWM on this pin makes the LED visibly
+//         flicker with motor speed — cosmetic only, not damaging.
+//   - 2, 12: strap pins. L298N's internal ~22k pull-ups on its IN pins
+//         fight the strap requirements (12 must be LOW at boot for 3.3V
+//         flash voltage; 2 must be LOW/floating, otherwise download mode).
+//         Usable only with external 10k pull-downs.
+//   - 16: PSRAM CS / UART2_RXD on some AI-Thinker revisions. PSRAM is
+//         active on this board (psram=1 in fw-info), and driving GPIO 16
+//         as PWM there will corrupt camera framebuffers. Avoid.
+//
+// So 13/14/15/4 is "always works, just a flickering LED" — the right
+// default to ship. ENA/ENB jumpers stay ON (5V — H-bridge always
+// enabled), PWM rides the IN pins. Forward = IN1=PWM, IN2=LOW; reverse
 // = IN1=LOW, IN2=PWM. Same 2-pin-per-motor pattern the Pi uses.
 int LED_PIN = 33;
 int MOTOR_L_IN1 = 14;
 int MOTOR_L_IN2 = 15;
 int MOTOR_R_IN1 = 13;
-int MOTOR_R_IN2 = 16;
+int MOTOR_R_IN2 = 4;
 // LEDC PWM config for the H-bridge inputs. 1 kHz keeps motor whine
 // inaudible without the L298N's input filtering struggling. 8-bit = duty
 // in [0..255] from a signed [-100..100] input.
