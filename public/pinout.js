@@ -415,10 +415,12 @@ function renderEdit(entry) {
         </label>
         <label class="pinout-edit-row" style="padding-left: 24px;">
           <span class="pinout-edit-label">GPIO</span>
-          <!-- Default 16: 17 is the classic Left-IN1 pick, 26 collides with
-               the Safe-defaults preset's right.in2 — 16 dodges both. -->
+          <!-- Fallback matches firmware default (pi_robot.py LED_PIN). The
+               editor should show the truth — what the robot is actually
+               using when the conf doesn't override — not arbitrary values
+               that contradict the running config. -->
           <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                 data-path="led_pin" value="${c.led_pin ?? 16}">
+                 data-path="led_pin" value="${c.led_pin ?? 17}">
         </label>
       </div>
       <div class="pinout-edit-section">
@@ -431,25 +433,31 @@ function renderEdit(entry) {
                IN1+IN2 drive motor A (left), IN3+IN4 drive motor B (right).
                Config keys stay motors_pins.{left,right}.{in1,in2} — that's
                the firmware contract; only the display labels changed. -->
+          <!-- Fallbacks match pi_robot.py's MOTORS_PINS default. Without
+               this alignment, opening the editor on a fresh robot shows
+               pins that don't match what's actually being driven, and
+               clicking Save without touching anything writes those
+               fictional values into the conf — silently overriding the
+               firmware's safe defaults. -->
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">IN1 · left motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.in1" value="${ml.in1 ?? 17}">
+                   data-path="motors_pins.left.in1" value="${ml.in1 ?? 5}">
           </label>
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">IN2 · left motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.in2" value="${ml.in2 ?? 27}">
+                   data-path="motors_pins.left.in2" value="${ml.in2 ?? 6}">
           </label>
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">IN3 · right motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.in1" value="${mr.in1 ?? 23}">
+                   data-path="motors_pins.right.in1" value="${mr.in1 ?? 13}">
           </label>
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">IN4 · right motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.in2" value="${mr.in2 ?? 24}">
+                   data-path="motors_pins.right.in2" value="${mr.in2 ?? 26}">
           </label>
           <div class="meta" style="margin-top: 6px;">Wire each Pi GPIO to the driver board's IN pin of the same number (IN1 ↔ IN1, etc.). Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
           <label class="pinout-edit-row" style="margin-top: 10px;">
@@ -527,10 +535,12 @@ function renderEdit(entry) {
     renderView(entry);
   });
   $("pinout-save-btn")?.addEventListener("click", () => saveEdit(entry));
-  // Safe-defaults preset: non-reserved pins, no overlap between LED and motors,
-  // matches a typical L298N/DRV8833/TB6612 two-motor wiring tutorial.
+  // Safe-defaults preset: matches pi_robot.py's MOTORS_PINS + LED_PIN
+  // defaults. Now that the edit-form fallbacks match too, this button
+  // is a *restore* affordance — useful after the user has drifted off
+  // the canonical assignments and wants the working ones back.
   $("pinout-safe-defaults-btn")?.addEventListener("click", () => {
-    editConfig.led_pin = 16;
+    editConfig.led_pin = 17;
     editConfig.motors_pins = { left: { in1: 5, in2: 6 }, right: { in1: 13, in2: 26 } };
     renderEdit(entry);
   });
