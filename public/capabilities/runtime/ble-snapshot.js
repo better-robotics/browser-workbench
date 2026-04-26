@@ -67,6 +67,10 @@ export function makeBleSnapshotCap(schema) {
           const data = new Uint8Array(e.target.value.buffer);
           if (data.length === 0) return;
           const op = data[0];
+          // Temporary diagnostic — confirms whether notifies from the
+          // firmware's snapshotDataChar are actually reaching the
+          // dashboard. Remove once snapshot path is reliable.
+          logFor(entry, `snapshot: notify op=0x${op.toString(16).padStart(2, "0")} len=${data.length}`);
           if (op === 0x01 && data.length >= 5) {
             // begin: u32 BE total
             const total = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
