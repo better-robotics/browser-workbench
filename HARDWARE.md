@@ -1,26 +1,28 @@
 # Hardware guide
 
-## Recommended: ESP32-C6 (BLE-first, no camera)
+## Current: ESP32-CAM-MB
 
-For new builds where BLE is the primary channel and a camera isn't required, pick an **ESP32-C6** — DevKitC-1 or any WROOM-based C6 board. It has native USB CDC (no drivers), Bluetooth 5.3 LE with materially better RAM headroom than S3 when the TLS stack shares memory with BLE during OTA, and matches the "BLE is the control plane" shape of this project better than dual-radio boards. Same Arduino core, same firmware, board knobs below.
+The kit ships with the **ESP32-CAM-MB**: AI Thinker ESP32-CAM module mounted on a programmer carrier with a USB micro-B port. Plug in, flash from the dashboard, done. The published binaries in `public/firmware/bins/` target this board; nothing else has prebuilt artifacts yet.
 
-Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-C6), DigiKey, Mouser. Espressif's official store ships globally.
+**Bare ESP32-CAM ≠ ESP32-CAM-MB.** Two SKUs ship under the same "ESP32-CAM" name. The bare module has no USB at all; flashing requires an external FTDI/CP2102 adapter wired to U0R/U0T/GND with IO0 grounded for boot. The MB carrier *is* the USB-to-serial bridge. Look for a separate small PCB with a USB micro-B port: that's the MB. Buy the kit version unless you specifically want the wiring exercise.
 
-## Alternative: ESP32-S3 with native USB
+USB-UART chip on the MB carrier is CP2102 on most units, FT232R on some (silkscreened). macOS has the FTDI driver built in; CP2102 needs a [one-time kernel extension install from Silicon Labs](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers).
 
-If you need dual-core horsepower or a camera, the **ESP32-S3** remains a strong choice — ESP32-S3-CAM, Freenove ESP32-S3-WROOM dev kit, or any DevKitC-S3. Native USB CDC (no drivers), same firmware. Picks up some headroom over the C6 at the cost of a larger BLE/WiFi memory footprint.
-
-Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-S3), DigiKey. Freenove kit ships from Amazon.
-
-## Legacy: ESP32-CAM-MB
-
-The published binaries currently target the **ESP32-CAM-MB** (AI Thinker ESP32-CAM + MB programmer carrier) — the original development hardware. Its USB-UART bridge is CP210x (Silicon Labs) or FT232R (FTDI). macOS has the FTDI driver built in; CP210x requires a [one-time kernel extension install](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers). Works, but the kext is the friction the S3 recommendation is meant to sidestep.
-
-Buy: AI Thinker ESP32-CAM-MB sells widely on Amazon and AliExpress. The gotcha is listings that ship just the bare camera module without the MB programmer carrier; confirm the carrier is included.
+Buy: AI Thinker ESP32-CAM-MB sells widely on Amazon and AliExpress. Gotcha: confirm the listing includes the MB programmer carrier, not just the bare camera module.
 
 ### Camera on the CAM-MB
 
 The 24-pin socket on the AI-Thinker board accepts OV2640, OV3660, and OV5640 modules — Espressif's `esp_camera` driver auto-detects the sensor. Firmware uses the stock AI-Thinker pin map (XCLK 0, SIOD 26, SIOC 27, data 5/18/19/21/36/39/34/35, VSYNC 25, HREF 23, PCLK 22, PWDN 32). VGA (640×480) JPEG, framebuffers in PSRAM, ~15 fps. Once WiFi is joined the firmware starts an MJPEG HTTP server on `:81/stream`, broadcasts its LAN IP on `wifi-status`, and advertises a `camera` capability of type `mjpeg-stream` in fw-info. The dashboard opens the stream as a plain `<img>` once both pieces are present. Dashboard browser must share a network with the robot — this is the WiFi data plane, not BLE.
+
+## Forward path: ESP32-C6 and ESP32-S3
+
+Source compiles for both. **CI doesn't publish prebuilt binaries yet.** Flashing means cloning the repo and running `make flash` locally. Once a board is in hand to validate, CI can add targets and the dashboard's Flash button will route via `manifest.json`.
+
+**ESP32-C6** is the natural BLE-first match: native USB CDC (no drivers), Bluetooth 5.3 LE, materially better RAM headroom than S3 when TLS shares memory with BLE during OTA, matches "BLE is the control plane" without dragging WiFi-radio cost. DevKitC-1 or any WROOM-based C6 board.
+
+**ESP32-S3** is the path if you need dual-core or a camera. ESP32-S3-CAM, Freenove ESP32-S3-WROOM, or any DevKitC-S3. Native USB CDC, larger BLE/WiFi memory footprint than C6.
+
+Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-C6) (C6, S3), DigiKey, Mouser. Espressif's official store ships globally. Freenove kit ships from Amazon.
 
 ## Raspberry Pi
 

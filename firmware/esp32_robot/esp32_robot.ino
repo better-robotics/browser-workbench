@@ -103,7 +103,31 @@ const uint16_t LLM_MAX_DURATION_MS = 2000;
 //                 tracked client-side via wifi-scan notifications; it doesn't
 //                 change connection state.)
 
-const int LED_PIN = 33;
+// Pin configuration — runtime overrides loaded from NVS Preferences ("pins"
+// namespace) at boot, mirroring the Pi's pi-robot.conf shape. Compile-time
+// values are the safe defaults for ESP32-CAM-MB:
+//
+//   LED_PIN = 33  → red status LED on the AI-Thinker module
+//   motors  = {l: in1=14, in2=15, r: in1=13, in2=16}
+//
+// The ESP32-CAM has only 4 truly safe non-strap GPIOs once the camera is
+// wired (13, 14, 15, 16). To avoid GPIO 2 / GPIO 12 strap-pin conflicts
+// with L298N's internal pull-ups (which would brick boot), we drive PWM
+// on the IN pins themselves and leave the L298N's ENA/ENB jumpers ON
+// (5V — H-bridge always enabled). Forward = IN1=PWM, IN2=LOW; reverse
+// = IN1=LOW, IN2=PWM. Same 2-pin-per-motor pattern the Pi uses.
+int LED_PIN = 33;
+int MOTOR_L_IN1 = 14;
+int MOTOR_L_IN2 = 15;
+int MOTOR_R_IN1 = 13;
+int MOTOR_R_IN2 = 16;
+// LEDC PWM config for the H-bridge inputs. 1 kHz keeps motor whine
+// inaudible without the L298N's input filtering struggling. 8-bit = duty
+// in [0..255] from a signed [-100..100] input.
+static const uint32_t MOTOR_PWM_FREQ = 1000;
+static const uint8_t  MOTOR_PWM_RES  = 8;
+static bool _motors_attached = false;
+
 const size_t SCAN_MAX = 10;
 
 BLECharacteristic* ledChar        = nullptr;
@@ -541,9 +565,24 @@ static void publishFwInfo() {
   // across platforms. "dev" when building outside git (rare — CI always has git).
   info += ",\"version\":\"" GIT_SHA "\"";
   info += ",\"caps\":[";
-  info += "{\"name\":\"led\",\"type\":\"toggle\"}";
+  info += "{\"name\":\"led\",\"type\":\"toggle\",\"pin\":";
+  info += String(LED_PIN);
+  info += "}";
   info += ",{\"name\":\"wifi\",\"type\":\"wifi-scan\"}";
-  info += ",{\"name\":\"motors\",\"type\":\"signed-pair\",\"range\":[-100,100]}";
+  // Motor pin assignments mirror Pi's get-config shape so the future
+  // pinout editor (working.md item D) can render both platforms with
+  // one schema. ENA/ENB jumpers stay ON — H-bridge is always enabled,
+  // PWM rides the IN pins. See firmware comments above LED_PIN decl.
+  info += ",{\"name\":\"motors\",\"type\":\"signed-pair\",\"range\":[-100,100]";
+  info += ",\"pins\":{\"left\":{\"in1\":";
+  info += String(MOTOR_L_IN1);
+  info += ",\"in2\":";
+  info += String(MOTOR_L_IN2);
+  info += "},\"right\":{\"in1\":";
+  info += String(MOTOR_R_IN1);
+  info += ",\"in2\":";
+  info += String(MOTOR_R_IN2);
+  info += "}}}";
   if (cameraReady) {
     info += ",{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"";
     // Profile metadata so the dashboard can render the picker. `profile`
@@ -683,11 +722,25 @@ class LedCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+static void driveHalfBridge(int in1Pin, int in2Pin, int8_t signedSpeed) {
+  if (!_motors_attached) return;
+  int magnitude = signedSpeed < 0 ? -signedSpeed : signedSpeed;
+  if (magnitude > 100) magnitude = 100;
+  uint32_t duty = (magnitude * 255) / 100;
+  if (signedSpeed >= 0) {
+    ledcWrite(in1Pin, duty);
+    ledcWrite(in2Pin, 0);
+  } else {
+    ledcWrite(in1Pin, 0);
+    ledcWrite(in2Pin, duty);
+  }
+}
+
 static void applyMotors(int8_t left, int8_t right) {
   motorLeft = left;
   motorRight = right;
-  // Stub — wire your H-bridge / ledc PWM here. Current body just echoes
-  // state over BLE so watchdog behavior is visible without hardware.
+  driveHalfBridge(MOTOR_L_IN1, MOTOR_L_IN2, left);
+  driveHalfBridge(MOTOR_R_IN1, MOTOR_R_IN2, right);
   uint8_t buf[2] = { (uint8_t)left, (uint8_t)right };
   if (motorChar) {
     motorChar->setValue(buf, 2);
@@ -911,10 +964,48 @@ class CameraProfileCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+// Load pin overrides from NVS. Each key is optional; missing keys keep
+// the compile-time safe default. Mirrors the Pi's pi-robot.conf reader,
+// but key/value (NVS) instead of JSON. Dashboard pinout editor (item D
+// in working.md) will write into this same namespace.
+static void loadPinConfig() {
+  Preferences pins;
+  pins.begin("pins", true);  // read-only
+  LED_PIN     = pins.getInt("led",        LED_PIN);
+  MOTOR_L_IN1 = pins.getInt("m_l_in1",    MOTOR_L_IN1);
+  MOTOR_L_IN2 = pins.getInt("m_l_in2",    MOTOR_L_IN2);
+  MOTOR_R_IN1 = pins.getInt("m_r_in1",    MOTOR_R_IN1);
+  MOTOR_R_IN2 = pins.getInt("m_r_in2",    MOTOR_R_IN2);
+  pins.end();
+}
+
+// Attach LEDC PWM to the four motor input pins. Failure on any single
+// pin disables the whole motor subsystem so we don't drive half a motor;
+// applyMotors short-circuits when _motors_attached is false.
+static void initMotorPwm() {
+  bool ok = true;
+  ok &= ledcAttach(MOTOR_L_IN1, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  ok &= ledcAttach(MOTOR_L_IN2, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  ok &= ledcAttach(MOTOR_R_IN1, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  ok &= ledcAttach(MOTOR_R_IN2, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  _motors_attached = ok;
+  if (!ok) {
+    Serial.printf("motors: ledcAttach failed (pins %d/%d/%d/%d) — motors disabled\n",
+                  MOTOR_L_IN1, MOTOR_L_IN2, MOTOR_R_IN1, MOTOR_R_IN2);
+    return;
+  }
+  ledcWrite(MOTOR_L_IN1, 0); ledcWrite(MOTOR_L_IN2, 0);
+  ledcWrite(MOTOR_R_IN1, 0); ledcWrite(MOTOR_R_IN2, 0);
+  Serial.printf("motors: PWM ready, L=%d/%d R=%d/%d\n",
+                MOTOR_L_IN1, MOTOR_L_IN2, MOTOR_R_IN1, MOTOR_R_IN2);
+}
+
 void setup() {
   Serial.begin(115200);
+  loadPinConfig();
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);  // off
+  initMotorPwm();
 
   // Tried `esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT)` here to
   // reclaim the Classic BT DRAM pool for WiFi — pair succeeded but the
