@@ -549,6 +549,22 @@ function wireAppMenu() {
     btn.disabled = true;
     btn.textContent = "Clearing…";
     try {
+      // Capture cached asset URLs before nuking — used to bust the
+      // browser's HTTP cache (the layer below the SW that
+      // location.reload() doesn't flush). See app.js for the full reason.
+      const sameOriginAssets = [];
+      if (self.caches) {
+        try {
+          const names = await caches.keys();
+          for (const n of names) {
+            const c = await caches.open(n);
+            const reqs = await c.keys();
+            for (const r of reqs) {
+              if (new URL(r.url).origin === location.origin) sameOriginAssets.push(r.url);
+            }
+          }
+        } catch {}
+      }
       const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
       await Promise.allSettled(regs.map(r => r.unregister()));
       if (self.caches) {
@@ -565,6 +581,21 @@ function wireAppMenu() {
       }
       try { localStorage.clear(); } catch {}
       try { sessionStorage.clear(); } catch {}
+      try {
+        for (const c of document.cookie.split(";")) {
+          const eq = c.indexOf("=");
+          const name = (eq > -1 ? c.substr(0, eq) : c).trim();
+          if (!name) continue;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${location.pathname}`;
+        }
+      } catch {}
+      const pageUrl = new URL("./", location.href).toString();
+      const all = new Set([pageUrl, location.href, ...sameOriginAssets]);
+      btn.textContent = "Refetching…";
+      await Promise.allSettled(
+        [...all].map(u => fetch(u, { cache: "reload" }).catch(() => {})),
+      );
     } finally {
       location.reload();
     }

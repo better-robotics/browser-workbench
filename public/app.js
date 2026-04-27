@@ -1614,6 +1614,25 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.disabled = true;
     btn.textContent = "Clearing…";
     try {
+      // Capture the SW's known asset URLs *before* nuking the cache. After
+      // the destructive phase, we re-fetch each with cache: 'reload' to
+      // bypass the browser's HTTP cache (the layer below the SW that
+      // location.reload() doesn't flush) — that's the gap that made layout
+      // changes survive a previous hard-refresh. Chrome's "Clear site data"
+      // wipes both layers; this gets close.
+      const sameOriginAssets = [];
+      if (self.caches) {
+        try {
+          const names = await caches.keys();
+          for (const n of names) {
+            const c = await caches.open(n);
+            const reqs = await c.keys();
+            for (const r of reqs) {
+              if (new URL(r.url).origin === location.origin) sameOriginAssets.push(r.url);
+            }
+          }
+        } catch {}
+      }
       // Best-effort: run each step independently so one failure doesn't block
       // the others. The nuclear order is intentional — kill the SW first so
       // the reload below can't be intercepted by a stale worker.
@@ -1633,6 +1652,28 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       try { localStorage.clear(); } catch {}
       try { sessionStorage.clear(); } catch {}
+      // Cookies — best-effort. JS can't see HttpOnly cookies but for non-
+      // HttpOnly ones, expire each at root and current path.
+      try {
+        for (const c of document.cookie.split(";")) {
+          const eq = c.indexOf("=");
+          const name = (eq > -1 ? c.substr(0, eq) : c).trim();
+          if (!name) continue;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${location.pathname}`;
+        }
+      } catch {}
+      // Pre-warm the HTTP cache with fresh copies of every known asset.
+      // cache: 'reload' is the only documented way to force a same-origin
+      // fetch past the browser's HTTP disk cache without server cooperation.
+      // The page URL itself goes in too so the navigation reload below
+      // reads a fresh copy from disk.
+      const pageUrl = new URL("./", location.href).toString();
+      const all = new Set([pageUrl, location.href, ...sameOriginAssets]);
+      btn.textContent = "Refetching…";
+      await Promise.allSettled(
+        [...all].map(u => fetch(u, { cache: "reload" }).catch(() => {})),
+      );
     } finally {
       location.reload();
     }
