@@ -1011,9 +1011,7 @@ function renderEntry(entry) {
     </div>
     ${entry.staleHandle && !connected && !connecting ? `
       <div class="meta robot-stale-hint">
-        Browser permission expired — Chrome will ask you to pick
-        ${escapeHtml(entry.name)} from the next list. The pairing on the
-        robot is intact; this re-grants this page access.
+        Pick ${escapeHtml(entry.name)} again to reconnect. The robot's pairing isn't affected.
       </div>
     ` : ""}
     ${stateHtml}
