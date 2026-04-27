@@ -189,8 +189,66 @@ function onPeerTrack(e) {
   }
 }
 
+// Sources the desktop has available to forward, indexed by robotId. The
+// camera tile's tap handler renders a picker over this. Updated whenever
+// the desktop notifies — track changes, attached camera mount/unmount.
+const _availableSources = new Map();  // robotId -> { sources, active }
+
+// Update the "Tap to switch source" affordance — visible iff there's more
+// than one source for any robot (or the picker would lie about its job).
+function updateCameraPickerHint() {
+  const overlay = $("phone-cam-overlay");
+  if (!overlay) return;
+  const hasChoice = [..._availableSources.values()].some(s => (s.sources?.length || 0) > 1);
+  overlay.hidden = !hasChoice;
+}
+
+function renderCameraPicker() {
+  const wrap = $("phone-cam-picker");
+  if (!wrap) return;
+  // Aggregate across robots — each row is "<robot> · <source-label>" with
+  // a check on the active one. Tapping sends subscribe-source for that
+  // robotId with the chosen sourceId.
+  const rows = [];
+  for (const [robotId, info] of _availableSources) {
+    for (const s of info.sources || []) {
+      const active = (info.active || s.kind) === s.id || info.active === s.id;
+      rows.push({ robotId, source: s, active });
+    }
+  }
+  if (!rows.length) { wrap.hidden = true; return; }
+  wrap.innerHTML = rows.map(r => {
+    const tag = r.source.fwType ? `<span class="type-badge type-${r.source.fwType}">${r.source.fwType === "esp32" ? "ESP32" : r.source.fwType.toUpperCase()}</span>` : "";
+    return `<button class="phone-cam-pick-row${r.active ? " active" : ""}" type="button"
+              data-robot-id="${r.robotId}" data-source-id="${r.source.id}">
+              ${tag}<span>${r.source.label}</span>${r.active ? "<span class='phone-cam-pick-check'>✓</span>" : ""}
+            </button>`;
+  }).join("");
+  wrap.hidden = false;
+  wrap.querySelectorAll(".phone-cam-pick-row").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const robotId = btn.dataset.robotId;
+      const sourceId = btn.dataset.sourceId;
+      try { _peer?.send?.({ type: "subscribe-source", robotId, sourceId }); } catch {}
+      // Optimistic local update — the real authority is the next
+      // available-sources message from desktop confirming the active.
+      const info = _availableSources.get(robotId);
+      if (info) { info.active = sourceId; _availableSources.set(robotId, info); }
+      wrap.hidden = true;
+      renderCameraPicker();  // refresh check marks for next open
+    });
+  });
+}
+
 function onPeerMessage(msg) {
   if (msg.type === "ask") { showAsk(msg); return; }
+  if (msg.type === "available-sources") {
+    _availableSources.set(msg.robotId, {
+      sources: msg.sources || [], active: msg.active || null,
+    });
+    updateCameraPickerHint();
+    return;
+  }
   if (msg.type === "robot-command-result") {
     const pending = _pendingCommands.get(msg.id);
     if (!pending) return;  // late reply after timeout — drop silently
@@ -450,6 +508,29 @@ function stopQrScan() {
 function wireReconnect() {
   $("phone-scan-btn")?.addEventListener("click", startQrScan);
   $("phone-scanner-cancel")?.addEventListener("click", stopQrScan);
+}
+
+function wireCameraPicker() {
+  const tap = $("phone-cam-tap");
+  if (!tap) return;
+  tap.addEventListener("click", () => {
+    // Only show the picker when there's more than one source — single-
+    // source case has nothing to pick from. updateCameraPickerHint
+    // already hides the "Tap to switch source" overlay, but guard here too.
+    const hasChoice = [..._availableSources.values()].some(s => (s.sources?.length || 0) > 1);
+    if (!hasChoice) return;
+    const wrap = $("phone-cam-picker");
+    if (!wrap) return;
+    if (!wrap.hidden) { wrap.hidden = true; return; }
+    renderCameraPicker();
+  });
+  // Outside-click dismiss for the picker — matches dialog/menu patterns.
+  document.addEventListener("click", (e) => {
+    const wrap = $("phone-cam-picker");
+    if (!wrap || wrap.hidden) return;
+    if (wrap.contains(e.target) || tap.contains(e.target)) return;
+    wrap.hidden = true;
+  });
 }
 
 function wireAppMenu() {
@@ -712,6 +793,7 @@ async function startNearbyDiscovery() {
 
 async function init() {
   wireReconnect();
+  wireCameraPicker();
   wireAppMenu();
   const match = location.hash.match(/^#pair=(.+)$/);
   if (!match) {

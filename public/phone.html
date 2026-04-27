@@ -73,10 +73,15 @@
   </section>
   <!-- Live camera stream from the desktop (laptop helper today; robot cam
        and other helpers will plug into the same <video> sink). One source
-       at a time — desktop chooses for now, picker comes later. -->
+       at a time — tap the tile when multiple sources are available to pick
+       which one the desktop forwards. -->
   <section class="phone-cam-section" id="phone-cam-section" hidden>
-    <video class="phone-cam" id="phone-cam" autoplay playsinline muted></video>
+    <button class="phone-cam-tap" id="phone-cam-tap" type="button" aria-label="Pick camera source">
+      <video class="phone-cam" id="phone-cam" autoplay playsinline muted></video>
+      <div class="phone-cam-overlay" id="phone-cam-overlay" hidden>Tap to switch source</div>
+    </button>
     <div class="hint phone-cam-label" id="phone-cam-label">Camera</div>
+    <div class="phone-cam-picker" id="phone-cam-picker" hidden></div>
   </section>
   <!-- Phone-camera-as-helper: user taps to stream their back camera to the
        paired desktop. Desktop picks it up via peer.onTrack and surfaces it

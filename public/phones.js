@@ -189,18 +189,67 @@ function syncPhoneMedia(phone, stream) {
 // When forwarding the attached stream, skip the source phone — phone-1
 // seeing its own camera echoed back is wasteful at best, feedback at
 // worst. attachedFromPhoneId === phone.id is the marker.
+// Sources the dashboard could forward to a phone for this robot. Single
+// stream per robot still ships at any moment; this list lets the phone
+// pick which one. Same data shape powers the dashboard's cap-source swap
+// UX — different surfaces, same standardized "what's available" model.
+function availableSourcesFor(entry) {
+  const sources = [];
+  if (entry.cameraStream) {
+    sources.push({
+      id: "native",  // stable per-robot id, not a stream-instance handle
+      kind: "native",
+      label: "Robot camera",
+      fwType: entry.fwType || null,
+    });
+  }
+  if (entry.attachedCameraStream) {
+    sources.push({
+      id: "attached",
+      kind: "attached",
+      label: "Phone-mounted camera",
+      fromPhoneId: entry.attachedFromPhoneId || null,
+    });
+  }
+  return sources;
+}
+
+// Resolve the actual MediaStream for a phone's chosen source on this
+// robot. Defaults to "attached preferred over native" — same priority
+// the original syncRobotMedia used. The phone overrides via subscribe-
+// source messages, recorded in phone.robotSourcePrefs.
+function resolveStreamForPhone(phone, entry) {
+  const pref = phone.robotSourcePrefs?.get(entry.id);
+  if (pref === "native" && entry.cameraStream) return entry.cameraStream;
+  if (pref === "attached"
+      && entry.attachedCameraStream
+      && entry.attachedFromPhoneId !== phone.id) {
+    return entry.attachedCameraStream;
+  }
+  // Default: attached (when not the source phone) > native.
+  if (entry.attachedCameraStream && entry.attachedFromPhoneId !== phone.id) {
+    return entry.attachedCameraStream;
+  }
+  return entry.cameraStream || null;
+}
+
 function syncRobotMedia(phone, entry) {
   if (!phone || phone.status === "failed") return;
   if (!phone.robotSenders) phone.robotSenders = new Map();
   const prev = phone.robotSenders.get(entry.id) || [];
   for (const s of prev) { try { phone.peer.removeTrack(s); } catch {} }
   phone.robotSenders.delete(entry.id);
-  let stream = null;
-  if (entry.attachedCameraStream && entry.attachedFromPhoneId !== phone.id) {
-    stream = entry.attachedCameraStream;
-  } else if (entry.cameraStream) {
-    stream = entry.cameraStream;
-  }
+  // Always re-publish the source list — kept in sync with track changes
+  // so the phone's picker shows what's actually available right now.
+  try {
+    phone.peer.send({
+      type: "available-sources",
+      robotId: entry.id,
+      sources: availableSourcesFor(entry),
+      active: phone.robotSourcePrefs?.get(entry.id) || null,
+    });
+  } catch {}
+  const stream = resolveStreamForPhone(phone, entry);
   if (!stream) return;
   const senders = [];
   for (const t of stream.getVideoTracks()) {
@@ -472,6 +521,19 @@ async function beginPairing() {
 }
 
 async function onPhoneMessage(id, peer, msg) {
+  if (msg.type === "subscribe-source") {
+    // Phone picked a different camera source for a given robot. Record
+    // the preference and re-sync media so the new track lands. Cleared
+    // on disconnect (robotSourcePrefs lives on the phone object only).
+    const phone = _phones.get(id);
+    if (!phone) return;
+    if (!phone.robotSourcePrefs) phone.robotSourcePrefs = new Map();
+    if (msg.sourceId) phone.robotSourcePrefs.set(msg.robotId, msg.sourceId);
+    else phone.robotSourcePrefs.delete(msg.robotId);
+    const entry = state.devices.get(msg.robotId);
+    if (entry) syncRobotMedia(phone, entry);
+    return;
+  }
   if (msg.type === "ask-reply") {
     const pending = _pendingAsks.get(msg.askId);
     if (!pending) return;  // late reply after timeout — drop silently

@@ -2239,6 +2239,60 @@ body.phone textarea {
 }
 .phone-cam-label { padding-left: 4px; }
 
+/* Camera tile becomes tap-to-pick when multiple sources are available.
+   The button wraps the <video> so the existing srcObject pipeline is
+   unchanged; the overlay sits above and hides itself when there's only
+   one source (no point inviting a tap that goes nowhere). */
+.phone-cam-tap {
+  position: relative;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: block;
+}
+.phone-cam-overlay {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  pointer-events: none;
+}
+/* Picker rows — surface-styled list of "{type} {label} {check?}". Sits
+   below the camera tile (not absolutely positioned) so it doesn't trap
+   focus or fight the bottom-sheet feel of the rest of the phone. */
+.phone-cam-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-subtle);
+}
+.phone-cam-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.phone-cam-pick-row.active { border-color: var(--accent); }
+.phone-cam-pick-row:hover  { background: var(--border-subtle); }
+.phone-cam-pick-check { margin-left: auto; color: var(--accent); }
+
 /* Phone-camera-as-helper toggle (outgoing: phone → desktop). Sentence case
    per a11y.md; 44pt tap target; focus-visible preserved. Preview is the
    user's own camera feed so they can see what's being shared. */
