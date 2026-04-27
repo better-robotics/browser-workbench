@@ -1058,7 +1058,7 @@ function renderEntry(entry) {
       </div>
       <div class="robot-actions">
         ${connected
-          ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
+          ? ""
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
               connecting ? "Connecting…"
               : entry.staleHandle ? "Re-pair"
@@ -1235,6 +1235,7 @@ function openMenu(triggerBtn, id) {
   // dependency). Gate on "connected and has fw-info" so either path can
   // render whatever it's capable of, and the menu is reachable for ESP32.
   $("menu-pinout").hidden  = !(entry?.status === "connected" && entry?.fwInfo);
+  $("menu-disconnect").hidden = !(entry?.status === "connected");
   const rect = triggerBtn.getBoundingClientRect();
   // Position below-right of trigger, nudging left if it would overflow viewport.
   const menuWidth = 220;
@@ -1627,6 +1628,11 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch {}
   });
   $("label-print").addEventListener("click", () => window.print());
+  $("menu-disconnect").addEventListener("click", () => {
+    const id = menuTargetId;
+    closeMenu();
+    if (id) disconnect(id);
+  });
   $("menu-forget").addEventListener("click", () => {
     const id = menuTargetId;
     if (!id) return;
