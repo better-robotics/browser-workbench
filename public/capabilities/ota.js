@@ -43,6 +43,13 @@ export async function uploadFile(id, filename, destPath, contentBytes, { restart
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
+// Injected from app.js to avoid a circular import. Called right after a
+// commit succeeds (PNA or BLE) so app.js's onDisconnected handler knows
+// the upcoming BLE drop is the firmware rebooting and can auto-retry the
+// connection instead of leaving the entry idle for the user to click.
+let _markExpectingReconnect = () => {};
+export function setExpectingReconnectHandler(fn) { _markExpectingReconnect = fn; }
+
 // Patch the existing OTA section's text/progress in place. Avoids rebuilding
 // the card's innerHTML on every progress tick (which would destroy hovered
 // elements and flicker). Falls back to a full re-render if the section isn't
@@ -203,6 +210,7 @@ async function pnaOtaUpload(entry, bytes) {
     entry.otaStatus = { st: "committing", n: bytes.length, total: bytes.length };
     patchOtaSection(entry);
     logFor(entry, "PNA OTA committed — robot restarting");
+    _markExpectingReconnect(entry.id);
     return true;
   } catch (err) {
     logFor(entry, `PNA failed: ${err.message}`);
@@ -251,6 +259,7 @@ export async function updateFirmware(id) {
       try {
         await streamOtaBytes(entry, bytes);
         logFor(entry, "OTA commit sent — robot applying bundle");
+        _markExpectingReconnect(entry.id);
       } catch (err) {
         logFor(entry, `OTA failed: ${err.message}`);
       }
@@ -291,6 +300,7 @@ export async function updateFirmware(id) {
     try {
       await streamOtaBytes(entry, bytes);
       logFor(entry, "OTA commit sent — robot restarting");
+      _markExpectingReconnect(entry.id);
     } catch (err) {
       logFor(entry, `OTA failed: ${err.message}`);
     }
@@ -318,6 +328,7 @@ export async function updateFromFile(id) {
     try {
       await streamOtaBytes(entry, bytes);
       logFor(entry, "OTA commit sent — robot restarting");
+      _markExpectingReconnect(entry.id);
     } catch (err) {
       logFor(entry, `OTA failed: ${err.message}`);
     } finally {

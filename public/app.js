@@ -12,7 +12,7 @@ import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index
 import { RUNTIMES } from "./capabilities/runtime/index.js";
 import { setOpen as capSetOpen } from "./capabilities/runtime/cap-section.js";
 import { formatUptime, formatWifi, formatResetReason } from "./format.js";
-import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
+import { updateFirmware, updateFromFile, setExpectingReconnectHandler } from "./capabilities/ota.js";
 import { restartService, rebootRobot, enrollKey, getLog, getConfig } from "./capabilities/runtime/command.js";
 import { initGamepad } from "./gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
@@ -33,6 +33,7 @@ setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
 setHelpersRobotRenderer((entry) => renderEntry(entry));
+setExpectingReconnectHandler((id) => markExpectingReconnect(id));
 
 // Compact telemetry line below the robot-state. Only shows when the robot
 // actually publishes (Pi from fw_version onward; ESP32 from telemetry char).
@@ -691,7 +692,44 @@ function onDisconnected(id) {
   // power / service crash while still BLE-connected) are the useful signal.
   if (entry.autoReconnect !== false) {
     emitPipEvent("robot.disconnected", { id, name: entry.name });
+    // OTA-induced disconnect: the firmware sets entry.expectingReconnectUntil
+    // before its restart, so we know to keep trying. Without this the user
+    // had to click Connect manually after every OTA — every reboot read as
+    // "user error: just reconnect" when actually the dashboard knew the
+    // disconnect was coming and could've retried itself. Backoff at 3 / 6 /
+    // 12 / 25 s spreads attempts across the chip's ~10-30 s reboot window.
+    if (entry.expectingReconnectUntil && Date.now() < entry.expectingReconnectUntil) {
+      schedulePostOtaReconnect(id);
+    }
   }
+}
+
+const POST_OTA_RECONNECT_DELAYS = [3000, 6000, 12000, 25000];
+function schedulePostOtaReconnect(id, attempt = 0) {
+  if (attempt >= POST_OTA_RECONNECT_DELAYS.length) return;
+  setTimeout(async () => {
+    const entry = state.devices.get(id);
+    if (!entry) return;
+    if (entry.status === "connected" || entry.status === "connecting") return;
+    if (Date.now() > (entry.expectingReconnectUntil || 0)) return;
+    logFor(entry, `auto-reconnect after restart (attempt ${attempt + 1}/${POST_OTA_RECONNECT_DELAYS.length})`);
+    try { await connect(id); } catch {}
+    const after = state.devices.get(id);
+    if (after && after.status !== "connected") {
+      schedulePostOtaReconnect(id, attempt + 1);
+    } else if (after) {
+      after.expectingReconnectUntil = 0;  // we're back; clear the marker.
+    }
+  }, POST_OTA_RECONNECT_DELAYS[attempt]);
+}
+
+// Called from ota.js after a commit succeeds — opens the auto-reconnect
+// window so onDisconnected (which fires when the firmware reboots) knows
+// to retry instead of leaving the entry idle.
+export function markExpectingReconnect(id, windowMs = 60000) {
+  const entry = state.devices.get(id);
+  if (!entry) return;
+  entry.expectingReconnectUntil = Date.now() + windowMs;
 }
 
 async function forgetDevice(id) {
