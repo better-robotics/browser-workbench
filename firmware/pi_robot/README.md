@@ -17,7 +17,6 @@ All characteristics live under one service UUID. Presence is config-driven (`/bo
 - `motors` — write. Pulse-bounded; auto-stop watchdog in firmware.
 - `ota-control` / `ota-data` — single-file and bundle OTA, sha256-verified.
 - `camera-signal` / `camera-status` — registered only when the camera stack imports successfully; WebRTC SDP/ICE chunked over a symmetric protocol to OTA.
-- `identity-pubkey` — read. Ed25519 public key in `/var/lib/pi-robot/peer-key.json`.
 - `admin` — write. Reserved for low-level ops (e.g. install-on-demand for camera deps).
 
 ## Companion services
@@ -25,18 +24,7 @@ All characteristics live under one service UUID. Presence is config-driven (`/bo
 Two services run alongside `pi-robot.service`, each independently restartable:
 
 - **`pi-robot-heartbeat.service`** — minimal always-on BLE advertiser (`heartbeat.py`). Keeps the robot observable when `pi-robot.service` is down: dashboard shows a "firmware-down" banner with the LAN IP and a recovery button. The connection-first invariant — connectivity outlives capabilities.
-- **`pi-robot-wifi-discover.service`** — posts signed Ed25519 ads to `signal.neevs.io/discover` whenever WiFi is up, so the dashboard can list a robot before BLE pairing range.
-
-## Device identity
-
-Generated at `firstrun.sh` if absent; survives SD re-imaging if preserved. Stored at `/var/lib/pi-robot/peer-key.json` (mode `0600`, directory `0700`, owner `pi`):
-
-```json
-{ "priv_b64": "<Ed25519 raw seed, 32 bytes, base64>",
-  "pub_b64":  "<Ed25519 raw public key, 32 bytes, base64>" }
-```
-
-`wifi_discover.py` reads `pub_b64` at startup and publishes it in each ad as `data.pubkey`. Deleting the file and re-running `firstrun.sh` rotates the identity (breaks any dashboard trust pinned to the old key); don't do that unless you mean it.
+- **`pi-robot-health.service`** — stdlib HTTP server on `:81` exposing `GET /health` returning `{ok, type:"pi", robotId, ip, uptime_s, pi_robot_service}`. Pulled by the dashboard's mDNS + cached-IP probe (every 30 s per paired robot). Same recovery convention as heartbeat — its own unit, zero dependency on `pi_robot.py`. avahi-daemon publishes `<hostname>._http._tcp.local` so the probe can resolve `<name>.local` without an internet rendezvous (`/etc/avahi/services/betterrobot.service`).
 
 ## SD-card first boot
 
