@@ -157,7 +157,12 @@ async function buildBundle(entry, manifestUrl) {
 async function pnaOtaUpload(entry, bytes) {
   const ip = entry.wifiStatus?.ip;
   if (!ip) return false;
-  const url = `http://${ip}/ota`;
+  // Port 81 — the firmware's HTTP server runs on :81 (same listener that
+  // serves /stream). Default port 80 lands on nothing → ERR_CONNECTION_REFUSED.
+  // The fw-info camera cap entry already advertises port:81; we should
+  // really be reading it from there for forward compat, but every robot
+  // we ship today serves /ota on the same port, so a constant is fine.
+  const url = `http://${ip}:81/ota`;
   try {
     logFor(entry, `PNA direct OTA → ${url} (${bytes.length} B)`);
     // 90 s — classic ESP32-CAM with WiFi running on 1 RX buffer (the
