@@ -159,31 +159,55 @@ async function pnaOtaUpload(entry, bytes) {
   if (!ip) return false;
   // Port 81 — the firmware's HTTP server runs on :81 (same listener that
   // serves /stream). Default port 80 lands on nothing → ERR_CONNECTION_REFUSED.
-  // The fw-info camera cap entry already advertises port:81; we should
-  // really be reading it from there for forward compat, but every robot
-  // we ship today serves /ota on the same port, so a constant is fine.
   const url = `http://${ip}:81/ota`;
+
+  // Render the OTA card immediately so the user sees the upload happen.
+  // Without this, PNA looks silent — BLE-stream gets per-chunk firmware
+  // notifies that drive entry.otaStatus.n; PNA doesn't, so the only
+  // feedback would be log lines. XHR over fetch() because XHR's
+  // upload.onprogress reports bytes-sent during the POST body —
+  // fetch() can't, without HTTP/2 streaming bodies that our plain
+  // HTTP/1.1 ESP32 server doesn't accept. Same PNA preflight + CORS
+  // semantics apply to XHR as to fetch.
+  entry.otaSent = 0;
+  entry.otaStatus = { st: "receiving (PNA)", n: 0, total: bytes.length };
+  patchOtaSection(entry);
+
+  logFor(entry, `PNA direct OTA → ${url} (${bytes.length} B)`);
   try {
-    logFor(entry, `PNA direct OTA → ${url} (${bytes.length} B)`);
-    // 90 s — classic ESP32-CAM with WiFi running on 1 RX buffer (the
-    // expected fallout of camera + BLE + WiFi sharing ~250 KB DRAM)
-    // can't finish 1.6 MB in 30 s, so PNA was aborting and the BLE
-    // fallback ran every time. 90 s lets the slow-but-working path
-    // complete; BLE-stream still kicks in if PNA outright errors.
-    const resp = await fetchWithTimeout(url, {
-      method: "POST",
-      mode: "cors",
-      body: bytes,
-      headers: { "Content-Type": "application/octet-stream" },
-    }, 90000);
-    if (!resp.ok) {
-      logFor(entry, `PNA returned ${resp.status}`);
+    const status = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      // 90 s — same reasoning as the prior fetchWithTimeout: classic
+      // ESP32-CAM with 1 of 4 WiFi RX buffers can't move 1.6 MB in 30 s.
+      xhr.timeout = 90000;
+      xhr.upload.addEventListener("progress", (e) => {
+        if (!e.lengthComputable) return;
+        entry.otaSent = e.loaded;
+        patchOtaSectionThrottled(entry);
+      });
+      xhr.onload = () => resolve(xhr.status);
+      xhr.onerror = () => reject(new Error("network error"));
+      xhr.ontimeout = () => reject(new Error("timeout"));
+      xhr.onabort = () => reject(new Error("aborted"));
+      xhr.send(bytes);
+    });
+    if (status !== 200) {
+      logFor(entry, `PNA returned ${status}`);
+      entry.otaStatus = { st: "idle" };
+      patchOtaSection(entry);
       return false;
     }
+    entry.otaSent = bytes.length;
+    entry.otaStatus = { st: "committing", n: bytes.length, total: bytes.length };
+    patchOtaSection(entry);
     logFor(entry, "PNA OTA committed — robot restarting");
     return true;
   } catch (err) {
     logFor(entry, `PNA failed: ${err.message}`);
+    entry.otaStatus = { st: "idle" };
+    patchOtaSection(entry);
     return false;
   }
 }
