@@ -28,8 +28,6 @@
     "systemctl restart pi-robot-health.service",
     "systemctl enable avahi-daemon.service",
     "systemctl restart avahi-daemon.service",
-    "systemctl stop pi-robot-wifi-discover.service",
-    "systemctl disable pi-robot-wifi-discover.service",
     "rm -f /etc/systemd/system/pi-robot-wifi-discover.service $HOME/better-robotics/firmware/pi_robot/wifi_discover.py",
     "sed -i s/modules-load=dwc2,g_ether/modules-load=dwc2,libcomposite/ /boot/firmware/cmdline.txt",
     "/usr/local/bin/ensure-autologin-password.sh __USER__"
