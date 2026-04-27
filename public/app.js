@@ -1099,16 +1099,17 @@ function renderEntry(entryArg) {
         </div>
       </div>`;
   })();
-  // One badge per member — single-member robots see exactly one, composites
-  // get one per platform tier (Pi + ESP32 in the eye-and-brain pattern).
-  // Iterates in robot.members order so the user controls which badge sits
-  // first by which device they paired first.
-  const typeBadge = members
-    .filter(m => m.fwType)
-    .map(m => `<span class="type-badge type-${escapeHtml(m.fwType)}" title="${escapeHtml(m.name)}">${
-      escapeHtml(m.fwType === "esp32" ? "ESP32" : m.fwType.toUpperCase())
-    }</span>`)
-    .join("");
+  // Type badge in the header is for single-member robots only — when the
+  // robot is composite, the per-member chips below carry the same info
+  // with richer detail (status dot + type + member name), so duplicating
+  // it in the title would be noise. Reframe under signal-to-noise:
+  // a composite robot doesn't HAVE a type, its members do; the header is
+  // the robot's identity, the chips are the contents.
+  const typeBadge = (!isComposite && entry.fwType)
+    ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${
+        escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())
+      }</span>`
+    : "";
   // Secondary metadata row — surfaces WiFi state, uptime, abnormal reset
   // reasons. Only when connected (otherwise we don't have the data and the
   // row would say nothing useful). Card layout earns its height; this is
