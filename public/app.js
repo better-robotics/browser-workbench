@@ -971,6 +971,13 @@ function renderEntry(entry) {
             }</button>`}
       </div>
     </div>
+    ${entry.staleHandle && !connected && !connecting ? `
+      <div class="meta robot-stale-hint">
+        Browser permission expired — Chrome will ask you to pick
+        ${escapeHtml(entry.name)} from the next list. The pairing on the
+        robot is intact; this re-grants this page access.
+      </div>
+    ` : ""}
     ${stateHtml}
     ${firmwareDown ? `
       <div class="firmware-down-banner">

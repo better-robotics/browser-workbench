@@ -434,6 +434,18 @@ a.menu-item { text-decoration: none; }
    patcher can fill it without renderEntry), but it shouldn't take layout
    space when there's no data yet. */
 .robot-meta:empty { display: none; }
+
+/* Stale-handle hint — appears under the Re-pair button when Chrome's
+   per-origin permission for this device has expired. Sets the user's
+   expectation that the next click opens the OS chooser, and that the
+   robot-side bond is fine. Same .meta visual register as the secondary
+   row, indented to align with the body's content edge so it reads as
+   "extra info about this card" rather than a top-level state line. */
+.robot-stale-hint {
+  margin: 8px 0 0 26px;
+  max-width: 60ch;
+  line-height: 1.4;
+}
 .telemetry:empty { display: none; }
 .robot-cta {
   margin-left: auto;  /* right-aligns even when meta is empty */
