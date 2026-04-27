@@ -5,7 +5,7 @@ import { $, escapeHtml } from "./dom.js";
 import { log, logFor } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
 import {
-  state, persist, loadKnown,
+  state, persist, loadKnown, loadRobots,
   makeEntry, entryFor, attachDevice, setDisconnectHandler,
 } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
@@ -285,6 +285,10 @@ async function loadPaired() {
       state.devices.set(id, makeEntry(id, name, fwType, { autoReconnect, lastConnectedAt }));
     }
   }
+  // Hydrate the robots layer (working.md item F). loadRobots auto-wraps any
+  // device that isn't already a member of some robot as a one-member robot,
+  // so pre-migration users land with the same one-card-per-device shape.
+  loadRobots();
   if (navigator.bluetooth.getDevices) {
     try {
       const paired = await navigator.bluetooth.getDevices();

@@ -1,7 +1,18 @@
 const STORAGE_KEY = "better-robotics:known";
+const ROBOTS_KEY  = "better-robotics:robots";
 
+// state.devices is the BLE-peer layer (one entry per paired BluetoothDevice,
+// holds its characteristics, current cap state, DOM node, etc.). state.robots
+// is the new logical-grouping layer added in Pass 1 of working.md item F:
+// each robot has members[] of device IDs, so an ESP32-eye + Pi-brain combo
+// renders as one card while still pairing as two BLE peers under the hood.
+//
+// Single-device robots (the existing universe) auto-migrate: each device
+// becomes a one-member robot whose id == deviceId. New robots get fresh
+// UUIDs once the user explicitly merges two paired devices.
 export const state = {
   devices: new Map(),
+  robots:  new Map(),  // robotId -> { id, name, members: [deviceId, ...] }
 };
 
 // Lazy injection to avoid a circular dep with connect.js.
@@ -20,11 +31,100 @@ export function persist() {
     });
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+  persistRobots();
+}
+
+function persistRobots() {
+  const out = [];
+  for (const r of state.robots.values()) {
+    out.push({ id: r.id, name: r.name, members: r.members.slice() });
+  }
+  localStorage.setItem(ROBOTS_KEY, JSON.stringify(out));
 }
 
 export function loadKnown() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
   catch { return []; }
+}
+
+// Hydrate state.robots from localStorage (or migrate). Idempotent — calling
+// twice is a no-op. Auto-migration: any paired device that isn't already a
+// member of some robot becomes a one-member robot named after itself.
+// Pre-F users see no UX change — every robot still has exactly one member.
+export function loadRobots() {
+  let raw;
+  try { raw = JSON.parse(localStorage.getItem(ROBOTS_KEY) || "[]"); }
+  catch { raw = []; }
+  state.robots.clear();
+  const claimed = new Set();
+  for (const r of raw) {
+    const members = (r.members || []).filter(m => typeof m === "string");
+    state.robots.set(r.id, { id: r.id, name: r.name || r.id, members });
+    for (const m of members) claimed.add(m);
+  }
+  // Wrap any unclaimed paired devices as one-member robots. Uses the device
+  // id as the robot id so existing localStorage URLs / dashboards / replay
+  // records (anything keyed by id) keep resolving without a fixup pass.
+  for (const d of loadKnown()) {
+    if (claimed.has(d.id)) continue;
+    state.robots.set(d.id, { id: d.id, name: d.name || d.id, members: [d.id] });
+  }
+  persistRobots();
+}
+
+// Look up the robot a given device belongs to. Used by the renderer to
+// decide which card a per-device event (BLE notify, cap state change)
+// should attribute to.
+export function robotFor(deviceId) {
+  for (const r of state.robots.values()) {
+    if (r.members.includes(deviceId)) return r;
+  }
+  return null;
+}
+
+// Combine two robots into one. The destination keeps its id + name; the
+// source's members merge into destination's members[]; the source robot
+// is removed. Idempotent on no-op (same robot, or already-merged members).
+export function mergeRobots(srcId, destId) {
+  if (srcId === destId) return state.robots.get(destId) || null;
+  const src  = state.robots.get(srcId);
+  const dest = state.robots.get(destId);
+  if (!src || !dest) return null;
+  for (const m of src.members) {
+    if (!dest.members.includes(m)) dest.members.push(m);
+  }
+  state.robots.delete(srcId);
+  persistRobots();
+  return dest;
+}
+
+// Split a member out of its current robot into a new one-member robot.
+// Mirror of mergeRobots — user might compose then decompose. Returns the
+// new robot, or null if the member wasn't found.
+export function splitMember(deviceId) {
+  for (const r of state.robots.values()) {
+    const i = r.members.indexOf(deviceId);
+    if (i < 0) continue;
+    if (r.members.length === 1) return r;  // already standalone
+    r.members.splice(i, 1);
+    const fresh = { id: deviceId, name: deviceId, members: [deviceId] };
+    const device = state.devices.get(deviceId);
+    if (device) fresh.name = device.name;
+    state.robots.set(fresh.id, fresh);
+    persistRobots();
+    return fresh;
+  }
+  return null;
+}
+
+// Rename a robot. Names are user-meaningful only — no ID semantics, so
+// renaming doesn't affect localStorage keys or BLE pairings.
+export function renameRobot(robotId, name) {
+  const r = state.robots.get(robotId);
+  if (!r) return null;
+  r.name = name;
+  persistRobots();
+  return r;
 }
 
 export function makeEntry(id, name, fwType = null, { autoReconnect = false, lastConnectedAt = 0 } = {}) {
