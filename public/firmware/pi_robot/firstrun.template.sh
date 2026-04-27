@@ -157,7 +157,7 @@ note usb_gadget_configured
 INSTALL_OK=0
 DEST="/home/$USER_NAME/better-robotics/firmware/pi_robot"
 install -d -o "$USER_NAME" -g "$USER_NAME" "$DEST"
-for f in pi_robot.py requirements.txt pi-robot.service heartbeat.py pi-robot-heartbeat.service pi_robot_health.py pi-robot-health.service avahi-betterrobot.service; do
+for f in pi_robot.py uuids.py requirements.txt pi-robot.service heartbeat.py pi-robot-heartbeat.service pi_robot_health.py pi-robot-health.service avahi-betterrobot.service; do
     if [ -f "$STAGED/$f" ]; then
         install -m 644 -o "$USER_NAME" -g "$USER_NAME" "$STAGED/$f" "$DEST/$f"
     else
