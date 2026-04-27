@@ -1028,14 +1028,24 @@ function renderEntry(entryArg) {
   // Fan out across members — each cap is anchored to the member that owns
   // its BLE characteristic, so the cap module's renderSection / wireActions
   // operate on that member's entry without needing to learn about robot
-  // composition. For single-member robots this collapses to the prior
-  // shape; for multi-member, an ESP32-eye's camera section and a Pi-brain's
-  // motors section both show up under the same robot card, each driven by
-  // its own member.
+  // composition. Dedupe by cap name within runtime caps: when two members
+  // both report e.g. "motors", the FIRST member wins (member order = the
+  // order at pair / merge time, user-controllable). This (a) keeps the
+  // card from showing two of every overlap-cap and (b) avoids action-name
+  // collisions like both members' Camera sections both wiring
+  // data-action="camera-start" to a button only one of them owns.
+  // OTA stays un-deduped because each member's firmware OTA is its own
+  // operation; the two progress bars during a multi-member update are
+  // genuinely independent and want separate display.
   const allCaps = [];
+  const seenRuntimeCaps = new Set();
   for (const m of members) {
     for (const c of CAPABILITIES) allCaps.push({ cap: c, member: m });
-    for (const c of m.runtimeCaps || []) allCaps.push({ cap: c, member: m });
+    for (const c of m.runtimeCaps || []) {
+      if (seenRuntimeCaps.has(c.name)) continue;
+      seenRuntimeCaps.add(c.name);
+      allCaps.push({ cap: c, member: m });
+    }
   }
   const childrenOf = new Map();
   const topCaps = [];
