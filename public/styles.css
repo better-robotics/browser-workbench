@@ -2043,18 +2043,6 @@ body.phone textarea {
   margin: 12px 2px;
   line-height: 1.4;
 }
-.phone-dashboard-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;  /* iOS HIG tap target — this is a real mode-switch */
-  margin-top: 10px;
-  padding: 10px 12px;
-  font-size: 13px;
-  color: var(--ink-muted);
-  text-decoration: underline;
-  opacity: 0.7;
-}
 .phone-install {
   display: flex;
   flex-direction: column;

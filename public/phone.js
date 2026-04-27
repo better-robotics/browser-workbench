@@ -450,13 +450,6 @@ function stopQrScan() {
 function wireReconnect() {
   $("phone-scan-btn")?.addEventListener("click", startQrScan);
   $("phone-scanner-cancel")?.addEventListener("click", stopQrScan);
-  // Always surface the "Open dashboard view" escape hatch — hiding it on
-  // browsers without Web Bluetooth (the previous behaviour) hid it
-  // exactly when the user was most likely to need an escape from the
-  // mobile redirect. The dashboard's own "unsupported" surface explains
-  // what's missing if they land somewhere it doesn't work.
-  const link = $("phone-dashboard-link");
-  if (link) link.hidden = false;
 }
 
 function wireAppMenu() {
@@ -499,6 +492,7 @@ function wireAppMenu() {
       pop?.showPopover?.();
     }
   });
+  $("menu-dashboard").addEventListener("click", () => menu.hidePopover());
   $("menu-repo").addEventListener("click", () => menu.hidePopover());
   _updateInstallMenuItem();
 
