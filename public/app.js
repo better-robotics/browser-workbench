@@ -184,7 +184,11 @@ function patchSecondaryRow(entry) {
   const node = entry.node;
   if (!node) return;
   const meta = node.querySelector(".robot-meta");
-  if (meta) meta.textContent = metaText(entry);
+  if (meta) {
+    const t = metaText(entry);
+    meta.textContent = t;
+    meta.title = t;
+  }
   const tel = node.querySelector(".telemetry");
   if (tel) tel.textContent = telemetryText(entry);
 }
@@ -1002,7 +1006,9 @@ function renderEntry(entry) {
   }
   // Always emit the wrapper (even empty) so patchSecondaryRow can fill it on
   // telemetry/wifi notify without a full re-render. CSS :empty hides it.
-  const metaRow = `<div class="robot-meta">${escapeHtml(metaParts.join(" · "))}</div>`;
+  // title carries the full text so the truncated row is hover-discoverable.
+  const metaJoined = metaParts.join(" · ");
+  const metaRow = `<div class="robot-meta" title="${escapeHtml(metaJoined)}">${escapeHtml(metaJoined)}</div>`;
 
   // Active-ops chips: at-a-glance "what's happening right now" without
   // having to expand each capability section. Each cap surfaces its
@@ -1033,9 +1039,12 @@ function renderEntry(entry) {
   // hyphen render plainly.
   const dash = name.lastIndexOf("-");
   const hasSplit = dash > 0 && dash < name.length - 1;
-  const nameHtml = hasSplit
+  const nameInner = hasSplit
     ? `<span class="name-prefix">${escapeHtml(name.slice(0, dash + 1))}</span><span class="name-suffix">${escapeHtml(name.slice(dash + 1))}</span>`
     : escapeHtml(name);
+  // Wrap so the name span can truncate independently of chevron + badge —
+  // otherwise a long name + ESP32 pill overflows into the Disconnect button.
+  const nameHtml = `<span class="robot-name" title="${escapeHtml(name)}">${nameInner}</span>`;
   const expanded = computeExpanded(entry);
   entry.node.classList.toggle("expanded", expanded);
   entry.node.innerHTML = `
@@ -1282,6 +1291,10 @@ function setBluetoothAvailable(available) {
 // the update banner (showSwUpdateBanner below) handles the user-facing
 // "new version available" prompt. SW lifecycle is intentional: we never
 // auto-skip-waiting, the user clicks Reload to apply.
+// Set when the user clicks "Check for updates" — that explicit click is
+// already an opt-in to apply, so the next install skipWaiting + reloads
+// instead of asking again via the deferred banner.
+let _autoApplySwUpdate = false;
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").then((reg) => {
     if (reg.waiting && navigator.serviceWorker.controller) {
@@ -1292,7 +1305,12 @@ if ("serviceWorker" in navigator) {
       const next = reg.installing;
       next?.addEventListener("statechange", () => {
         if (next.state === "installed" && navigator.serviceWorker.controller) {
-          showSwUpdateBanner(next);
+          if (_autoApplySwUpdate) {
+            _autoApplySwUpdate = false;
+            next.postMessage("skip-waiting");  // controllerchange reloads
+          } else {
+            showSwUpdateBanner(next);
+          }
         }
       });
     });
@@ -1538,19 +1556,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const original = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Checking…";
-    let foundUpdate = false;
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
-      if (reg) {
-        const onFound = () => { foundUpdate = true; };
-        reg.addEventListener("updatefound", onFound, { once: true });
-        await reg.update();
-        reg.removeEventListener("updatefound", onFound);
+      if (!reg) throw new Error("no-sw");
+      // Already-waiting worker: apply directly. Happens when an earlier
+      // page load installed it and the user dismissed the banner.
+      if (reg.waiting) {
+        btn.textContent = "Updating…";
+        reg.waiting.postMessage("skip-waiting");
+        return;  // controllerchange reloads
       }
-    } catch {}
-    // If a new worker installed, the existing statechange → showSwUpdateBanner
-    // flow surfaces the reload prompt. Here we only report the no-op case.
-    btn.textContent = foundUpdate ? "New version available" : "Up to date";
+      // Tell the top-level updatefound handler to auto-apply instead of
+      // showing the deferred banner — the user just explicitly asked.
+      _autoApplySwUpdate = true;
+      await reg.update();
+      if (reg.installing || reg.waiting) {
+        btn.textContent = "Updating…";  // reload follows shortly
+        return;
+      }
+      _autoApplySwUpdate = false;
+      btn.textContent = "Up to date";
+    } catch {
+      _autoApplySwUpdate = false;
+      btn.textContent = "Up to date";
+    }
     setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
   });
 

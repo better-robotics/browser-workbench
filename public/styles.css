@@ -372,6 +372,7 @@ a.menu-item { text-decoration: none; }
   border-radius: 4px;
   background: var(--border-subtle);
   color: var(--ink-muted);
+  flex-shrink: 0;
 }
 .type-badge.type-pi    { color: var(--success); }
 .type-badge.type-esp32 { color: var(--accent); }
@@ -460,7 +461,7 @@ a.menu-item { text-decoration: none; }
 /* Label is a button for keyboard/a11y (aria-expanded) but reads as text.
    Negative margin + internal padding lets the hover pill sit snug against
    the label without shifting layout when the pill appears. */
-.robot-identity { min-width: 0; flex: 1; }
+.robot-identity { min-width: 0; flex: 1; overflow: hidden; }
 .label-btn {
   display: inline-flex;
   align-items: center;
@@ -475,6 +476,18 @@ a.menu-item { text-decoration: none; }
   text-align: left;
   border-radius: 6px;
   cursor: pointer;
+  /* Constrain so a long robot name + ESP32 pill can't overflow into the
+     Disconnect button. Inner .robot-name handles the actual ellipsis. */
+  max-width: 100%;
+  min-width: 0;
+}
+/* Truncates if the name + badge would overflow. Chevron and badge keep
+   their natural size (flex-shrink: 0 on .type-badge); only the name gives. */
+.robot-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* No hover background: when something in the card re-renders (OTA progress
    ticks), innerHTML rebuild destroys/recreates this button and the transient
