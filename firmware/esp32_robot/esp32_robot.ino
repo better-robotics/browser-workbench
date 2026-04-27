@@ -588,14 +588,15 @@ static void streamTask(void* param) {
         }
         esp_camera_fb_return(fb);
         if (!ok) break;
-        // No explicit yield — esp_camera_fb_get blocks on DMA waiting for
-        // the next captured frame, and client.write blocks on TCP
-        // backpressure when WiFi is congested. Both are real BLOCKED
-        // states from FreeRTOS's perspective, so IDLE on this core gets
-        // CPU during them and IDLE-WDT is fed naturally. If watchdog
-        // resets resurface, add a single vTaskDelay(1) back here — but
-        // the cost is ~10 ms (one tick) per frame, ~15% of the practical
-        // ~67 ms inter-frame budget at 15 fps.
+        // One explicit yield per frame — fed IDLE so IDLE-WDT can't fire
+        // even when esp_camera_fb_get returns immediately (camera DMA
+        // double-buffered → frame already ready) AND client.write fits
+        // entirely in the lwIP TX buffer (no TCP backpressure). Removing
+        // this yield wedged the stream on iPhone hotspot — natural
+        // BLOCKED states aren't guaranteed under all network conditions.
+        // 10 ms cost per frame is comfortably under the 67 ms practical
+        // budget at 15 fps, well worth the determinism.
+        vTaskDelay(1);
       }
       client.stop();
       continue;
