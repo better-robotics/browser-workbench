@@ -1047,6 +1047,13 @@ function renderEntry(entry) {
   const nameHtml = `<span class="robot-name" title="${escapeHtml(name)}">${nameInner}</span>`;
   const expanded = computeExpanded(entry);
   entry.node.classList.toggle("expanded", expanded);
+  // Capture the live MJPEG <img> before innerHTML wipes it. Tearing it
+  // down aborts the multipart/x-mixed-replace HTTP response and forces
+  // the ESP32 streamTask to detect a client disconnect + accept a fresh
+  // connection — costly. If the new render still expects the same src,
+  // we transplant the live element back so the stream keeps flowing.
+  const liveCameraImg = entry.node.querySelector("img.robot-camera[data-cam-id]");
+  const liveCameraReady = liveCameraImg?.complete && liveCameraImg.naturalWidth > 0;
   entry.node.innerHTML = `
     <div class="row">
       <div class="robot-identity">
@@ -1096,6 +1103,18 @@ function renderEntry(entry) {
       </div>
     ` : ""}
   `;
+  // Transplant the preserved live MJPEG img if the new render expects the
+  // same src — keeps the multipart HTTP response uninterrupted across
+  // re-renders. The fresh placeholder src is identical (same robot IP +
+  // port), so the user sees no flash and the ESP32 doesn't see a reconnect.
+  if (liveCameraReady) {
+    const placeholder = entry.node.querySelector(
+      `img.robot-camera[data-cam-id="${entry.id}"]`,
+    );
+    if (placeholder && placeholder.src === liveCameraImg.src) {
+      placeholder.parentNode.replaceChild(liveCameraImg, placeholder);
+    }
+  }
   // Bind the attached-camera MediaStream after innerHTML rebuild — srcObject
   // can't survive an innerHTML reset, and querying for the new <video> needs
   // the DOM to exist.

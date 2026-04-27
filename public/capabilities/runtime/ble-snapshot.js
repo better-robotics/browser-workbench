@@ -67,10 +67,6 @@ export function makeBleSnapshotCap(schema) {
           const data = new Uint8Array(e.target.value.buffer);
           if (data.length === 0) return;
           const op = data[0];
-          // Temporary diagnostic — confirms whether notifies from the
-          // firmware's snapshotDataChar are actually reaching the
-          // dashboard. Remove once snapshot path is reliable.
-          logFor(entry, `snapshot: notify op=0x${op.toString(16).padStart(2, "0")} len=${data.length}`);
           if (op === 0x01 && data.length >= 5) {
             // begin: u32 BE total
             const total = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
@@ -88,7 +84,17 @@ export function makeBleSnapshotCap(schema) {
             entry[bufField].set(payload.subarray(0, take), entry[recvField]);
             entry[recvField] += take;
             armWatchdog();
-            renderEntry(entry);
+            // Patch progress text in place — full renderEntry per chunk
+            // (every ~25 ms) destroys the camera <img> and forces the MJPEG
+            // stream to reconnect on every byte. Surgical update keeps the
+            // stream uninterrupted during a snapshot.
+            const sec = entry.node?.querySelector(`.cap-section[data-cap-name="${name}"]`);
+            const stateEl = sec?.querySelector(".cap-state");
+            if (stateEl) {
+              stateEl.textContent = `${entry[recvField]} / ${entry[totalField]} B`;
+            } else {
+              renderEntry(entry);
+            }
           } else if (op === 0x03 && entry[bufField]) {
             // commit: turn the accumulated bytes into a data URL we can <img>.
             // The protocol is JPEG-only on the firmware side; assume it.
