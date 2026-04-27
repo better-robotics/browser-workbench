@@ -186,9 +186,12 @@ async function pnaOtaUpload(entry, bytes) {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", url);
       xhr.setRequestHeader("Content-Type", "application/octet-stream");
-      // 90 s — same reasoning as the prior fetchWithTimeout: classic
-      // ESP32-CAM with 1 of 4 WiFi RX buffers can't move 1.6 MB in 30 s.
-      xhr.timeout = 90000;
+      // 180 s — classic ESP32-CAM with 1-of-4 WiFi RX buffers under BLE
+      // coexistence sustains ~50-100 KB/s practical RX throughput. 1.6 MB
+      // ÷ 50 KB/s ≈ 32 s on a good day, but household WiFi with neighbour
+      // contention can drop the chip to 10-20 KB/s and a single retry
+      // burns most of the budget. 180 s gives both attempts headroom.
+      xhr.timeout = 180000;
       xhr.upload.addEventListener("progress", (e) => {
         if (!e.lengthComputable) return;
         entry.otaSent = e.loaded;

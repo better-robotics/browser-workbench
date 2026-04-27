@@ -521,7 +521,14 @@ static void streamTask(void* param) {
           if (!client.connected()) { failed = true; break; }
           // 10 s stall timeout — abort instead of hanging the task.
           if (millis() - lastData > 10000) { failed = true; break; }
-          vTaskDelay(5 / portTICK_PERIOD_MS);
+          // vTaskDelay(1) = one tick = 10 ms minimum on FreeRTOS's 10 ms tick.
+          // The previous form `vTaskDelay(5 / portTICK_PERIOD_MS)` evaluated
+          // to vTaskDelay(0) (5/10 = 0 integer division) which is a no-op —
+          // when the TCP RX buffer was empty the loop spun at 100% CPU on
+          // core 1, IDLE on that core never ran, and IDLE-WDT reset the
+          // chip mid-upload. Symptom in dashboard log: orphaned OTA state
+          // around 5% as the upload died and the chip rejoined WiFi.
+          vTaskDelay(1);
           continue;
         }
         size_t want = sizeof(buf);
