@@ -222,12 +222,23 @@
   <div class="settings-group-header">Pip backend</div>
   <div class="settings-item pip-backend-row">
     <select id="setting-pip-backend" class="settings-select" aria-label="Pip backend">
-      <option value="bridge">AI Bridge extension (default)</option>
+      <option value="github">GitHub Models (default)</option>
+      <option value="bridge">AI Bridge extension</option>
       <option value="anthropic">Anthropic API (direct, your key)</option>
       <option value="openai">OpenAI API (direct, your key)</option>
       <option value="local">LFM2.5-1.2B-Thinking (local)</option>
     </select>
     <div class="hint" id="setting-pip-backend-hint"></div>
+    <div id="setting-pip-github-row" class="pip-key-row" hidden>
+      <div class="local-status-row">
+        <div class="local-status">
+          <span class="dot" id="setting-pip-github-dot"></span>
+          <span id="setting-pip-github-status">Not connected</span>
+        </div>
+        <button id="setting-pip-github-connect" type="button">Connect GitHub</button>
+      </div>
+      <div class="hint">Sign in with GitHub once; the OAuth token is scoped to GitHub Models inference and stored only in this browser. No API key to manage. The token is short-lived — re-connect when it expires.</div>
+    </div>
     <div id="setting-pip-anthropic-key-row" class="pip-key-row" hidden>
       <label for="setting-pip-key" class="settings-title">Anthropic API key</label>
       <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-key" autocomplete="off" placeholder="sk-ant-…" spellcheck="false"></form>

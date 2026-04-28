@@ -1,6 +1,8 @@
-// Pip backend dispatch — picks how to reach Claude based on user setting:
-//   bridge    — AI Bridge Chrome extension (default; Keychain-backed creds,
-//               token never visible to the page).
+// Pip backend dispatch — picks how to reach the LLM based on user setting:
+//   github    — GitHub Models inference (default; OAuth via neevs.io,
+//               OpenAI-compatible request shape, no API key to manage).
+//   bridge    — AI Bridge Chrome extension (Keychain-backed creds, token
+//               never visible to the page).
 //   anthropic — direct fetch() to api.anthropic.com using the user's API key
 //               from settings. Browser-stored, "user's responsibility" model.
 //   openai    — direct fetch() to api.openai.com (chat/completions, function-
@@ -87,20 +89,40 @@ async function callAnthropic(body) {
   return bridgeRequest({ type: "proxy", provider: "claude", path: "/v1/messages", method: "POST", body });
 }
 
-// OpenAI direct API. Different protocol from Anthropic (auth header,
-// messages-with-system-as-message, function-calling shape) — see
-// _openaiAsk/_openaiAskWithTools for the per-protocol mappings. CORS is
-// allowed by OpenAI (no special header needed unlike Anthropic).
-const OPENAI_MODEL = "gpt-4o-mini";  // cheap default; future: model picker per backend
+// OpenAI-compatible chat-completions request. Used by two backends:
+//   - "openai":  api.openai.com (user's key)
+//   - "github":  models.github.ai/inference (GitHub OAuth token; vendor-
+//                prefixed model id like "openai/gpt-4o-mini")
+// Body shape is identical, only URL + auth + model id differ.
+const OPENAI_MODEL = "gpt-4o-mini";        // cheap default for direct OpenAI
+const GITHUB_MODEL = "openai/gpt-4o-mini"; // GitHub Models requires vendor prefix
+function _activeOpenAiCompatModel() {
+  return settings.pipBackend === "github" ? GITHUB_MODEL : OPENAI_MODEL;
+}
 async function callOpenai(body) {
-  const key = settings.pipOpenaiKey;
-  if (!key) return { status: 401, body: '{"error":"no OpenAI API key configured in Settings"}' };
+  // Two endpoints share this function. Override body.model when calling
+  // GitHub Models so the OpenAI default ("gpt-4o-mini") gets the
+  // vendor-prefixed form GitHub Models expects ("openai/gpt-4o-mini").
+  const isGithub = settings.pipBackend === "github";
+  let url, token;
+  if (isGithub) {
+    const auth = settings.pipGithubAuth;
+    if (!auth?.token) return { status: 401, body: '{"error":"GitHub not connected — open Settings → Pip backend → Connect GitHub"}' };
+    url = "https://models.github.ai/inference/chat/completions";
+    token = auth.token;
+    body = { ...body, model: GITHUB_MODEL };  // override regardless of caller default
+  } else {
+    const key = settings.pipOpenaiKey;
+    if (!key) return { status: 401, body: '{"error":"no OpenAI API key configured in Settings"}' };
+    url = "https://api.openai.com/v1/chat/completions";
+    token = key;
+  }
   try {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const resp = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "authorization": `Bearer ${key}`,
+        "authorization": `Bearer ${token}`,
       },
       body: JSON.stringify(body),
     });
@@ -134,9 +156,10 @@ function sanitizeTool(t) {
 // useful content back. Names the active backend so the message points at the
 // right thing to investigate.
 function logBackendError(label, res) {
-  const b = settings.pipBackend || "bridge";
+  const b = settings.pipBackend || "github";
   const which = b === "anthropic" ? "anthropic-direct"
               : b === "openai"    ? "openai-direct"
+              : b === "github"    ? "github-models"
               : b === "local"     ? "local-llm"
               :                     "bridge";
   if (!res)           console.info(`[claude/${which}] ${label}: unreachable`);
@@ -153,7 +176,10 @@ function logBackendError(label, res) {
 // answering on cafe wifi / extension-less tabs / API outages, but only once
 // the user has opted in by installing local at least once.
 export async function ask(userText, opts = {}) {
-  if (settings.pipBackend === "openai") return _withLocalFallback(() => _openaiAsk(userText, opts), () => localAsk(userText, opts));
+  // GitHub Models reuses the OpenAI request shape — _openaiAsk handles both;
+  // the URL/auth swap happens inside callOpenai based on pipBackend.
+  if (settings.pipBackend === "openai" || settings.pipBackend === "github")
+    return _withLocalFallback(() => _openaiAsk(userText, opts), () => localAsk(userText, opts));
   if (settings.pipBackend === "local")  return localAsk(userText, opts);
   return _withLocalFallback(() => _anthropicAsk(userText, opts), () => localAsk(userText, opts));
 }
@@ -226,7 +252,8 @@ async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
 //                                             stop and return the canned
 //                                             "(reached iteration limit)".
 export async function askWithTools(messages, opts = {}) {
-  if (settings.pipBackend === "openai") return _withLocalFallback(() => _openaiAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
+  if (settings.pipBackend === "openai" || settings.pipBackend === "github")
+    return _withLocalFallback(() => _openaiAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
   if (settings.pipBackend === "local")  return localAskWithTools(messages, opts);
   return _withLocalFallback(() => _anthropicAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
 }

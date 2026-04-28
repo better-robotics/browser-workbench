@@ -2023,6 +2023,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // local (LFM2.5 in-browser via WebGPU).
   const backendSelect = $("setting-pip-backend");
   const backendHint = $("setting-pip-backend-hint");
+  const githubRow       = $("setting-pip-github-row");
+  const githubStatusEl  = $("setting-pip-github-status");
+  const githubDotEl     = $("setting-pip-github-dot");
+  const githubConnectBtn = $("setting-pip-github-connect");
   const anthropicKeyRow = $("setting-pip-anthropic-key-row");
   const openaiKeyRow    = $("setting-pip-openai-key-row");
   const localRow        = $("setting-pip-local-row");
@@ -2033,6 +2037,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const localInstallBtn = $("setting-pip-local-install");
   const localDotEl      = $("setting-pip-local-dot");
   const HINTS = {
+    github:    "Inference via GitHub Models. Connect once with GitHub OAuth — short-lived token stays in this browser. No API key to manage; rate limits per GitHub's free tier. Same Pip behavior as OpenAI direct (vendor-prefixed model id, same tool-calling shape).",
     bridge:    "Routes through the AI Bridge extension. Token stays in Keychain via native messaging — never exposed to the page.",
     anthropic: "Calls api.anthropic.com directly with your API key. Works without the AI Bridge extension. Key stays in this browser.",
     openai:    "Calls api.openai.com directly with your API key. Tool-calling translated from Anthropic's tool_use shape to OpenAI's function_calling shape — same Pip behavior, different backend.",
@@ -2040,13 +2045,26 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const visionRow   = $("setting-pip-vision-row");
   const visionInput = $("setting-pip-vision");
-  // Vision tool only works on Claude-shape backends. OpenAI image-in-
-  // tool_result isn't wired; local LFM has no vision.
+  // Vision tool only works on Claude-shape backends. OpenAI / GitHub-Models
+  // image-in-tool_result isn't wired; local LFM has no vision.
   const VISION_BACKENDS = new Set(["bridge", "anthropic"]);
+  function syncGithubUI() {
+    const auth = settings.pipGithubAuth;
+    githubDotEl.className = "dot";
+    if (auth?.username) {
+      githubStatusEl.textContent = `@${auth.username}`;
+      githubDotEl.classList.add("connected");
+      githubConnectBtn.textContent = "Disconnect";
+    } else {
+      githubStatusEl.textContent = "Not connected";
+      githubConnectBtn.textContent = "Connect GitHub";
+    }
+  }
   function syncBackendUI() {
-    const b = settings.pipBackend || "bridge";
+    const b = settings.pipBackend || "github";
     backendSelect.value = b;
     backendHint.textContent = HINTS[b] || "";
+    githubRow.hidden       = b !== "github";
     anthropicKeyRow.hidden = b !== "anthropic";
     openaiKeyRow.hidden    = b !== "openai";
     localRow.hidden        = b !== "local";
@@ -2054,8 +2072,44 @@ document.addEventListener("DOMContentLoaded", () => {
     anthropicKeyInput.value = settings.pipApiKey || "";
     openaiKeyInput.value    = settings.pipOpenaiKey || "";
     visionInput.checked     = !!settings.pipVisionEnabled;
+    if (b === "github") syncGithubUI();
   }
   syncBackendUI();
+  // GitHub OAuth — connectGitHub from the shared neevs.io auth helper that
+  // robot-studio already uses. Lazy-loaded the first time the button is
+  // tapped so a user who never picks GitHub doesn't pay the import cost.
+  let _connectGitHubFn = null;
+  async function _loadConnectGitHub() {
+    if (_connectGitHubFn) return _connectGitHubFn;
+    const mod = await import("https://neevs.io/auth/connect.js");
+    _connectGitHubFn = mod.connectGitHub;
+    return _connectGitHubFn;
+  }
+  githubConnectBtn.addEventListener("click", async () => {
+    if (settings.pipGithubAuth) {
+      // Disconnect — clear token + UI. The OAuth grant on GitHub's side
+      // remains until the user revokes it; we just stop holding the token.
+      settings.pipGithubAuth = null;
+      saveSettings();
+      syncGithubUI();
+      return;
+    }
+    githubConnectBtn.disabled = true;
+    githubConnectBtn.textContent = "Connecting…";
+    try {
+      const connect = await _loadConnectGitHub();
+      const auth = await connect("read:user", "better-robotics");
+      settings.pipGithubAuth = { username: auth.username, token: auth.token };
+      saveSettings();
+      syncGithubUI();
+    } catch (err) {
+      githubStatusEl.textContent = `Connect failed: ${err.message || err}`;
+      githubDotEl.className = "dot error";
+      githubConnectBtn.textContent = "Try again";
+    } finally {
+      githubConnectBtn.disabled = false;
+    }
+  });
   backendSelect.addEventListener("change", () => {
     settings.pipBackend = backendSelect.value;
     saveSettings();
