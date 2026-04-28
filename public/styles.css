@@ -2130,14 +2130,13 @@ body.phone {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
-/* Re-enable text selection on content the user genuinely reads / copies:
-   Pip's chat replies, the scene caption, and any text inputs. The carve-
-   out is narrow on purpose — adding more here means losing the drag-
-   safety on the rest of the page. */
-body.phone .phone-chat,
-body.phone .phone-message,
-body.phone .phone-echo,
-body.phone .phone-scene-text,
+/* Re-enable text selection only on inputs — phone is a remote control
+   surface, not a reading view. The previous carve-out (Pip chat, scene
+   caption) made the chat bubble selectable, which meant any finger drag
+   that crossed it during driving accidentally selected text. Operator
+   needs zero accidental selection while their thumb is steering; copying
+   a Pip reply is rare enough to live without (a desktop user can copy
+   from the dashboard log, which is the same content). */
 body.phone input,
 body.phone textarea {
   user-select: text;
