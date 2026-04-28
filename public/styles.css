@@ -102,7 +102,7 @@ html, body {
 .topbar-title-caret {
   width: 12px;
   height: 12px;
-  opacity: 0.5;
+  color: var(--ink-muted);
   margin-left: 2px;
 }
 /* Wordmark: "Better" (bold Duke navy/light-blue) + "Robotics" (regular ink).
@@ -2275,7 +2275,7 @@ body.phone textarea {
   cursor: pointer;
 }
 .phone-brand-btn:hover { background: var(--line); }
-.phone-brand-caret { width: 14px; height: 14px; opacity: 0.6; }
+.phone-brand-caret { width: 14px; height: 14px; color: var(--ink-muted); }
 .phone-status {
   display: inline-flex;
   align-items: center;
