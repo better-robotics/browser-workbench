@@ -9,10 +9,23 @@
 // watchdog don't need their own timer. preventDefault on down/move stops
 // text selection and image drag from hijacking the gesture.
 
-// Differential mix: (throttle, turn) ∈ [-100, 100] → (L, R) per tank-drive
-// kinematics. Also used by keyboard handlers that want the same mental model.
+// Differential mix: (throttle, turn) ∈ [-100, 100] → (L, R).
+//
+// Operator-perspective convention: when reversing, "right" still means
+// "robot ends up to the operator's right." Without the sign flip, raw
+// tank-drive math (L = throttle + turn) preserves "left motor faster than
+// right" in the robot's body frame — which from an external operator's
+// view inverts the turn direction during reverse (push joystick top-right
+// → robot turns right ✓; push bottom-right → robot turns LEFT, which is
+// disorienting for someone driving an RC toy from outside it).
+//
+// The flip aligns the tilt joypad, tilt-drive, and keyboard mappings to
+// the same "external observer" model — what every RC car / video game
+// uses. Tank-drive purists can mentally undo the flip; for the toy-scale
+// scope this project targets, operator clarity wins.
 export function mix(throttle, turn) {
   const c = (v) => Math.max(-100, Math.min(100, Math.round(v)));
+  if (throttle < 0) turn = -turn;
   return [c(throttle + turn), c(throttle - turn)];
 }
 

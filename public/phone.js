@@ -1,6 +1,6 @@
 import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pairing.js";
-import { attachJoypad } from "./joypad.js";
+import { attachJoypad, mix } from "./joypad.js";
 import { discover } from "./discover.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
 import { makeTrustStore } from "./trust.js";
@@ -370,21 +370,15 @@ function _tiltIsLandscape() {
 
 function _tiltMix() {
   // Steering axis is in [-90, 90] roughly; positive = right tilt.
-  // dead-zone + clip then normalize.
+  // dead-zone + clip then normalize to the shared mix() convention
+  // (which handles operator-perspective sign flip on reverse).
   let g = _tiltSteerAxisDeg();
   if (Math.abs(g) < TILT_TURN_DEADZONE_DEG) g = 0;
   if (g >  TILT_TURN_SATURATION_DEG) g =  TILT_TURN_SATURATION_DEG;
   if (g < -TILT_TURN_SATURATION_DEG) g = -TILT_TURN_SATURATION_DEG;
-  const turn = g / TILT_TURN_SATURATION_DEG;  // -1..+1
-  const throttle = _tiltThrottle;             // -1, 0, +1
-  // Differential mix: positive turn = right (slow right side, full left side).
-  // Match the existing public/joypad.js mix() shape so motors integrate
-  // cleanly. throttle * TILT_THROTTLE for magnitude.
-  const baseL = throttle * TILT_THROTTLE;
-  const baseR = throttle * TILT_THROTTLE;
-  const turnAmt = turn * TILT_THROTTLE * 0.7;  // 70% of full = comfortable turn radius
-  const l = Math.max(-TILT_THROTTLE, Math.min(TILT_THROTTLE, Math.round(baseL + turnAmt)));
-  const r = Math.max(-TILT_THROTTLE, Math.min(TILT_THROTTLE, Math.round(baseR - turnAmt)));
+  const turnPct = g / TILT_TURN_SATURATION_DEG;        // -1..+1
+  // 70% turn ratio = comfortable turn radius without pivot-in-place.
+  const [l, r] = mix(_tiltThrottle * TILT_THROTTLE, turnPct * TILT_THROTTLE * 0.7);
   return { l, r };
 }
 
@@ -532,12 +526,27 @@ function wireTiltDrive() {
   const wirePedal = (id, dir) => {
     const btn = $(id);
     if (!btn) return;
-    const press = (e) => { e.preventDefault(); _tiltThrottle = dir; startSend(); };
-    const release = () => { if (_tiltThrottle === dir) { _tiltThrottle = 0; stopSend(); } };
+    const press = (e) => {
+      e.preventDefault();
+      // setPointerCapture so events keep firing on this button even if
+      // the user's finger drifts off the button area while tilting the
+      // phone hard — without it, pointerleave fires mid-drive and stops
+      // the throttle. Standard pattern for "I want exclusive pointer
+      // ownership until release."
+      try { btn.setPointerCapture(e.pointerId); } catch {}
+      _tiltThrottle = dir;
+      startSend();
+    };
+    const release = (e) => {
+      try { if (e?.pointerId != null) btn.releasePointerCapture(e.pointerId); } catch {}
+      if (_tiltThrottle === dir) { _tiltThrottle = 0; stopSend(); }
+    };
     btn.addEventListener("pointerdown", press);
     btn.addEventListener("pointerup", release);
     btn.addEventListener("pointercancel", release);
-    btn.addEventListener("pointerleave", release);
+    // Intentionally NOT listening to pointerleave — pointer capture
+    // ensures the button keeps receiving events even if the finger
+    // wanders. pointerleave would re-fire spuriously during steering.
   };
   wirePedal("phone-tilt-forward", +1);
   wirePedal("phone-tilt-reverse", -1);
