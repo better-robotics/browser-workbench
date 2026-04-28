@@ -804,7 +804,6 @@ function wireAppMenu() {
     onBeforeOpen: () => menu.hidePopover(),
   });
   $("menu-dashboard")?.addEventListener("click", () => menu.hidePopover());
-  $("menu-repo")?.addEventListener("click", () => menu.hidePopover());
 }
 
 // LAN discovery — request/accept flow.

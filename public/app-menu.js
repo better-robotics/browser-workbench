@@ -4,9 +4,9 @@
 // of the destructive flow + SW update latch + PWA install handlers. This
 // module is the single owner.
 //
-// Per-page differences (positioning, surface-specific menu items like
-// "Report an issue" or "GitHub repo") stay in each page's own wiring;
-// shared destructive / update / install logic lives here.
+// Per-page differences (positioning, surface-specific items) stay in
+// each page's own wiring; shared destructive / update / install logic
+// lives here.
 
 // ── PWA install ────────────────────────────────────────────────────────
 
