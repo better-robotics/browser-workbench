@@ -28,6 +28,10 @@ import { initPhones, setPhoneChatHandler, broadcastTargetInfo, sendArucoStatus }
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
+import {
+  setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
+  wireHardRefresh, setReportIssueLink, readSwVersion,
+} from "./app-menu.js";
 
 setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
@@ -1541,72 +1545,10 @@ function setBluetoothAvailable(available) {
   if (emptyBtn) emptyBtn.disabled = !available;
 }
 
-// Service worker — offline-first dashboard. Registered fire-and-forget;
-// the update banner (showSwUpdateBanner below) handles the user-facing
-// "new version available" prompt. SW lifecycle is intentional: we never
-// auto-skip-waiting, the user clicks Reload to apply.
-// Set when the user clicks "Check for updates" — that explicit click is
-// already an opt-in to apply, so the next install skipWaiting + reloads
-// instead of asking again via the deferred banner.
-let _autoApplySwUpdate = false;
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then((reg) => {
-    if (reg.waiting && navigator.serviceWorker.controller) {
-      // A waiting worker was already present at page load — surface it.
-      showSwUpdateBanner(reg.waiting);
-    }
-    reg.addEventListener("updatefound", () => {
-      const next = reg.installing;
-      next?.addEventListener("statechange", () => {
-        if (next.state === "installed" && navigator.serviceWorker.controller) {
-          if (_autoApplySwUpdate) {
-            _autoApplySwUpdate = false;
-            next.postMessage("skip-waiting");  // controllerchange reloads
-          } else {
-            showSwUpdateBanner(next);
-          }
-        }
-      });
-    });
-  }).catch((err) => console.warn("[sw] register failed:", err.message));
-  // When the new SW takes control after the user clicks Reload, refresh
-  // the page so all in-memory state matches the now-active version.
-  let _swReloading = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (_swReloading) return;
-    _swReloading = true;
-    window.location.reload();
-  });
-}
-
-// PWA install — must listen at module top: beforeinstallprompt fires
-// once, very early (before DOMContentLoaded in Chrome), and the event
-// is lost if no handler catches it. Menu item wiring below (inside
-// DOMContentLoaded) reads this deferred handle.
-let _deferredInstallPrompt = null;
-function isStandalone() {
-  return window.matchMedia?.("(display-mode: standalone)").matches
-      || window.navigator.standalone === true;
-}
-function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-}
-function updateInstallMenuItem() {
-  const btn = document.getElementById("menu-install");
-  if (!btn) return;
-  if (isStandalone()) { btn.hidden = true; return; }
-  btn.hidden = !(_deferredInstallPrompt || isIOS());
-}
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  _deferredInstallPrompt = e;
-  updateInstallMenuItem();
-});
-window.addEventListener("appinstalled", () => {
-  _deferredInstallPrompt = null;
-  updateInstallMenuItem();
-});
-
+// Service worker + update banner. SW lifecycle is intentional: we never
+// auto-skip-waiting on background detection — show a banner so the user
+// triggers the swap. Explicit "Check for updates" clicks (wired below
+// via app-menu.js) auto-apply.
 function showSwUpdateBanner(worker) {
   if (document.getElementById("sw-update-banner")) return;  // already shown
   const bar = document.createElement("div");
@@ -1619,10 +1561,10 @@ function showSwUpdateBanner(worker) {
   document.body.appendChild(bar);
   document.getElementById("sw-update-reload").addEventListener("click", () => {
     worker.postMessage("skip-waiting");
-    // controllerchange listener above triggers the actual reload.
   });
   document.getElementById("sw-update-dismiss").addEventListener("click", () => bar.remove());
 }
+setupServiceWorker({ onUnsolicitedUpdate: showSwUpdateBanner });
 
 document.addEventListener("DOMContentLoaded", () => {
   if (!navigator.bluetooth) {
@@ -1791,153 +1733,27 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("menu-phone-view").addEventListener("click", () => $("app-menu").hidePopover());
   $("menu-report-issue").addEventListener("click", () => $("app-menu").hidePopover());
-  // Read VERSION from sw.js (CI stamps it there on every dashboard-asset change).
-  // Used both for the menu display and to prefill the issue body so reports
-  // arrive with the running commit + UA already attached — saves a triage round.
-  fetch("sw.js").then(r => r.ok ? r.text() : "").then(t => {
-    const m = t.match(/VERSION\s*=\s*"([^"]+)"/);
-    const version = m ? m[1] : "unknown";
+  // Version + report-issue link. Read VERSION from sw.js (CI stamps it
+  // on every dashboard-asset change). Both the menu display and the
+  // report-issue body get the running commit + UA + URL prefilled —
+  // arriving reports skip a triage round.
+  readSwVersion().then(version => {
     $("app-menu-version").textContent = version;
-    const body = [
-      "<!-- Describe what happened, what you expected, and how to reproduce. -->",
-      "",
-      "",
-      "---",
-      "<details><summary>Diagnostic info</summary>",
-      "",
-      `- Version: \`${version}\``,
-      `- URL: \`${window.location.href}\``,
-      `- User-Agent: \`${navigator.userAgent}\``,
-      "",
-      "</details>",
-    ].join("\n");
-    const url = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(body)}`;
-    $("menu-report-issue").href = url;
-  }).catch(() => {});
-  $("menu-install").addEventListener("click", async () => {
-    $("app-menu").hidePopover();
-    if (_deferredInstallPrompt) {
-      // Chromium: calling prompt() is a one-shot. After user choice, drop the
-      // handle — a fresh beforeinstallprompt fires later if they dismiss.
-      _deferredInstallPrompt.prompt();
-      try { await _deferredInstallPrompt.userChoice; } catch {}
-      _deferredInstallPrompt = null;
-      updateInstallMenuItem();
-      return;
-    }
-    if (isIOS()) {
-      const pop = document.getElementById("install-ios-popover");
-      if (pop?.showPopover) pop.showPopover();
-    }
+    setReportIssueLink($("menu-report-issue"), version);
   });
-  updateInstallMenuItem();
-
-  $("menu-check-updates").addEventListener("click", async () => {
-    const btn = $("menu-check-updates");
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Checking…";
-    try {
-      const reg = await navigator.serviceWorker?.getRegistration();
-      if (!reg) throw new Error("no-sw");
-      // Already-waiting worker: apply directly. Happens when an earlier
-      // page load installed it and the user dismissed the banner.
-      if (reg.waiting) {
-        btn.textContent = "Updating…";
-        reg.waiting.postMessage("skip-waiting");
-        return;  // controllerchange reloads
-      }
-      // Tell the top-level updatefound handler to auto-apply instead of
-      // showing the deferred banner — the user just explicitly asked.
-      _autoApplySwUpdate = true;
-      await reg.update();
-      if (reg.installing || reg.waiting) {
-        btn.textContent = "Updating…";  // reload follows shortly
-        return;
-      }
-      _autoApplySwUpdate = false;
-      btn.textContent = "Up to date";
-    } catch {
-      _autoApplySwUpdate = false;
-      btn.textContent = "Up to date";
-    }
-    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  wireInstallMenuItem({
+    btnId: "menu-install",
+    iosPopoverId: "install-ios-popover",
+    onClick: () => $("app-menu").hidePopover(),
   });
-
-  $("menu-hard-refresh").addEventListener("click", () => {
-    $("app-menu").hidePopover();
-    $("hard-refresh-dialog").showModal();
-  });
-  $("hard-refresh-close").addEventListener("click", () => $("hard-refresh-dialog").close());
-  $("hard-refresh-cancel").addEventListener("click", () => $("hard-refresh-dialog").close());
-  $("hard-refresh-confirm").addEventListener("click", async () => {
-    const btn = $("hard-refresh-confirm");
-    btn.disabled = true;
-    btn.textContent = "Clearing…";
-    try {
-      // Capture the SW's known asset URLs *before* nuking the cache. After
-      // the destructive phase, we re-fetch each with cache: 'reload' to
-      // bypass the browser's HTTP cache (the layer below the SW that
-      // location.reload() doesn't flush) — that's the gap that made layout
-      // changes survive a previous hard-refresh. Chrome's "Clear site data"
-      // wipes both layers; this gets close.
-      const sameOriginAssets = [];
-      if (self.caches) {
-        try {
-          const names = await caches.keys();
-          for (const n of names) {
-            const c = await caches.open(n);
-            const reqs = await c.keys();
-            for (const r of reqs) {
-              if (new URL(r.url).origin === location.origin) sameOriginAssets.push(r.url);
-            }
-          }
-        } catch {}
-      }
-      // Best-effort: run each step independently so one failure doesn't block
-      // the others. The nuclear order is intentional — kill the SW first so
-      // the reload below can't be intercepted by a stale worker.
-      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
-      await Promise.allSettled(regs.map(r => r.unregister()));
-      if (self.caches) {
-        const names = await caches.keys();
-        await Promise.allSettled(names.map(n => caches.delete(n)));
-      }
-      if (indexedDB.databases) {
-        const dbs = await indexedDB.databases();
-        await Promise.allSettled(dbs.map(d => new Promise((res) => {
-          if (!d.name) return res();
-          const req = indexedDB.deleteDatabase(d.name);
-          req.onsuccess = req.onerror = req.onblocked = () => res();
-        })));
-      }
-      try { localStorage.clear(); } catch {}
-      try { sessionStorage.clear(); } catch {}
-      // Cookies — best-effort. JS can't see HttpOnly cookies but for non-
-      // HttpOnly ones, expire each at root and current path.
-      try {
-        for (const c of document.cookie.split(";")) {
-          const eq = c.indexOf("=");
-          const name = (eq > -1 ? c.substr(0, eq) : c).trim();
-          if (!name) continue;
-          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${location.pathname}`;
-        }
-      } catch {}
-      // Pre-warm the HTTP cache with fresh copies of every known asset.
-      // cache: 'reload' is the only documented way to force a same-origin
-      // fetch past the browser's HTTP disk cache without server cooperation.
-      // The page URL itself goes in too so the navigation reload below
-      // reads a fresh copy from disk.
-      const pageUrl = new URL("./", location.href).toString();
-      const all = new Set([pageUrl, location.href, ...sameOriginAssets]);
-      btn.textContent = "Refetching…";
-      await Promise.allSettled(
-        [...all].map(u => fetch(u, { cache: "reload" }).catch(() => {})),
-      );
-    } finally {
-      location.reload();
-    }
+  wireCheckUpdatesMenuItem({ btnId: "menu-check-updates" });
+  wireHardRefresh({
+    openBtnId: "menu-hard-refresh",
+    dialogId: "hard-refresh-dialog",
+    closeBtnId: "hard-refresh-close",
+    cancelBtnId: "hard-refresh-cancel",
+    confirmBtnId: "hard-refresh-confirm",
+    onBeforeOpen: () => $("app-menu").hidePopover(),
   });
 
   $("label-close").addEventListener("click", () => $("label-modal").close());

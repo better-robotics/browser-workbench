@@ -5,38 +5,15 @@ import { discover } from "./discover.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
 import { makeTrustStore } from "./trust.js";
 import { pairRequestClient } from "./pair-request.js";
+import {
+  setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
+  wireHardRefresh, setReportIssueLink, readSwVersion,
+} from "./app-menu.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 let _peer = null;
 let _pending = false;
 let _joypad = null;
-
-// Install prompt. Chromium fires beforeinstallprompt; iOS Safari never does
-// — for iOS we show manual Share→Add-to-Home-Screen copy. Affordance lives
-// in the app-menu popover (parallels the dashboard's wordmark popover).
-let _deferredInstallPrompt = null;
-function _isStandalone() {
-  return window.matchMedia?.("(display-mode: standalone)").matches
-      || window.navigator.standalone === true;
-}
-function _isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-}
-function _updateInstallMenuItem() {
-  const btn = $("menu-install");
-  if (!btn) return;
-  if (_isStandalone()) { btn.hidden = true; return; }
-  btn.hidden = !(_deferredInstallPrompt || _isIOS());
-}
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  _deferredInstallPrompt = e;
-  _updateInstallMenuItem();
-});
-window.addEventListener("appinstalled", () => {
-  _deferredInstallPrompt = null;
-  _updateInstallMenuItem();
-});
 
 function setStatus(state, text) {
   const dot = $("phone-status-dot");
@@ -859,6 +836,10 @@ function wireAppMenu() {
   const btn = $("app-menu-btn");
   const menu = $("app-menu");
   if (!btn || !menu) return;
+  // Popover positioning differs per page (phone is bottom-up, dashboard
+  // anchors top-left), so this part stays per-surface. Everything below
+  // — version label, install/check-updates/hard-refresh + cross-link
+  // close-handlers — flows through app-menu.js.
   btn.addEventListener("click", (e) => {
     if (menu.matches(":popover-open")) { menu.hidePopover(); return; }
     const rect = e.currentTarget.getBoundingClientRect();
@@ -876,127 +857,27 @@ function wireAppMenu() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
   });
-  // Pull VERSION from sw.js (CI stamps it on every dashboard-asset change).
-  fetch("sw.js").then(r => r.ok ? r.text() : "").then(t => {
-    const m = t.match(/VERSION\s*=\s*"([^"]+)"/);
-    if (m) $("app-menu-version").textContent = m[1];
-  }).catch(() => {});
-  $("menu-install").addEventListener("click", async () => {
-    menu.hidePopover();
-    if (_deferredInstallPrompt) {
-      _deferredInstallPrompt.prompt();
-      try { await _deferredInstallPrompt.userChoice; } catch {}
-      _deferredInstallPrompt = null;
-      _updateInstallMenuItem();
-      return;
-    }
-    if (_isIOS()) {
-      const pop = $("install-ios-popover");
-      pop?.showPopover?.();
-    }
+  readSwVersion().then(version => {
+    $("app-menu-version").textContent = version;
+    const reportLink = $("menu-report-issue");
+    if (reportLink) setReportIssueLink(reportLink, version);
   });
-  $("menu-dashboard").addEventListener("click", () => menu.hidePopover());
-  $("menu-repo").addEventListener("click", () => menu.hidePopover());
-  _updateInstallMenuItem();
-
-  $("menu-check-updates").addEventListener("click", async () => {
-    const btn = $("menu-check-updates");
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Checking…";
-    try {
-      const reg = await navigator.serviceWorker?.getRegistration();
-      if (!reg) throw new Error("no-sw");
-      // Already-waiting worker: apply directly.
-      if (reg.waiting) {
-        btn.textContent = "Updating…";
-        reg.waiting.postMessage("skip-waiting");
-        return;  // controllerchange listener reloads
-      }
-      // Watch for the install that update() may trigger and apply once
-      // it reaches "installed" — the explicit click is the opt-in.
-      const applyOnInstall = () => {
-        const next = reg.installing;
-        next?.addEventListener("statechange", () => {
-          if (next.state === "installed") next.postMessage("skip-waiting");
-        }, { once: true });
-      };
-      reg.addEventListener("updatefound", applyOnInstall, { once: true });
-      await reg.update();
-      if (reg.installing || reg.waiting) {
-        btn.textContent = "Updating…";
-        return;
-      }
-      reg.removeEventListener("updatefound", applyOnInstall);
-      btn.textContent = "Up to date";
-    } catch {
-      btn.textContent = "Up to date";
-    }
-    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  wireInstallMenuItem({
+    btnId: "menu-install",
+    iosPopoverId: "install-ios-popover",
+    onClick: () => menu.hidePopover(),
   });
-
-  $("menu-hard-refresh").addEventListener("click", () => {
-    menu.hidePopover();
-    $("hard-refresh-dialog").showModal();
+  wireCheckUpdatesMenuItem({ btnId: "menu-check-updates" });
+  wireHardRefresh({
+    openBtnId: "menu-hard-refresh",
+    dialogId: "hard-refresh-dialog",
+    closeBtnId: "hard-refresh-close",
+    cancelBtnId: "hard-refresh-cancel",
+    confirmBtnId: "hard-refresh-confirm",
+    onBeforeOpen: () => menu.hidePopover(),
   });
-  $("hard-refresh-close").addEventListener("click", () => $("hard-refresh-dialog").close());
-  $("hard-refresh-cancel").addEventListener("click", () => $("hard-refresh-dialog").close());
-  $("hard-refresh-confirm").addEventListener("click", async () => {
-    const btn = $("hard-refresh-confirm");
-    btn.disabled = true;
-    btn.textContent = "Clearing…";
-    try {
-      // Capture cached asset URLs before nuking — used to bust the
-      // browser's HTTP cache (the layer below the SW that
-      // location.reload() doesn't flush). See app.js for the full reason.
-      const sameOriginAssets = [];
-      if (self.caches) {
-        try {
-          const names = await caches.keys();
-          for (const n of names) {
-            const c = await caches.open(n);
-            const reqs = await c.keys();
-            for (const r of reqs) {
-              if (new URL(r.url).origin === location.origin) sameOriginAssets.push(r.url);
-            }
-          }
-        } catch {}
-      }
-      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
-      await Promise.allSettled(regs.map(r => r.unregister()));
-      if (self.caches) {
-        const names = await caches.keys();
-        await Promise.allSettled(names.map(n => caches.delete(n)));
-      }
-      if (indexedDB.databases) {
-        const dbs = await indexedDB.databases();
-        await Promise.allSettled(dbs.map(d => new Promise((res) => {
-          if (!d.name) return res();
-          const req = indexedDB.deleteDatabase(d.name);
-          req.onsuccess = req.onerror = req.onblocked = () => res();
-        })));
-      }
-      try { localStorage.clear(); } catch {}
-      try { sessionStorage.clear(); } catch {}
-      try {
-        for (const c of document.cookie.split(";")) {
-          const eq = c.indexOf("=");
-          const name = (eq > -1 ? c.substr(0, eq) : c).trim();
-          if (!name) continue;
-          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${location.pathname}`;
-        }
-      } catch {}
-      const pageUrl = new URL("./", location.href).toString();
-      const all = new Set([pageUrl, location.href, ...sameOriginAssets]);
-      btn.textContent = "Refetching…";
-      await Promise.allSettled(
-        [...all].map(u => fetch(u, { cache: "reload" }).catch(() => {})),
-      );
-    } finally {
-      location.reload();
-    }
-  });
+  $("menu-dashboard")?.addEventListener("click", () => menu.hidePopover());
+  $("menu-repo")?.addEventListener("click", () => menu.hidePopover());
 }
 
 // LAN discovery — request/accept flow.
@@ -1217,15 +1098,8 @@ if (document.readyState === "loading") {
   init();
 }
 
-// Register SW so phone.html is installable + works offline after first visit.
-// No banner here (the phone surface is thin); a new SW just installs and
-// waits, the user triggers application via the menu's "Check for updates".
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
-  let _swReloading = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (_swReloading) return;
-    _swReloading = true;
-    location.reload();
-  });
-}
+// Register SW so phone.html is installable + works offline after first
+// visit. No banner on the phone surface — a new SW just installs and
+// waits, the user triggers application via the menu's "Check for
+// updates" (handled in app-menu.js's auto-apply latch).
+setupServiceWorker();
