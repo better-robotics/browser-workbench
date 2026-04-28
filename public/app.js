@@ -1352,7 +1352,10 @@ function openMenu(triggerBtn, id) {
 function closeMenu() {
   const menu = $("robot-menu");
   if (menu.hidePopover) menu.hidePopover();
-  menuTargetId = null;
+  // NOTE: do NOT clear menuTargetId here. Handlers that need to ask
+  // "which member should I act on?" (chooseMemberForAction) read
+  // menuTargetId AFTER this returns. openMenu always sets it on next
+  // open, so leaking it past close is harmless.
 }
 
 function robotUrl(name) {
