@@ -338,6 +338,64 @@ Original analysis:
 - **Scope:** ~1.5–2 days. Stage 1: WebUSB device claim + single-partition raw write + verify. Stage 2: progress UI + resume-on-disconnect + SHA-256 readback.
 - **Worth it when:** 3+ people are setting up Pis from scratch. Until then, `open -a "Raspberry Pi Imager"` is one shell command.
 
+### 6.5. Phone-to-phone state sub-protocol (sketch, pre-paving phone-to-phone WebRTC)
+
+**Why now (sort of):** user asked about sharing state across connected
+devices "like a shared localStorage." Reframe: localStorage is a storage
+primitive; the right model is "what *concepts* should sync, when, and
+what's the conflict policy." The concrete near-term need is multi-
+operator phone-to-phone sessions where each phone holds a different
+role (eye, driver). Today, role coordination flows desktop-as-relay;
+once phone-to-phone direct WebRTC ships, peers need a shared session
+state without bouncing through the desktop.
+
+**Scope decision (selection lens):** *don't* build full preferences-
+sync (server-side, persistent across all-offline). The toy-scale scope
+doesn't earn the auth + storage backend. *Do* build ephemeral peer-
+sync over the existing WebRTC data channel — state lives only while
+≥1 peer holds it, vanishes when all go offline.
+
+**Wire shape (data-channel sub-protocol):**
+
+```js
+// publish a key
+{ type: "state-set", key: "active-eye-phone", value: "<phoneId>",
+  rev: <Lamport tick>, origin: "<phoneId>" }
+
+// acknowledge / merge
+{ type: "state-applied", key: "active-eye-phone", rev: <tick> }
+
+// initial sync on peer-join
+{ type: "state-snapshot", entries: [{key, value, rev, origin}] }
+```
+
+Conflict policy: last-write-wins by Lamport rev; tie-break by origin
+id (deterministic). One key per concept, one origin per write.
+
+**Keyset (start small, grow per use case):**
+- `active-eye-phone` — which paired phone is currently mounted on the
+  robot (today bounces through desktop's `attachedFromPhoneId`)
+- `pip-led-intent` — Pip's most recent directional intent ("look left",
+  "describe scene"), so all peers see what Pip is asking for
+- `robot-source-pref` — which camera the *operator* is currently
+  watching (today set per-phone via tap-pick; share so peers know)
+
+**Out of scope (explicit):**
+- BLE pairings (controller-bonded, physically untransferable)
+- localStorage broadly ("everything everywhere syncs")
+- Cross-session persistence (state vanishes when last peer leaves)
+- Auth tokens (privacy + security cost > value)
+
+**Cost:** ~150 LOC. New file `public/peer-state.js` with `set(key,
+value)`, `get(key)`, `subscribe(key, fn)`. Hooks into `phones.js`'s
+existing `_phones` Map for peer enumeration; piggybacks on the
+existing data-channel send/receive.
+
+**Trigger to actually build:** when phone-to-phone direct WebRTC lands
+(audit option B from the camera-sharing discussion). Keysets above
+become real then; today's desktop-relay model covers the same
+behaviors with less infrastructure.
+
 ### 7. LLM-orchestrated dashboard (direction, not yet in flight)
 - Direction confirmed: eventually an LLM (webmcp-style) drives pairing, driving, OTA, etc. through a tool interface. Per-card render ships today specifically to set up this future — one state change mutates one card, a `get_robot_state(id)` tool returns one entry, a state-push channel notifies by entry-id rather than whole-page snapshots.
 - **Patterns worth stealing from `~/Github/organizations/hatch` when we get here:**

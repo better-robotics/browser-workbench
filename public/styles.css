@@ -2105,19 +2105,34 @@ dialog[open]::backdrop { opacity: 1; }
   color: var(--ink-muted);
   margin: 0 0 8px;
 }
-/* Two stacked styled buttons in the helpers-add row. Switched from a
-   row of inline link-btn texts to full-width 44pt buttons so the
-   affordance reads as deliberate (matches the phone surface's button
-   style — same component, .share-action-btn, both surfaces). Stack
-   vertically rather than wrap so each button is touch-comfortable
-   regardless of viewport width. */
+/* Helpers-add buttons inherit .share-action-btn's contained, rounded
+   shape from the phone surface but step down in weight: helpers are
+   tertiary on the dashboard (the daily action is driving a robot, not
+   pairing peripherals), so they don't earn the full 44pt primary-action
+   height that the phone variant uses. Smaller padding + font reads as
+   "supporting cast"; the shape stays consistent so the affordance still
+   reads as a button. Mouse precision on dashboard makes the smaller
+   target safe; phone keeps its larger variant for thumb comfort. */
 .helpers-add {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 12px;
 }
-.helpers-add .share-action-btn { width: 100%; }
+.helpers-add .share-action-btn {
+  width: 100%;
+  min-height: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: var(--ink-muted);
+}
+.helpers-add .share-action-btn:hover {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--border-default);
+}
 .link-btn {
   background: transparent;
   border: none;
