@@ -26,7 +26,7 @@ import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
 import { initPhones, setPhoneChatHandler, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
-import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
+import { initHelpers, setHelpersRobotRenderer, renderHelpers, hasActiveHelpers, onHelpersChange } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
@@ -933,7 +933,10 @@ function render() {
   updateQrHint();
 
   if (state.robots.size === 0) {
-    empty.hidden = false;
+    // Empty state means "no operating surface AT ALL". A user with phone
+    // helpers paired or laptop camera streaming has a working surface; the
+    // "Set up a robot" prompt is wrong for them.
+    empty.hidden = hasActiveHelpers();
     header.hidden = true;
     list.innerHTML = "";
     return;
@@ -2105,6 +2108,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initPhones();
   setPhoneChatHandler(text => handleRemoteChat(text, { source: "phone" }));
   initHelpers();
+  // Empty-state visibility depends on whether helpers are active, not just
+  // whether robots are. Re-run render() whenever helpers change so a phone
+  // pairing or laptop start/stop can suppress the "Set up a robot" prompt.
+  onHelpersChange(() => { if (state.robots.size === 0) render(); });
   initRobotPresence();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File

@@ -2060,6 +2060,7 @@ dialog[open]::backdrop { opacity: 1; }
 .label-url.copied { color: var(--success); }
 .modal-title-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .modal-subtitle { font-size: 12px; color: var(--ink-muted); font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+.modal-title-icon { width: 14px; height: 14px; color: var(--ink-muted); margin-right: 6px; vertical-align: -2px; }
 .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
 /* ── Pair-phone dialog ────────────────────────────────────────────────── */

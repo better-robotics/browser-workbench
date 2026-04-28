@@ -73,18 +73,17 @@
   </section>
 
   <div class="robots-heading" id="robots-heading" hidden>
-    <div class="label">Your robots</div>
+    <span id="robot-presence" class="presence-badge" hidden></span>
     <div class="heading-actions">
-      <span id="robot-presence" class="presence-badge" hidden></span>
+      <button id="connect-all-btn" hidden>Connect all</button>
       <button id="add-robot-btn" class="secondary sm">Set up</button>
-      <button id="connect-all-btn" class="secondary sm" hidden>Connect all</button>
       <button id="scan-btn" class="secondary sm">Scan for new</button>
     </div>
   </div>
 
-  <div id="robot-list"></div>
-
   <section class="card" id="discovered" hidden></section>
+
+  <div id="robot-list"></div>
 
   <section class="card empty-state" id="empty-state" hidden>
     <div class="empty-actions">
@@ -331,7 +330,7 @@
 
 <dialog id="esp-serial-modal" class="prepare-dialog">
   <div class="modal-header">
-    <div class="label">ESP32 serial monitor</div>
+    <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-usb"/></svg>ESP32 serial monitor</div>
     <button class="icon" id="esp-serial-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <div class="row" style="margin: 0 0 12px;">
@@ -350,7 +349,7 @@
   data-pip-context="USB serial console to a Pi, used when BLE is dead or pi-robot.service has crashed. Typical rescue flow: check `journalctl -u pi-robot -n 50`, reset a stuck wifi (rfkill unblock), kill wedged capture processes."
   data-pip-fallback="First thing to check on a broken Pi: `journalctl -u pi-robot -n 50` — tells you if the service crashed.">
   <div class="modal-header">
-    <div class="label">Recovery console</div>
+    <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-usb"/></svg>Recovery console</div>
     <button class="icon" id="recovery-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <div class="row" style="margin: 0 0 12px;">

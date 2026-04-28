@@ -14,13 +14,13 @@ import { escapeHtml } from "../../dom.js";
 // user expands what they need." The bump invalidates pre-v2 prefs so
 // existing operators get the cleaner default instead of carrying their
 // old "every cap I ever opened stays open forever" state.
-const STORE_KEY = "better-robotics:cap-open:v2";
+const STORE_KEY = "better-robotics:cap-open:v3";
 
-// All collapsed by default. Hick's law: 7+ equally-weighted controls
-// visible at once slows decisions; progressive disclosure puts each one
-// behind a single tap and lets the user open the 1-2 they're using
-// right now. Override per-cap via setOpen (persisted in localStorage).
-const DEFAULTS = {};
+// Most caps collapsed by default (Hick's law: 7+ peers slows decisions).
+// Motors is the daily-driver verb — burying the joypad behind a tap every
+// session was real friction. v3 invalidates v2 prefs so existing operators
+// get the new default once.
+const DEFAULTS = { motors: true };
 
 let _state = null;
 function load() {
