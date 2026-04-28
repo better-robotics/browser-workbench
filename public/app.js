@@ -1911,12 +1911,55 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("br-profile", JSON.stringify(profile));
   }
   const nameInput = $("setting-name");
-  nameInput.value = profile.name;
-  renderAvatar(profile.name);
-  nameInput.addEventListener("input", () => {
-    profile.name = nameInput.value.trim();
-    localStorage.setItem("br-profile", JSON.stringify(profile));
+  const nameHint = $("setting-name-hint");
+  const signInBtn = $("setting-signin-btn");
+  function saveProfile() { localStorage.setItem("br-profile", JSON.stringify(profile)); }
+  function syncIdentityUI() {
+    const signedIn = !!profile.signIn;
+    nameInput.value = profile.name;
+    nameInput.disabled = signedIn;
+    if (signedIn) {
+      nameHint.textContent = `Signed in via ${profile.signIn.provider} — name is from your account.`;
+      signInBtn.textContent = "Sign out";
+      signInBtn.classList.remove("primary");
+    } else {
+      nameHint.textContent = "Stored in this browser only. Used for robot labels and logs.";
+      signInBtn.textContent = "Sign in with GitHub";
+    }
     renderAvatar(profile.name);
+  }
+  syncIdentityUI();
+  nameInput.addEventListener("input", () => {
+    if (profile.signIn) return;  // disabled, but defensive
+    profile.name = nameInput.value.trim();
+    saveProfile();
+    renderAvatar(profile.name);
+  });
+  signInBtn.addEventListener("click", async () => {
+    if (profile.signIn) {
+      // Sign out → revert to a fresh name (random unless user kept their old
+      // typed-in name, which we don't currently preserve across sign-in).
+      profile.signIn = null;
+      profile.name = randomName();
+      saveProfile();
+      syncIdentityUI();
+      return;
+    }
+    signInBtn.disabled = true;
+    signInBtn.textContent = "Connecting…";
+    try {
+      const connect = await _loadConnectGitHub();
+      const auth = await connect("read:user", "better-robotics");
+      profile.signIn = { provider: "github", username: auth.username };
+      profile.name = `@${auth.username}`;
+      saveProfile();
+      syncIdentityUI();
+    } catch (err) {
+      log(`Sign-in failed: ${err.message || err}`);
+    } finally {
+      signInBtn.disabled = false;
+      if (!profile.signIn) signInBtn.textContent = "Sign in with GitHub";
+    }
   });
 
   // Avatar menu — popover="manual" matches robot-menu's pattern (no native outside-click/Escape).

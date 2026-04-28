@@ -621,7 +621,7 @@ a.menu-item { text-decoration: none; }
   padding: 0 4px;
   margin: 24px 0 8px;
 }
-.heading-actions { display: flex; gap: 8px; }
+.heading-actions { display: flex; gap: 8px; margin-left: auto; }
 /* Collapsible tray — generic details pattern. Log uses this; reusable for any accordion surface.
    Stands alone without .card: reads as bottom-strip chrome, not a data panel. */
 details.tray {
