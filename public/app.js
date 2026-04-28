@@ -1713,10 +1713,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // local (LFM2.5 in-browser via WebGPU).
   const backendSelect = $("setting-pip-backend");
   const backendHint = $("setting-pip-backend-hint");
-  const githubRow       = $("setting-pip-github-row");
-  const githubStatusEl  = $("setting-pip-github-status");
-  const githubDotEl     = $("setting-pip-github-dot");
-  const githubConnectBtn = $("setting-pip-github-connect");
   const anthropicKeyRow = $("setting-pip-anthropic-key-row");
   const openaiKeyRow    = $("setting-pip-openai-key-row");
   const localRow        = $("setting-pip-local-row");
@@ -1743,23 +1739,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // OpenAI / GitHub Models / local backends would need a different content-
   // block packing that isn't in place. Gate accordingly.
   const VISION_BACKENDS = new Set(["bridge", "anthropic"]);
-  function syncGithubUI() {
-    const auth = settings.pipGithubAuth;
-    githubDotEl.className = "dot";
-    if (auth?.username) {
-      githubStatusEl.textContent = `@${auth.username}`;
-      githubDotEl.classList.add("connected");
-      githubConnectBtn.textContent = "Disconnect";
-    } else {
-      githubStatusEl.textContent = "Not connected";
-      githubConnectBtn.textContent = "Connect GitHub";
-    }
-  }
   function syncBackendUI() {
     const b = settings.pipBackend || "github";
     backendSelect.value = b;
-    backendHint.textContent = HINTS[b] || "";
-    githubRow.hidden       = b !== "github";
+    // GitHub backend reads the unified githubAuth grant from Identity. When
+    // not signed in, surface a nudge in the hint instead of a duplicate
+    // Connect button (Identity row carries the action).
+    backendHint.textContent = (b === "github" && !settings.githubAuth)
+      ? "Sign in with GitHub above to use this backend."
+      : (HINTS[b] || "");
     anthropicKeyRow.hidden = b !== "anthropic";
     openaiKeyRow.hidden    = b !== "openai";
     localRow.hidden        = b !== "local";
@@ -1767,7 +1755,6 @@ document.addEventListener("DOMContentLoaded", () => {
     anthropicKeyInput.value = settings.pipApiKey || "";
     openaiKeyInput.value    = settings.pipOpenaiKey || "";
     visionInput.checked     = !!settings.pipVisionEnabled;
-    if (b === "github") syncGithubUI();
   }
   syncBackendUI();
   // GitHub OAuth — connectGitHub from the shared neevs.io auth helper that
@@ -1780,31 +1767,6 @@ document.addEventListener("DOMContentLoaded", () => {
     _connectGitHubFn = mod.connectGitHub;
     return _connectGitHubFn;
   }
-  githubConnectBtn.addEventListener("click", async () => {
-    if (settings.pipGithubAuth) {
-      // Disconnect — clear token + UI. The OAuth grant on GitHub's side
-      // remains until the user revokes it; we just stop holding the token.
-      settings.pipGithubAuth = null;
-      saveSettings();
-      syncGithubUI();
-      return;
-    }
-    githubConnectBtn.disabled = true;
-    githubConnectBtn.textContent = "Connecting…";
-    try {
-      const connect = await _loadConnectGitHub();
-      const auth = await connect("read:user", "better-robotics");
-      settings.pipGithubAuth = { username: auth.username, token: auth.token };
-      saveSettings();
-      syncGithubUI();
-    } catch (err) {
-      githubStatusEl.textContent = `Connect failed: ${err.message || err}`;
-      githubDotEl.className = "dot error";
-      githubConnectBtn.textContent = "Try again";
-    } finally {
-      githubConnectBtn.disabled = false;
-    }
-  });
   backendSelect.addEventListener("change", () => {
     settings.pipBackend = backendSelect.value;
     saveSettings();
@@ -1914,32 +1876,39 @@ document.addEventListener("DOMContentLoaded", () => {
   const nameHint = $("setting-name-hint");
   const signInBtn = $("setting-signin-btn");
   function saveProfile() { localStorage.setItem("br-profile", JSON.stringify(profile)); }
+  // Identity flows from settings.githubAuth — one OAuth grant powers both
+  // the username display AND the GitHub Models Pip backend. When signed in,
+  // the visible name is `@username` and the input is read-only.
+  function displayName() {
+    return settings.githubAuth?.username
+      ? `@${settings.githubAuth.username}`
+      : profile.name;
+  }
   function syncIdentityUI() {
-    const signedIn = !!profile.signIn;
-    nameInput.value = profile.name;
+    const signedIn = !!settings.githubAuth?.username;
+    nameInput.value = displayName();
     nameInput.disabled = signedIn;
-    if (signedIn) {
-      nameHint.textContent = `Signed in via ${profile.signIn.provider} — name is from your account.`;
-      signInBtn.textContent = "Sign out";
-      signInBtn.classList.remove("primary");
-    } else {
-      nameHint.textContent = "Stored in this browser only. Used for robot labels and logs.";
-      signInBtn.textContent = "Sign in with GitHub";
-    }
-    renderAvatar(profile.name);
+    nameHint.textContent = signedIn
+      ? "Signed in with GitHub — name is from your account."
+      : "Stored in this browser only. Used for robot labels and logs.";
+    signInBtn.textContent = signedIn ? "Sign out" : "Sign in with GitHub";
+    renderAvatar(displayName());
+    syncBackendUI();  // GitHub backend hint reflects sign-in state
   }
   syncIdentityUI();
   nameInput.addEventListener("input", () => {
-    if (profile.signIn) return;  // disabled, but defensive
+    if (settings.githubAuth) return;  // disabled, but defensive
     profile.name = nameInput.value.trim();
     saveProfile();
-    renderAvatar(profile.name);
+    renderAvatar(displayName());
   });
   signInBtn.addEventListener("click", async () => {
-    if (profile.signIn) {
-      // Sign out → revert to a fresh name (random unless user kept their old
-      // typed-in name, which we don't currently preserve across sign-in).
-      profile.signIn = null;
+    if (settings.githubAuth) {
+      // Sign out → drop token + revert display to the random name. The
+      // GitHub Models Pip backend will hit the 401 path on next call and
+      // surface a "sign in" hint there.
+      settings.githubAuth = null;
+      saveSettings();
       profile.name = randomName();
       saveProfile();
       syncIdentityUI();
@@ -1950,15 +1919,14 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const connect = await _loadConnectGitHub();
       const auth = await connect("read:user", "better-robotics");
-      profile.signIn = { provider: "github", username: auth.username };
-      profile.name = `@${auth.username}`;
-      saveProfile();
+      settings.githubAuth = { username: auth.username, token: auth.token };
+      saveSettings();
       syncIdentityUI();
     } catch (err) {
       log(`Sign-in failed: ${err.message || err}`);
     } finally {
       signInBtn.disabled = false;
-      if (!profile.signIn) signInBtn.textContent = "Sign in with GitHub";
+      if (!settings.githubAuth) signInBtn.textContent = "Sign in with GitHub";
     }
   });
 

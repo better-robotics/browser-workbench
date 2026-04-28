@@ -106,8 +106,8 @@ async function callOpenai(body) {
   const isGithub = settings.pipBackend === "github";
   let url, token;
   if (isGithub) {
-    const auth = settings.pipGithubAuth;
-    if (!auth?.token) return { status: 401, body: '{"error":"GitHub not connected — open Settings → Pip backend → Connect GitHub"}' };
+    const auth = settings.githubAuth;
+    if (!auth?.token) return { status: 401, body: '{"error":"GitHub not signed in — open Settings and Sign in with GitHub"}' };
     url = "https://models.github.ai/inference/chat/completions";
     token = auth.token;
     body = { ...body, model: GITHUB_MODEL };  // override regardless of caller default
