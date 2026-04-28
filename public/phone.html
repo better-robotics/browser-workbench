@@ -37,9 +37,9 @@
       <span class="menu-meta-label">Version</span>
       <span class="menu-meta-value" id="app-menu-version">—</span>
     </div>
+    <a class="menu-item" id="menu-dashboard" href="./?desktop=1"><svg class="icon-svg"><use href="icons.svg#icon-monitor"/></svg>Open dashboard view</a>
     <button class="menu-item" id="menu-install">Install on this phone</button>
     <button class="menu-item" id="menu-check-updates">Check for updates</button>
-    <a class="menu-item" id="menu-dashboard" href="./?desktop=1">Open dashboard view</a>
     <a class="menu-item" id="menu-report-issue" target="_blank" rel="noopener">Report an issue</a>
     <a class="menu-item" id="menu-repo" href="https://github.com/jonasneves/better-robotics" target="_blank" rel="noopener">GitHub repo</a>
     <button class="menu-item destructive" id="menu-hard-refresh">Hard refresh…</button>
@@ -156,7 +156,7 @@
   <!-- Perception scene readout — auto-rendered by phone.js when there's
        text to show. Self-hides when empty so it doesn't take up space. -->
   <section class="phone-scene" id="phone-scene" hidden>
-    <div class="phone-scene-label" id="phone-scene-source">Camera</div>
+    <div class="phone-scene-label"><svg class="icon-svg"><use href="icons.svg#icon-camera"/></svg><span id="phone-scene-source">Camera</span></div>
     <div class="phone-scene-text" id="phone-scene-text"></div>
   </section>
 
@@ -166,7 +166,7 @@
        so the operator doesn't miss the message. -->
   <details class="phone-pip" id="phone-pip">
     <summary class="phone-pip-summary">
-      <span class="phone-pip-title">💬 Pip</span>
+      <span class="phone-pip-title"><svg class="icon-svg"><use href="icons.svg#icon-message-circle"/></svg>Pip</span>
       <span class="phone-pip-status" id="phone-pip-status">tap to chat</span>
       <span class="phone-pip-dot" id="phone-pip-dot" hidden aria-label="unread"></span>
     </summary>

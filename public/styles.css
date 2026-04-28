@@ -312,7 +312,9 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 }
 .menu::backdrop { background: transparent; }
 .menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -324,6 +326,7 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   min-height: 32px;
   cursor: pointer;
 }
+.menu-item .icon-svg { width: 16px; height: 16px; color: var(--ink-muted); flex-shrink: 0; }
 .menu-item:hover { background: var(--line); }
 .menu-item.destructive { color: var(--danger); }
 .menu-item.destructive:hover { background: rgba(215, 0, 21, 0.08); }
@@ -2630,11 +2633,15 @@ body.phone textarea {
   border-radius: 12px;
 }
 .phone-scene-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: var(--ink-muted);
   letter-spacing: 0.04em;
   margin-bottom: 4px;
 }
+.phone-scene-label .icon-svg { width: 12px; height: 12px; }
 .phone-scene-text {
   font-size: 14px;
   line-height: 1.35;
@@ -2715,6 +2722,8 @@ body.phone textarea {
   list-style: none;
   font-weight: 500;
 }
+.phone-pip-title { display: inline-flex; align-items: center; gap: 8px; }
+.phone-pip-title .icon-svg { width: 18px; height: 18px; color: var(--ink-muted); }
 .phone-pip-summary::-webkit-details-marker { display: none; }
 .phone-pip-summary::marker { content: ""; }
 .phone-pip-summary::after {

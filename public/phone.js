@@ -294,7 +294,7 @@ function onPeerMessage(msg) {
     const section = $("phone-scene");
     const text = (msg.text || "").trim();
     if (text) {
-      $("phone-scene-source").textContent = msg.source ? `📷 ${msg.source}` : "📷 Camera";
+      $("phone-scene-source").textContent = msg.source || "Camera";
       $("phone-scene-text").textContent = text;
       section.hidden = false;
     } else {
