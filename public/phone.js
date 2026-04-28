@@ -672,7 +672,7 @@ async function toggleShareCamera() {
     preview.play?.().catch(() => {});
   }
   const btn = $("phone-share-btn");
-  if (btn) { btn.textContent = "Stop sharing"; btn.classList.add("on"); }
+  if (btn) { btn.textContent = "Stop sharing this device's camera"; btn.classList.add("on"); }
 }
 
 function _stopSharing() {
@@ -686,7 +686,7 @@ function _stopSharing() {
   const preview = $("phone-share-preview");
   if (preview) { preview.srcObject = null; preview.hidden = true; }
   const btn = $("phone-share-btn");
-  if (btn) { btn.textContent = "Share camera"; btn.classList.remove("on"); }
+  if (btn) { btn.textContent = "+ Share this device's camera"; btn.classList.remove("on"); }
 }
 
 function wireShareCamera() {
