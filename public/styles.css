@@ -356,6 +356,7 @@ a.menu-item { text-decoration: none; }
   color: var(--ink-muted);
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-muted); }
+.status-row { display: inline-flex; align-items: center; gap: 6px; }
 .dot.connected  { background: var(--success); }
 .dot.error      { background: var(--danger); }
 /* Pulsing amber while a connect is in flight. Same token as Pip's voice so the

@@ -336,7 +336,7 @@
   </div>
   <div class="row" style="margin: 0 0 12px;">
     <button class="secondary sm" id="esp-serial-connect">Connect</button>
-    <span class="meta" id="esp-serial-status">disconnected</span>
+    <span class="status-row"><span class="dot" id="esp-serial-status-dot"></span><span class="meta" id="esp-serial-status"></span></span>
   </div>
   <!-- Host for <ewt-console>. We don't put the element here statically — its
        connectedCallback fires on page load with no port set and crashes
@@ -354,8 +354,8 @@
     <button class="icon" id="recovery-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <div class="row" style="margin: 0 0 12px;">
-    <button class="secondary sm" id="recovery-connect">Connect via USB serial</button>
-    <span class="meta" id="recovery-status">disconnected</span>
+    <button class="secondary sm" id="recovery-connect">Connect</button>
+    <span class="status-row"><span class="dot" id="recovery-status-dot"></span><span class="meta" id="recovery-status"></span></span>
   </div>
   <div id="recovery-term" class="recovery-term"></div>
 </dialog>

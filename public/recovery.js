@@ -12,7 +12,13 @@ let _fit = null;
 let _resizeObs = null;
 let _xtermModule = null;
 
-function setStatus(msg) { $("recovery-status").textContent = msg; }
+// state: "" (idle/disconnected) | "connected" | "error" — drives the dot color.
+// text is shown alongside only when it carries info beyond the dot
+// (e.g. error detail). Default/connected states render dot-only.
+function setStatus(state, text = "") {
+  $("recovery-status-dot").className = `dot${state ? ` ${state}` : ""}`;
+  $("recovery-status").textContent = text;
+}
 
 async function ensureXtermLoaded() {
   if (_xtermModule) return _xtermModule;
@@ -34,7 +40,7 @@ async function ensureXtermLoaded() {
 async function connect() {
   if (!("serial" in navigator)) {
     log("Web Serial not supported — use Chrome or Edge on desktop");
-    setStatus("unsupported browser");
+    setStatus("error", "unsupported browser");
     return;
   }
   try {
@@ -42,10 +48,10 @@ async function connect() {
     await _port.open({ baudRate: 115200 });
   } catch (err) {
     if (err.name !== "NotFoundError") log(`Recovery connect error: ${err.message}`);
-    setStatus("disconnected");
+    setStatus("");
     return;
   }
-  setStatus("connected");
+  setStatus("connected");  // dot-only; no text
   $("recovery-connect").textContent = "Disconnect";
 
   const { Terminal, FitAddon } = await ensureXtermLoaded();

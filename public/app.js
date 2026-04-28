@@ -367,9 +367,14 @@ async function scanForNewPassive() {
   _discoverState.scanning = true;
   _discoverState.found = new Map();
   renderDiscovered();
+  // BR-* name filter (firmware naming, see pi_robot.py:326). We can't filter
+  // by service UUID at the scan level — Web Bluetooth's passive scan only
+  // sees services in the 31-byte AD payload, but our firmware (and most BLE
+  // stacks) put service UUIDs in SCAN_RESP. The active-scan chooser sees
+  // them; we don't. Name prefix is in the AD, so it's reliable.
   const onAdv = (event) => {
     const name = event.device.name;
-    if (!name) return;
+    if (!name || !name.startsWith("BR-")) return;
     const prev = _discoverState.found.get(name);
     _discoverState.found.set(name, {
       name,
@@ -381,7 +386,7 @@ async function scanForNewPassive() {
   navigator.bluetooth.addEventListener("advertisementreceived", onAdv);
   try {
     _discoverState.scanHandle = await navigator.bluetooth.requestLEScan({
-      filters: [{ services: [SERVICE_UUID] }, { services: [HEARTBEAT_SVC_UUID] }],
+      acceptAllAdvertisements: true,
       keepRepeatedDevices: false,
     });
     log("Passive scan started — watching for 15 s");

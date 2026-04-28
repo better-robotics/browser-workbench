@@ -10,9 +10,13 @@ let _wired = false;
 let _port = null;
 let _consoleEl = null;
 
-function setStatus(msg) {
+// state: "" (idle/disconnected) | "connected" | "connecting" | "error".
+// Drives the dot color; text only renders for non-default detail messages.
+function setStatus(state, text = "") {
+  const dot = $("esp-serial-status-dot");
   const el = $("esp-serial-status");
-  if (el) el.textContent = msg;
+  if (dot) dot.className = `dot${state ? ` ${state}` : ""}`;
+  if (el) el.textContent = text;
 }
 
 async function connect() {
@@ -25,14 +29,14 @@ async function connect() {
   try { known = await navigator.serial.getPorts(); } catch {}
   if (known.length === 1) {
     _port = known[0];
-    setStatus("opening…");
+    setStatus("connecting", "opening…");
   } else {
-    setStatus("requesting port…");
+    setStatus("connecting", "requesting port…");
     try {
       _port = await navigator.serial.requestPort();
     } catch (err) {
-      if (err.name !== "NotFoundError") setStatus(`pick cancelled: ${err.message}`);
-      else setStatus("disconnected");
+      if (err.name !== "NotFoundError") setStatus("error", `pick cancelled: ${err.message}`);
+      else setStatus("");
       return;
     }
   }
@@ -43,7 +47,7 @@ async function connect() {
   try {
     await _port.open({ baudRate: 115200 });
   } catch (err) {
-    setStatus(`open failed: ${err.message}`);
+    setStatus("error", `open failed: ${err.message}`);
     _port = null;
     return;
   }
@@ -88,7 +92,7 @@ async function disconnect() {
   }
   $("esp-serial-console-host").innerHTML = "";
   $("esp-serial-connect").textContent = "Connect";
-  setStatus("disconnected");
+  setStatus("");
 }
 
 export function init() {
