@@ -61,6 +61,11 @@ function emitLaptopChange() {
 
 export function initHelpers() {
   setPhonesChangeHandler(() => render());
+  // Always-on entry point for sharing the laptop camera. Sits next to
+  // "+ Pair phone" in helpers-add; visibility toggles in render() when
+  // the laptop is already live.
+  const shareBtn = $("share-laptop-btn");
+  if (shareBtn) shareBtn.addEventListener("click", () => startHelperCamera(LAPTOP_ID));
   render();
 }
 
@@ -270,21 +275,27 @@ function render() {
   const list = $("helpers-list");
   if (!list) return;
   const phones = listPhones();
-  // Idle laptop tile is permanent noise for the 99%-case desktop user
-  // who paired BLE to drive. Render the laptop card only when it's
-  // actively shared; otherwise the helpers list stays empty and only
-  // the "+ Pair phone" affordance shows. The laptop can still be
-  // started — the gateway is restored if anything else (a phone) joins.
+  // Render the laptop card only when actively shared OR a phone has
+  // joined the helpers list. Idle laptop tile by default is permanent
+  // noise for the 99%-case desktop user who paired BLE to drive. The
+  // entry point (start sharing) lives below in the helpers-add row as
+  // a small "+ Share laptop camera" link, so the affordance isn't lost
+  // — clicking it kicks the laptop into "live" which then renders the
+  // full card.
   const hasLiveLaptop = _laptop.status === "live" || _laptop.status === "starting";
   const cards = [];
   for (const p of phones) cards.push(renderPhoneCard(p));
   if (hasLiveLaptop || phones.length > 0) cards.push(renderLaptopCard());
   list.innerHTML = cards.join("");
   // Section-label hides too when the list is empty — the "+ Pair phone"
-  // button below speaks for itself; "Helpers" with nothing under it
-  // is heading without content.
+  // / "+ Share laptop camera" buttons below speak for themselves;
+  // "Helpers" with nothing under it is heading without content.
   const label = $("helpers-label");
   if (label) label.hidden = cards.length === 0;
+  // Hide the Share-laptop link once the laptop card is in the list —
+  // duplicate affordance otherwise. The card has its own Stop button.
+  const shareBtn = $("share-laptop-btn");
+  if (shareBtn) shareBtn.hidden = hasLiveLaptop;
   wire();
 }
 
