@@ -11,8 +11,9 @@ const FIRMWARE_FILES  = [
   "usb-gadget-setup.sh", "usb-gadget.service",
   // pi-robot-rtc — WebRTC peer (Phase 1.A item I in working.md). The
   // rtc/Makefile clones libpeer on first boot, so we ship sources only.
+  // README is dev docs, not needed on the SD.
   "pi-robot-rtc.service",
-  "rtc/Makefile", "rtc/main.c", "rtc/README.md",
+  "rtc/Makefile", "rtc/main.c",
 ];
 const SSH_KEY_STORE   = "better-robotics:ssh-pub";
 // libcomposite is the generic USB-gadget driver; the actual composite
