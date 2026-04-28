@@ -23,7 +23,7 @@
 //   For an intentional bump unrelated to assets (e.g. server-side change
 //   in an API contract), edit any cached asset (a comment will do) and
 //   CI will pick up a new hash.
-const VERSION = "753d05af";
+const VERSION = "4d909060";
 const CACHE = `dashboard-${VERSION}`;
 
 // Bootstrap files cached at install time so the dashboard can cold-boot
