@@ -1320,6 +1320,10 @@ function openMenu(triggerBtn, id) {
   $("menu-restart").hidden = !anyMember(m => !!m.opsChar);
   $("menu-reboot").hidden  = !anyMember(m => !!m.opsChar);
   $("menu-log").hidden     = !anyMember(m => !!m.opsChar);
+  // Shell is Pi-only (no shell on ESP32) and only useful when WiFi is up
+  // (signaling is HTTP-on-:82 today). pi-robot-rtc.service must also be
+  // installed; if it's not, the connect button surfaces a clear error.
+  $("menu-shell").hidden   = !anyMember(m => m.fwType === "pi" && m.status === "connected");
   // Pinout dialog handles both platforms; ANY connected member with fw-info
   // makes the item available. The handler picks among matching members.
   $("menu-pinout").hidden  = !anyMember(m => m.status === "connected" && m.fwInfo);
@@ -1537,6 +1541,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!id) return;
     const mod = await import("./pinout.js");
     mod.openPinoutDialog(id);
+  });
+  // Shell — lazy-import so xterm.js + WebRTC plumbing only load when the
+  // user actually opens a terminal session. Pi-only (predicate enforced
+  // when the menu item is shown).
+  $("menu-shell").addEventListener("click", async () => {
+    closeMenu();
+    const id = await chooseMemberForAction(
+      "Open shell", m => m.fwType === "pi" && m.status === "connected",
+    );
+    if (!id) return;
+    const mod = await import("./shell.js");
+    mod.openShellDialog(id);
   });
   // Recovery lives in the avatar menu, not the per-robot menu: gating the
   // "BLE is dead" escape hatch behind a paired robot is the exact catch-22

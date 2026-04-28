@@ -32,6 +32,15 @@ Every Pip tool call is persisted to IndexedDB automatically. Record shape:
 ```
 `imageDataUrl` payloads (e.g. from `ask_human_via_phone`) are kept in-record so a replay can reconstruct what Pip saw. Implementation: `public/replay.js`.
 
+## Robot endpoints (per-Pi HTTP)
+
+Each Pi exposes two HTTP servers on its WiFi IP (and `<hostname>.local`):
+
+- `:81/health` — wifi-presence probe. JSON `{ok, type, robotId, ip, uptime_s, pi_robot_service}`. Implementation: `firmware/pi_robot/pi_robot_health.py`.
+- `:82/webrtc/offer` — WebRTC signaling. `POST` an SDP offer JSON, get back an answer. Used by `public/webrtc-robot.js` for shell + future channels. Implementation: `firmware/pi_robot/rtc/` (libpeer-based C daemon, scaffold only — see `rtc/README.md`).
+
+Both endpoints support PNA preflight (`Access-Control-Allow-Private-Network: true`) so the dashboard's HTTPS origin can reach them.
+
 ## When to reach for what
 
 - Pairing hangs or fails silently → enable `?debug` on whichever side is stuck (desktop and/or phone).

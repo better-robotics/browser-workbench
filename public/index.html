@@ -165,6 +165,7 @@
   <button class="menu-item" id="menu-restart">Restart service</button>
   <button class="menu-item" id="menu-reboot">Reboot robot</button>
   <button class="menu-item" id="menu-log">View log</button>
+  <button class="menu-item" id="menu-shell" hidden>Shell</button>
   <button class="menu-item" id="menu-pinout">Pinout (GPIO)</button>
   <button class="menu-item" id="menu-merge">Merge with…</button>
   <button class="menu-item" id="menu-split" hidden>Split this device into its own robot</button>
@@ -333,6 +334,19 @@
     <span class="status-row"><span class="dot" id="recovery-status-dot"></span><span class="meta" id="recovery-status"></span></span>
   </div>
   <div id="recovery-term" class="recovery-term"></div>
+</dialog>
+
+<dialog id="shell-modal" class="prepare-dialog"
+  data-pip-context="Browser-resident terminal into a Pi over a WebRTC DataChannel. Auth is the WebRTC peer trust (LAN-direct signaling via the Pi's :82/webrtc/offer). Spawned via libpeer-based pi-robot-rtc.service on the Pi side; PTY runs as the robot user.">
+  <div class="modal-header">
+    <div class="label"><svg class="icon-svg modal-title-icon" id="shell-transport-icon"><use href="icons.svg#icon-wifi"/></svg>Shell<span class="modal-subtitle" id="shell-subtitle"></span></div>
+    <button class="icon" id="shell-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
+  </div>
+  <div class="row" style="margin: 0 0 12px;">
+    <button class="secondary sm" id="shell-connect">Connect</button>
+    <span class="status-row"><span class="dot" id="shell-status-dot"></span><span class="meta" id="shell-status"></span></span>
+  </div>
+  <div id="shell-term" class="recovery-term"></div>
 </dialog>
 
 <dialog id="label-modal" class="label-modal">
