@@ -103,6 +103,7 @@ export function makeLevelCap(schema) {
         state: `${v}%`,
         action: `<input type="range" class="level-slider" data-action="${action}"
                    min="${range[0]}" max="${range[1]}" value="${v}">`,
+        transport: "ble",
         sourceMember, alternativeMemberIds,
       });
     },

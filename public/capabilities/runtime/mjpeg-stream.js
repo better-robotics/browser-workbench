@@ -100,9 +100,11 @@ export function makeMjpegStreamCap(schema) {
              <span class="meta">changing profile restarts the robot</span>
            </div>`
         : "";
-      const stateText = !url ? "Waiting for WiFi"
-                      : running ? "streaming"
-                      : "ready";
+      // State string only when it adds info beyond the action verb. Action
+      // says Start/Stop already; "ready"/"streaming" would just echo it.
+      // "Waiting for WiFi" earns its place — the button is disabled and the
+      // user needs to know why.
+      const stateText = !url ? "Waiting for WiFi" : "";
       return capSection({
         name,
         label,
@@ -112,6 +114,7 @@ export function makeMjpegStreamCap(schema) {
         // sub-controls) render here so the operator sees one Camera section
         // hosting everything camera-shaped instead of three peers in a flat list.
         body: `${body}${watchRow}${promptField}${profileRow}${childHtml}`,
+        transport: "wifi",
         sourceMember, alternativeMemberIds,
       });
     },

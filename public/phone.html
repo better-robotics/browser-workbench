@@ -27,8 +27,8 @@
       <svg class="phone-brand-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
     </button>
     <span class="phone-status" id="phone-status">
-      <span class="dot" id="phone-status-dot"></span>
-      <span id="phone-status-text">Pairing…</span>
+      <span class="dot connecting" id="phone-status-dot"></span>
+      <span id="phone-status-text"></span>
     </span>
   </header>
 
@@ -50,7 +50,6 @@
       <div class="label">Hard refresh</div>
       <button class="icon" id="hard-refresh-close" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <p style="margin: 0 0 12px;">Clears everything stored by Pip in this browser and reloads. Use this when the page is stuck in a broken state that normal reload doesn't fix.</p>
     <div class="label" style="margin-bottom: 4px;">This will erase:</div>
     <ul class="hard-refresh-list">
       <li>App cache and service worker (re-downloaded on reload)</li>
@@ -173,7 +172,7 @@
     <div class="phone-pip-body">
       <div class="phone-chat">
         <div id="phone-echo" class="phone-echo" hidden></div>
-        <p id="phone-message" class="phone-message">Connecting to your desktop…</p>
+        <p id="phone-message" class="phone-message"></p>
       </div>
       <form id="phone-form" class="phone-form">
         <input id="phone-input" class="phone-input" type="text" autocomplete="off"

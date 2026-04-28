@@ -193,9 +193,10 @@ export function makeWifiScanCap(schema) {
       const networkRows = networks && networks.length
         ? networks.map(n => {
             const isJoined = n.s === joinedSsid;
-            const meta = isJoined
-              ? "Connected"
-              : n.p ? "Secured" : "Open";
+            // Joined rows: tint + check svg encode the state; meta would echo.
+            // Other rows: show Open/Secured (genuine info, not in any visual).
+            const metaHtml = isJoined ? "" :
+              `<div class="wifi-meta">${n.p ? "Secured" : "Open"}</div>`;
             const action = isJoined
               ? `<span class="wifi-status-tag">${CHECK_SVG}</span>`
               : `<button class="secondary sm" data-action="${actionJoin}" data-ssid="${escapeHtml(n.s)}" data-secured="${n.p ? 1 : 0}">Join</button>`;
@@ -204,7 +205,7 @@ export function makeWifiScanCap(schema) {
                 ${signalBars(n.r)}
                 <div class="wifi-text">
                   <div class="wifi-ssid">${escapeHtml(n.s)}</div>
-                  <div class="wifi-meta">${escapeHtml(meta)}</div>
+                  ${metaHtml}
                 </div>
                 ${n.p ? LOCK_SVG : ""}
                 ${action}
@@ -233,6 +234,7 @@ export function makeWifiScanCap(schema) {
           ${scanning ? `<span class="wifi-spinner"></span> Scanning…` : "Scan"}
         </button>`,
         body: nets,
+        transport: "ble",
         sourceMember, alternativeMemberIds,
       });
     },

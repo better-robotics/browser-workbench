@@ -485,7 +485,7 @@ function renderEdit(entry) {
         <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>
         <!-- One-click preset for beginners: all pins set to safe, non-reserved,
              conflict-free values that work on any Pi 4 with stock raspi-config. -->
-        <button class="secondary sm" id="pinout-safe-defaults-btn" title="Set LED + motor pins to a known-good preset (no hardware-reserved pins, no conflicts)">Use safe defaults</button>
+        <button class="secondary sm" id="pinout-safe-defaults-btn">Use safe defaults</button>
         <button class="sm" id="pinout-save-btn" ${conflicts.length ? "disabled" : ""}>Save &amp; restart</button>
       </div>
     </div>

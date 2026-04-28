@@ -112,13 +112,13 @@ export function makeSignedPairCap(schema) {
       const action = `<button class="secondary sm" data-action="${actionStop}">Stop</button>`;
       const body = isMotors
         ? `<div class="joypad-wrap" data-action="motors-joypad">
-             <div class="joypad" title="Drag to drive — WASD / arrow keys also work"><div class="joypad-knob"></div></div>
+             <div class="joypad"><div class="joypad-knob"></div></div>
            </div>`
         : `<div class="motor-sliders">
              <label>${escapeHtml(labels.left)} <input type="range" min="${range[0]}" max="${range[1]}" value="${entry[leftField]}" data-action="${actionLeft}"></label>
              <label>${escapeHtml(labels.right)} <input type="range" min="${range[0]}" max="${range[1]}" value="${entry[rightField]}" data-action="${actionRight}"></label>
            </div>`;
-      return capSection({ name, label, state: stateText, action, body, sourceMember, alternativeMemberIds });
+      return capSection({ name, label, state: stateText, action, body, transport: "ble", sourceMember, alternativeMemberIds });
     },
 
     wireActions(entry, node) {

@@ -234,7 +234,7 @@ export function makeWebrtcInstallableCap(schema) {
         ${watchRow}
         ${promptField}
       `;
-      return capSection({ name, label, state: meta, action, body, sourceMember, alternativeMemberIds });
+      return capSection({ name, label, state: meta, action, body, transport: "wifi", sourceMember, alternativeMemberIds });
     },
 
     wireActions(entry, node) {

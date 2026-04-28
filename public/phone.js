@@ -1020,14 +1020,14 @@ async function init() {
     _trust.trust(remotePk, "Computer");
   }
   try {
-    setStatus("connecting", "Connecting…");
+    setStatus("connecting", "");
     // Route pair stages through setMessage so the user sees where we're
     // stuck if something stalls — "offer sent, waiting for desktop…" tells
     // them way more than a forever-spinning "Connecting…".
     _peer = await joinPairingRoom(roomId, {
       onStatus: (s) => setMessage(s, "status"),
     });
-    setStatus("connected", "Connected");
+    setStatus("connected", "");
     // Mirror of assistant.js's PIP_INTRO — kept in sync manually rather
     // than imported, since pulling assistant.js into the phone bundle
     // would drag claude.js + Pip popover code we don't need on phone.
@@ -1057,10 +1057,10 @@ async function init() {
     // the next data channel write will catch up.
     _peer.onStatus((status, detail) => {
       if (status === "connected") {
-        setStatus("connected", "Connected");
+        setStatus("connected", "");
         $("phone-input").disabled = false;
       } else if (status === "reconnecting") {
-        setStatus("connecting", detail || "Reconnecting…");
+        setStatus("connecting", "");
       } else if (status === "failed") {
         setStatus("error", "Disconnected");
         $("phone-input").disabled = true;

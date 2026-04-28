@@ -87,15 +87,14 @@
   <section class="card" id="discovered" hidden></section>
 
   <section class="card empty-state" id="empty-state" hidden>
-    <div class="empty-title">No robots yet</div>
+    <svg class="icon-svg empty-icon" aria-hidden="true"><use href="icons.svg#icon-bot"/></svg>
     <div class="empty-actions">
-      <button id="empty-add-robot-btn">Set up a robot</button>
+      <button id="empty-add-robot-btn">Set up</button>
       <button id="empty-scan-btn" class="secondary">Scan nearby</button>
     </div>
   </section>
 
   <div class="helpers-section" id="helpers-section">
-    <div class="helpers-label" id="helpers-label">Helpers</div>
     <div id="helpers-list"></div>
     <div class="helpers-add">
       <span id="phone-presence" class="presence-badge" hidden></span>
@@ -122,10 +121,10 @@
 <div id="avatar-menu" class="menu" popover="manual">
   <div class="menu-header" id="avatar-menu-name">Not set</div>
   <button class="menu-item" id="menu-settings">Settings</button>
-  <button class="menu-item" id="menu-gpio-ref" title="View the Raspberry Pi 40-pin header or ESP32-CAM pin map (no robot required)">GPIO reference</button>
-  <button class="menu-item" id="menu-recovery" title="USB-C serial recovery console — works when BLE is dead">Recovery console</button>
-  <button class="menu-item" id="menu-esp-serial" title="ESP32 serial monitor — watch boot logs over USB">ESP32 serial</button>
-  <button class="menu-item" id="menu-scripts" title="Write JS that drives connected robots — runs in this tab, no upload">Scripts</button>
+  <button class="menu-item" id="menu-gpio-ref">GPIO reference</button>
+  <button class="menu-item" id="menu-recovery">Recovery console</button>
+  <button class="menu-item" id="menu-esp-serial">ESP32 serial</button>
+  <button class="menu-item" id="menu-scripts">Scripts</button>
 </div>
 
 <div id="app-menu" class="menu" popover="manual">
@@ -145,7 +144,6 @@
     <div class="label">Hard refresh</div>
     <button class="icon" id="hard-refresh-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p style="margin: 0 0 12px;">Clears everything stored by the dashboard in this browser and reloads. Use this when the app is stuck in a broken state that normal reload doesn't fix.</p>
   <div class="label" style="margin-bottom: 4px;">This will erase:</div>
   <ul class="hard-refresh-list">
     <li>App cache and service worker (re-downloaded on reload)</li>
@@ -344,9 +342,6 @@
     <div class="label">ESP32 serial monitor</div>
     <button class="icon" id="esp-serial-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="meta" style="margin: 0 0 12px;">
-    Live boot log + serial output from a USB-connected ESP32. Uses esp-web-tools' <code>&lt;ewt-console&gt;</code> (already in the bundle for Flash). For a Pi shell, use Recovery console — different device, different terminal needs.
-  </p>
   <div class="row" style="margin: 0 0 12px;">
     <button class="secondary sm" id="esp-serial-connect">Connect</button>
     <span class="meta" id="esp-serial-status">disconnected</span>
@@ -366,9 +361,6 @@
     <div class="label">Recovery console</div>
     <button class="icon" id="recovery-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="meta" style="margin: 0 0 12px;">
-    USB-C serial console to a Pi running Better Robotics. Works even when BLE is dead or the firmware is crashing — the USB gadget runs independently of pi-robot.service. Plug the Pi into this Mac, click Connect, pick the "BetterPi" serial port. Auto-logs in as the robot user (physical cable is the auth boundary).
-  </p>
   <div class="row" style="margin: 0 0 12px;">
     <button class="secondary sm" id="recovery-connect">Connect via USB serial</button>
     <span class="meta" id="recovery-status">disconnected</span>
@@ -397,7 +389,7 @@
     <button class="icon" id="prepare-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <p class="hint" style="margin: 0 0 16px;">
-    After imaging the card with Raspberry Pi OS (via Raspberry Pi Imager), fill these in and pick the mounted boot partition. The browser writes firmware, wheels, and firstrun.sh onto it.
+    Image with Raspberry Pi Imager first, then fill these in and pick the mounted boot partition.
   </p>
   <div id="prep-unsupported" class="unsupported" hidden>
     File System Access API required — use Chrome or Edge on desktop.

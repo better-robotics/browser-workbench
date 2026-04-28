@@ -155,6 +155,7 @@ export function makeBleSnapshotCap(schema) {
         state: stateText,
         action: `<button class="secondary sm" data-action="${action}" ${busy ? "disabled" : ""}>${busy ? "Capturing…" : "Take photo"}</button>`,
         body: `${img}${errLine}`,
+        transport: "ble",
         sourceMember, alternativeMemberIds,
       });
     },

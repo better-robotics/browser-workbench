@@ -287,11 +287,6 @@ function render() {
   for (const p of phones) cards.push(renderPhoneCard(p));
   if (hasLiveLaptop || phones.length > 0) cards.push(renderLaptopCard());
   list.innerHTML = cards.join("");
-  // Section-label hides too when the list is empty — the "+ Pair phone"
-  // / "+ Share laptop camera" buttons below speak for themselves;
-  // "Helpers" with nothing under it is heading without content.
-  const label = $("helpers-label");
-  if (label) label.hidden = cards.length === 0;
   // Hide the Share-laptop link once the laptop card is in the list —
   // duplicate affordance otherwise. The card has its own Stop button.
   const shareBtn = $("share-laptop-btn");
@@ -308,13 +303,13 @@ function statusClass(p) {
 
 function renderPhoneCard(p) {
   const cls = statusClass(p);
-  const statusText = p.status === "connected"
-    ? ""
-    : p.status === "reconnecting"
-      ? "Reconnecting…"
-      : p.status === "error"
-        ? "Offline"
-        : escapeHtml(p.status);
+  // Drop transient text — the row's status-* class tints already. Words
+  // earn their place only when terminal (error) or unknown (raw status).
+  const statusText = p.status === "error"
+    ? "Offline"
+    : (p.status === "connected" || p.status === "reconnecting")
+      ? ""
+      : escapeHtml(p.status);
   const ps = _phoneStreams.get(p.id);
   const live = !!ps;
   const helperId = `phone:${p.id}`;
@@ -375,11 +370,11 @@ function renderLaptopCard() {
   const starting = _laptop.status === "starting";
   const errored = _laptop.status === "error";
   const cls = live ? "status-connected" : starting ? "status-connecting" : errored ? "status-error" : "";
-  const statusText = errored ? "Error" : starting ? "Starting…" : "";
+  const statusText = errored ? "Error" : "";
   const res = _laptop.trackSettings
     ? `${_laptop.trackSettings.width || "?"}×${_laptop.trackSettings.height || "?"}`
     : "";
-  const meta = live ? `Streaming · ${escapeHtml(res)}` : "Idle";
+  const meta = live ? `Streaming · ${escapeHtml(res)}` : "";
   const action = live
     ? `<button class="secondary sm" data-action="laptop-stop">Stop</button>`
     : `<button class="sm" data-action="laptop-start" ${starting ? "disabled" : ""}>${starting ? "Starting…" : "Start"}</button>`;

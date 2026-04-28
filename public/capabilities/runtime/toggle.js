@@ -74,8 +74,8 @@ export function makeToggleCap(schema) {
       return capSection({
         name,
         label,
-        state: on ? "on" : "off",
         action: `<button class="secondary sm" data-action="${action}">${on ? "Turn off" : "Turn on"}</button>`,
+        transport: "ble",
         sourceMember, alternativeMemberIds,
       });
     },

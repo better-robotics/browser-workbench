@@ -65,6 +65,7 @@ export function setOpen(name, open) {
 export function capSection({
   name, label, state = "", action = "", body = "",
   sourceMember = null, alternativeMemberIds = [],
+  transport = "",
 }) {
   const hasBody = !!body && body.trim().length > 0;
   const open = isOpen(name);
@@ -73,7 +74,16 @@ export function capSection({
         escapeHtml(sourceMember.fwType === "esp32" ? "ESP32" : (sourceMember.fwType || "").toUpperCase())
       }</span>`
     : "";
+  // Tiny transport hint — surfaces "this fails when X is down" without
+  // forcing the user to know which caps live on which channel. Hidden
+  // when transport isn't specified (legacy / self-evident caps).
+  const transportIcon = transport === "ble"
+    ? `<svg class="icon-svg cap-transport" aria-label="via Bluetooth"><use href="icons.svg#icon-bluetooth"/></svg>`
+    : transport === "wifi"
+    ? `<svg class="icon-svg cap-transport" aria-label="via WiFi"><use href="icons.svg#icon-wifi"/></svg>`
+    : "";
   const labelHtml = `
+    ${transportIcon}
     <span class="cap-label">${escapeHtml(label)}</span>
     ${sourceChip}
     ${state ? `<span class="cap-state">${escapeHtml(state)}</span>` : ""}
