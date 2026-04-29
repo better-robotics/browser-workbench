@@ -7,12 +7,14 @@
 #include "ble_host.h"
 #include "camera.h"
 #include "flash.h"
+#include "fw_info.h"
 #include "http_server.h"
 #include "led.h"
 #include "mdns_advertise.h"
 #include "motors.h"
 #include "ota.h"
 #include "pin_config.h"
+#include "telemetry.h"
 #include "wifi_sta.h"
 
 static const char *TAG = "esp32_robot";
@@ -62,8 +64,15 @@ void app_main(void) {
     flash_init(pins.flash);
     motors_init(&pins);
 
+    // fw-info reflects the cap surface — built once after caps are up;
+    // changes (camera profile, pin config) reboot, so a fresh boot
+    // rebuilds it. gatt_svr_init reads fw_info_json() lazily on first
+    // BLE read, but having it ready before BLE is up is cleaner.
+    fw_info_init(&pins);
+
     ble_host_init(ble_name);
     ota_init();
+    telemetry_init();
     wifi_sta_init(hostname);
     http_server_init(ble_name);
     mdns_advertise_init(hostname);

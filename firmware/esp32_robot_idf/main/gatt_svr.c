@@ -10,11 +10,13 @@
 #include "ble_host.h"
 #include "camera.h"
 #include "flash.h"
+#include "fw_info.h"
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
 #include "pin_config.h"
 #include "snapshot.h"
+#include "telemetry.h"
 #include "uuids.h"
 #include "wifi_sta.h"
 
@@ -33,6 +35,8 @@ static ble_uuid128_t s_ota_status_uuid;
 static ble_uuid128_t s_snapshot_request_uuid;
 static ble_uuid128_t s_snapshot_data_uuid;
 static ble_uuid128_t s_camera_profile_uuid;
+static ble_uuid128_t s_telemetry_uuid;
+static ble_uuid128_t s_fw_info_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -41,6 +45,8 @@ static uint16_t s_wifi_scan_handle;
 static uint16_t s_wifi_status_handle;
 static uint16_t s_ota_status_handle;
 static uint16_t s_snapshot_data_handle;
+static uint16_t s_telemetry_handle;
+static uint16_t s_fw_info_handle;
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -218,6 +224,26 @@ static int camera_profile_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int telemetry_access(uint16_t conn, uint16_t attr,
+                            struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        const char *json = telemetry_json();
+        return os_mbuf_append(ctxt->om, json, strlen(json)) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int fw_info_access(uint16_t conn, uint16_t attr,
+                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        const char *json = fw_info_json();
+        return os_mbuf_append(ctxt->om, json, strlen(json)) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_chr_def s_chars[] = {
     {
         .uuid = &s_led_uuid.u,
@@ -288,6 +314,18 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .access_cb = camera_profile_access,
         .flags = BLE_GATT_CHR_F_WRITE,
     },
+    {
+        .uuid = &s_telemetry_uuid.u,
+        .access_cb = telemetry_access,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_telemetry_handle,
+    },
+    {
+        .uuid = &s_fw_info_uuid.u,
+        .access_cb = fw_info_access,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_fw_info_handle,
+    },
     { 0 },
 };
 
@@ -314,6 +352,8 @@ void gatt_svr_init(void) {
     parse_uuid128(SNAPSHOT_REQUEST_CHAR_UUID, &s_snapshot_request_uuid);
     parse_uuid128(SNAPSHOT_DATA_CHAR_UUID,    &s_snapshot_data_uuid);
     parse_uuid128(CAMERA_PROFILE_CHAR_UUID,   &s_camera_profile_uuid);
+    parse_uuid128(TELEMETRY_CHAR_UUID,        &s_telemetry_uuid);
+    parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -328,6 +368,8 @@ void gatt_svr_notify_motor(void)       { if (s_motor_handle)       ble_gatts_chr
 void gatt_svr_notify_wifi_scan(void)   { if (s_wifi_scan_handle)   ble_gatts_chr_updated(s_wifi_scan_handle); }
 void gatt_svr_notify_wifi_status(void) { if (s_wifi_status_handle) ble_gatts_chr_updated(s_wifi_status_handle); }
 void gatt_svr_notify_ota_status(void)  { if (s_ota_status_handle)  ble_gatts_chr_updated(s_ota_status_handle); }
+void gatt_svr_notify_telemetry(void)   { if (s_telemetry_handle)   ble_gatts_chr_updated(s_telemetry_handle); }
+void gatt_svr_notify_fw_info(void)     { if (s_fw_info_handle)     ble_gatts_chr_updated(s_fw_info_handle); }
 
 void gatt_svr_snapshot_send(const uint8_t *buf, size_t len) {
     uint16_t conn = ble_host_active_conn();

@@ -23,6 +23,8 @@ void gatt_svr_notify_motor(void);
 void gatt_svr_notify_wifi_scan(void);
 void gatt_svr_notify_wifi_status(void);
 void gatt_svr_notify_ota_status(void);
+void gatt_svr_notify_telemetry(void);
+void gatt_svr_notify_fw_info(void);
 
 // Push a snapshot frame to the active central. Custom-payload notify
 // (not a stored-value notify) — wraps ble_gatts_notify_custom. No-op if

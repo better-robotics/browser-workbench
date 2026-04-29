@@ -21,6 +21,8 @@ idf_component_register(
         "camera.c"
         "snapshot.c"
         "restart_util.c"
+        "fw_info.c"
+        "telemetry.c"
     INCLUDE_DIRS
         "."
         "../../esp32_robot"
