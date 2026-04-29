@@ -102,6 +102,7 @@ static void send_ble_signal_error(const char *msg) {
 
 static void send_answer_via_ble(const char *sdp) {
     size_t total = strlen(sdp);
+    ESP_LOGI(TAG, "send_answer_via_ble: total=%u", (unsigned)total);
     if (total == 0 || total > 0xFFFF) {
         send_ble_signal_error("answer size out of range");
         return;
@@ -124,6 +125,8 @@ static void send_answer_via_ble(const char *sdp) {
     }
     uint8_t commit[1] = { 0x03 };
     gatt_svr_signal_send(commit, 1);
+    ESP_LOGI(TAG, "send_answer_via_ble: done (%u chunks)",
+             (unsigned)((total + BLE_SIG_CHUNK - 1) / BLE_SIG_CHUNK));
 }
 
 void webrtc_peer_handle_ble_signal_write(const uint8_t *buf, size_t len) {
@@ -132,6 +135,7 @@ void webrtc_peer_handle_ble_signal_write(const uint8_t *buf, size_t len) {
     if (op == 0x01) {
         if (len < 3) { send_ble_signal_error("bad begin"); return; }
         size_t total = ((size_t)buf[1] << 8) | buf[2];
+        ESP_LOGI(TAG, "ble signal: begin total=%u", (unsigned)total);
         if (total == 0 || total > BLE_SIG_MAX_OFFER) {
             send_ble_signal_error("offer size out of range");
             return;
@@ -163,6 +167,8 @@ void webrtc_peer_handle_ble_signal_write(const uint8_t *buf, size_t len) {
             send_ble_signal_error("offer incomplete");
             return;
         }
+        ESP_LOGI(TAG, "ble signal: commit, offer assembled %u B",
+                 (unsigned)s_ble_offer_total);
         s_ble_offer_buf[s_ble_offer_total] = 0;
         // Hand ownership to the loop task via the event queue. If queue
         // send fails, free here; otherwise the loop task frees after
@@ -346,6 +352,8 @@ static void on_dc_close(void *ud) {
 }
 
 static void handle_offer(const char *sdp, offer_src_t src) {
+    ESP_LOGI(TAG, "handle_offer: src=%s, sdp len=%u",
+             src == OFFER_SRC_BLE ? "BLE" : "WS", (unsigned)strlen(sdp));
     s_active_offer_src = src;
     if (s_pc) {
         peer_connection_close(s_pc);
@@ -369,12 +377,17 @@ static void handle_offer(const char *sdp, offer_src_t src) {
     peer_connection_oniceconnectionstatechange(s_pc, on_state_change);
     peer_connection_ondatachannel(s_pc, on_dc_message, on_dc_open, on_dc_close);
 
+    ESP_LOGI(TAG, "handle_offer: setting remote description");
     peer_connection_set_remote_description(s_pc, sdp, SDP_TYPE_OFFER);
+    ESP_LOGI(TAG, "handle_offer: creating answer");
     const char *answer = peer_connection_create_answer(s_pc);
     if (!answer || !answer[0]) {
         ESP_LOGE(TAG, "create_answer empty");
+        if (src == OFFER_SRC_BLE) send_ble_signal_error("create_answer failed");
         return;
     }
+    ESP_LOGI(TAG, "handle_offer: answer ready, %u B, src=%s",
+             (unsigned)strlen(answer), src == OFFER_SRC_BLE ? "BLE" : "WS");
     if (src == OFFER_SRC_BLE) {
         send_answer_via_ble(answer);
     } else {

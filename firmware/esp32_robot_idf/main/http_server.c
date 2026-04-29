@@ -25,11 +25,17 @@ httpd_handle_t http_server_handle(void) { return s_server; }
 // Access-Control-Allow-Origin to *echo the requesting Origin* rather
 // than `*` when the page is HTTPS and the target is http://<private-IP>.
 // Echo-with-Vary keeps caches sane.
-static void set_cors_headers(httpd_req_t *req) {
-    char origin[128] = {0};
-    if (httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK
-        && origin[0] != 0) {
-        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", origin);
+//
+// IDF's httpd_resp_set_hdr DOES NOT copy strings — the buffer must
+// outlive the response. Caller passes a stack buffer that lives until
+// httpd_resp_send fires (handler scope). Earlier we used a stack-local
+// buffer inside this helper; it died before the response built and the
+// browser saw `Access-Control-Allow-Origin: ''` (empty string from
+// freed-stack memory). The CORS preflight then failed.
+static void set_cors_headers(httpd_req_t *req, char *origin_buf, size_t buf_size) {
+    if (httpd_req_get_hdr_value_str(req, "Origin", origin_buf, buf_size) == ESP_OK
+        && origin_buf[0] != 0) {
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", origin_buf);
         httpd_resp_set_hdr(req, "Vary", "Origin");
     } else {
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -37,7 +43,8 @@ static void set_cors_headers(httpd_req_t *req) {
 }
 
 static esp_err_t options_preflight_handler(httpd_req_t *req) {
-    set_cors_headers(req);
+    char origin[128] = {0};
+    set_cors_headers(req, origin, sizeof(origin));
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
@@ -61,7 +68,8 @@ static esp_err_t health_handler(httpd_req_t *req) {
         "{\"ok\":true,\"type\":\"esp32\",\"robotId\":\"%s\",\"ip\":\"%s\","
         "\"uptime_s\":%lld,\"sha\":\"%s\"}",
         s_robot_name, ip_str, esp_timer_get_time() / 1000000, GIT_SHA);
-    set_cors_headers(req);
+    char origin[128] = {0};
+    set_cors_headers(req, origin, sizeof(origin));
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, body, n);
     return ESP_OK;
@@ -133,7 +141,8 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "commit");
         return ESP_FAIL;
     }
-    set_cors_headers(req);
+    char origin[128] = {0};
+    set_cors_headers(req, origin, sizeof(origin));
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, "OK", 2);
     return ESP_OK;
