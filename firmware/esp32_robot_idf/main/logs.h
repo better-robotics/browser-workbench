@@ -34,7 +34,3 @@ void logs_start(void);
 // firmware can't know the boot history; keeping the ring big enough for
 // "last few minutes" is the budget.
 void logs_replay_to(uint16_t conn_handle);
-
-// Called by gatt_svr at GATT init.
-uint16_t logs_char_handle(void);
-void logs_set_char_handle(uint16_t handle);

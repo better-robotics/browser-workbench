@@ -12,6 +12,7 @@
 #include "host/ble_hs.h"
 
 #include "ble_host.h"
+#include "gatt_svr.h"
 
 // Ring buffer big enough for ~30 s of moderate logging. Bumping this is
 // cheap RAM-wise (it's all uint8_t) but eats from the post-camera DRAM
@@ -45,7 +46,6 @@ static size_t s_used = 0;       // bytes available to read
 // Saved by the original vprintf so we can chain — the default writes to
 // the UART, which we want to keep so the serial console still works.
 static vprintf_like_t s_orig_vprintf = NULL;
-static volatile uint16_t s_logs_handle = 0;
 // Marker so vprintf doesn't recurse if we ever ESP_LOG from the drain
 // task. Set per-task; covers the simple case where logs_drain_task itself
 // emits a log line.
@@ -125,10 +125,6 @@ static int log_vprintf_hook(const char *fmt, va_list args) {
     return r;
 }
 
-// Forward declaration — pulls in gatt_svr's notify wrapper without
-// requiring this module to know the val_handle directly.
-extern void gatt_svr_logs_send(uint16_t conn, const uint8_t *buf, size_t len);
-
 static void send_chunked(uint16_t conn, const uint8_t *buf, size_t len) {
     if (len == 0 || conn == BLE_HS_CONN_HANDLE_NONE) return;
     uint8_t hdr[3] = { 0x01, (uint8_t)(len >> 8), (uint8_t)(len & 0xff) };
@@ -150,7 +146,7 @@ static void drain_task(void *arg) {
     uint8_t batch[LOG_BATCH_MAX];
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(LOG_DRAIN_MS));
-        if (!s_logs_handle) continue;
+        if (!gatt_svr_logs_handle()) continue;
         uint16_t conn = ble_host_active_conn();
         if (conn == BLE_HS_CONN_HANDLE_NONE) continue;
         size_t n = ring_pop(batch, sizeof(batch));
@@ -189,5 +185,3 @@ void logs_replay_to(uint16_t conn_handle) {
     send_chunked(conn_handle, batch, n);
 }
 
-uint16_t logs_char_handle(void) { return s_logs_handle; }
-void logs_set_char_handle(uint16_t handle) { s_logs_handle = handle; }
