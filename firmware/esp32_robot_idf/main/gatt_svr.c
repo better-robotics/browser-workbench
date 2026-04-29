@@ -10,6 +10,7 @@
 #include "flash.h"
 #include "led.h"
 #include "motors.h"
+#include "ota.h"
 #include "pin_config.h"
 #include "uuids.h"
 #include "wifi_sta.h"
@@ -24,12 +25,15 @@ static ble_uuid128_t s_pin_config_uuid;
 static ble_uuid128_t s_wifi_scan_uuid;
 static ble_uuid128_t s_wifi_join_uuid;
 static ble_uuid128_t s_wifi_status_uuid;
+static ble_uuid128_t s_ota_data_uuid;
+static ble_uuid128_t s_ota_status_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
 static uint16_t s_motor_handle;
 static uint16_t s_wifi_scan_handle;
 static uint16_t s_wifi_status_handle;
+static uint16_t s_ota_status_handle;
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -152,6 +156,29 @@ static int wifi_status_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+// OTA-data buffer big enough for chunk 0x02 [payload up to MTU-3=244].
+static int ota_data_access(uint16_t conn, uint16_t attr,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t buf[256];
+        uint16_t copied = 0;
+        ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
+        if (copied > 0) ota_handle_data_write(buf, copied);
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int ota_status_access(uint16_t conn, uint16_t attr,
+                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        const char *json = ota_status_json();
+        return os_mbuf_append(ctxt->om, json, strlen(json)) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_chr_def s_chars[] = {
     {
         .uuid = &s_led_uuid.u,
@@ -193,6 +220,19 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_wifi_status_handle,
     },
+    {
+        .uuid = &s_ota_data_uuid.u,
+        .access_cb = ota_data_access,
+        // WRITE | WRITE_NR — without-response lets the dashboard stream
+        // chunks without per-frame ATT acks. Same flags as the .ino.
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+    },
+    {
+        .uuid = &s_ota_status_uuid.u,
+        .access_cb = ota_status_access,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_ota_status_handle,
+    },
     { 0 },
 };
 
@@ -214,6 +254,8 @@ void gatt_svr_init(void) {
     parse_uuid128(WIFI_SCAN_CHAR_UUID,   &s_wifi_scan_uuid);
     parse_uuid128(WIFI_JOIN_CHAR_UUID,   &s_wifi_join_uuid);
     parse_uuid128(WIFI_STATUS_CHAR_UUID, &s_wifi_status_uuid);
+    parse_uuid128(OTA_DATA_CHAR_UUID,    &s_ota_data_uuid);
+    parse_uuid128(OTA_STATUS_CHAR_UUID,  &s_ota_status_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -227,3 +269,4 @@ void gatt_svr_notify_flash(void)       { if (s_flash_handle)       ble_gatts_chr
 void gatt_svr_notify_motor(void)       { if (s_motor_handle)       ble_gatts_chr_updated(s_motor_handle); }
 void gatt_svr_notify_wifi_scan(void)   { if (s_wifi_scan_handle)   ble_gatts_chr_updated(s_wifi_scan_handle); }
 void gatt_svr_notify_wifi_status(void) { if (s_wifi_status_handle) ble_gatts_chr_updated(s_wifi_status_handle); }
+void gatt_svr_notify_ota_status(void)  { if (s_ota_status_handle)  ble_gatts_chr_updated(s_ota_status_handle); }

@@ -19,3 +19,4 @@ void gatt_svr_notify_flash(void);
 void gatt_svr_notify_motor(void);
 void gatt_svr_notify_wifi_scan(void);
 void gatt_svr_notify_wifi_status(void);
+void gatt_svr_notify_ota_status(void);

@@ -6,9 +6,11 @@
 
 #include "ble_host.h"
 #include "flash.h"
+#include "http_server.h"
 #include "led.h"
 #include "mdns_advertise.h"
 #include "motors.h"
+#include "ota.h"
 #include "pin_config.h"
 #include "wifi_sta.h"
 
@@ -54,6 +56,9 @@ void app_main(void) {
     led_init(pins.led);
     flash_init(pins.flash);
     motors_init(&pins);
+
+    ota_init();
+    http_server_init(ble_name);
 
     // BLE last among the radios so the GATT service table is registered
     // and ready before any central can connect. gatt_svr_init runs inside
