@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 // Three discrete operating points the operator can pick. Persisted in
 // NVS namespace "cam" / key "profile" — applied at camera_init time, no
@@ -21,3 +23,9 @@ bool camera_init(void);
 bool camera_ready(void);
 int camera_init_error(void);
 camera_profile_t camera_get_profile(void);
+
+// Handle a write to the BLE camera-profile char. JSON payload:
+//   {"profile":"compact|standard|full"}.
+// Persists to NVS and schedules a restart so initCamera reads the new
+// value at boot — no hot-swap.
+void camera_handle_profile_write(const uint8_t *json, size_t len);

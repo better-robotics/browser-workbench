@@ -6,10 +6,10 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
-#include "esp_system.h"
 #include "esp_timer.h"
 
 #include "gatt_svr.h"
+#include "restart_util.h"
 
 static const char *TAG = "ota";
 
@@ -37,18 +37,6 @@ static void publish_status(const char *st, size_t n, size_t total, const char *e
     snprintf(s_status_json + o, STATUS_BUF_SIZE - o, "}");
     ESP_LOGI(TAG, "status → %s", s_status_json);
     gatt_svr_notify_ota_status();
-}
-
-static void deferred_restart(void *arg) {
-    ESP_LOGI(TAG, "restarting after OTA");
-    esp_restart();
-}
-
-static void schedule_restart(uint64_t delay_ms) {
-    esp_timer_create_args_t a = { .callback = deferred_restart, .name = "ota_restart" };
-    esp_timer_handle_t t;
-    esp_timer_create(&a, &t);
-    esp_timer_start_once(t, delay_ms * 1000);
 }
 
 void ota_init(void) {

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "host/ble_uuid.h"
 
 // Service table for the project's main_service. Owned by gatt_svr.c —
@@ -20,3 +23,9 @@ void gatt_svr_notify_motor(void);
 void gatt_svr_notify_wifi_scan(void);
 void gatt_svr_notify_wifi_status(void);
 void gatt_svr_notify_ota_status(void);
+
+// Push a snapshot frame to the active central. Custom-payload notify
+// (not a stored-value notify) — wraps ble_gatts_notify_custom. No-op if
+// no central is connected. The snapshot task drives this directly with
+// the begin/chunk/commit/error envelope.
+void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);

@@ -4,9 +4,9 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "esp_system.h"
-#include "esp_timer.h"
 #include "nvs.h"
+
+#include "restart_util.h"
 
 static const char *TAG = "pin_config";
 
@@ -83,11 +83,6 @@ static bool pin_in_reserved(int p) {
     return false;
 }
 
-static void deferred_restart(void *arg) {
-    ESP_LOGI(TAG, "applying new pin config — restart");
-    esp_restart();
-}
-
 void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     const char *json = (const char *)json_bytes;
     int led    = extract_int_key(json, len, "led");
@@ -133,15 +128,5 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
 
     ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d)",
              led, flash, l_in1, l_in2, r_in1, r_in2);
-
-    // Defer the restart so the BLE ATT response for this write reaches
-    // the dashboard before we drop the connection. Same reason the .ino
-    // sets pinConfigRestartPending and reboots from loop().
-    esp_timer_create_args_t args = {
-        .callback = deferred_restart,
-        .name = "pin_restart",
-    };
-    esp_timer_handle_t t;
-    esp_timer_create(&args, &t);
-    esp_timer_start_once(t, 500 * 1000);
+    schedule_restart(500);
 }

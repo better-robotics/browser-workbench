@@ -7,11 +7,14 @@
 #include "host/ble_hs.h"
 #include "os/os_mbuf.h"
 
+#include "ble_host.h"
+#include "camera.h"
 #include "flash.h"
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
 #include "pin_config.h"
+#include "snapshot.h"
 #include "uuids.h"
 #include "wifi_sta.h"
 
@@ -27,6 +30,9 @@ static ble_uuid128_t s_wifi_join_uuid;
 static ble_uuid128_t s_wifi_status_uuid;
 static ble_uuid128_t s_ota_data_uuid;
 static ble_uuid128_t s_ota_status_uuid;
+static ble_uuid128_t s_snapshot_request_uuid;
+static ble_uuid128_t s_snapshot_data_uuid;
+static ble_uuid128_t s_camera_profile_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -34,6 +40,7 @@ static uint16_t s_motor_handle;
 static uint16_t s_wifi_scan_handle;
 static uint16_t s_wifi_status_handle;
 static uint16_t s_ota_status_handle;
+static uint16_t s_snapshot_data_handle;
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -179,6 +186,38 @@ static int ota_status_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int snapshot_request_access(uint16_t conn, uint16_t attr,
+                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t b = 0;
+        uint16_t copied = 0;
+        ble_hs_mbuf_to_flat(ctxt->om, &b, 1, &copied);
+        if (copied >= 1 && b == 0x01) snapshot_request();
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+// Snapshot-data is notify-only — the dashboard subscribes via CCCD and
+// receives the chunk stream. A read shouldn't happen, but return empty
+// rather than asserting.
+static int snapshot_data_access(uint16_t conn, uint16_t attr,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    return 0;
+}
+
+static int camera_profile_access(uint16_t conn, uint16_t attr,
+                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t buf[64];
+        uint16_t copied = 0;
+        ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
+        if (copied > 0) camera_handle_profile_write(buf, copied);
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_chr_def s_chars[] = {
     {
         .uuid = &s_led_uuid.u,
@@ -233,6 +272,22 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_ota_status_handle,
     },
+    {
+        .uuid = &s_snapshot_request_uuid.u,
+        .access_cb = snapshot_request_access,
+        .flags = BLE_GATT_CHR_F_WRITE,
+    },
+    {
+        .uuid = &s_snapshot_data_uuid.u,
+        .access_cb = snapshot_data_access,
+        .flags = BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_snapshot_data_handle,
+    },
+    {
+        .uuid = &s_camera_profile_uuid.u,
+        .access_cb = camera_profile_access,
+        .flags = BLE_GATT_CHR_F_WRITE,
+    },
     { 0 },
 };
 
@@ -254,8 +309,11 @@ void gatt_svr_init(void) {
     parse_uuid128(WIFI_SCAN_CHAR_UUID,   &s_wifi_scan_uuid);
     parse_uuid128(WIFI_JOIN_CHAR_UUID,   &s_wifi_join_uuid);
     parse_uuid128(WIFI_STATUS_CHAR_UUID, &s_wifi_status_uuid);
-    parse_uuid128(OTA_DATA_CHAR_UUID,    &s_ota_data_uuid);
-    parse_uuid128(OTA_STATUS_CHAR_UUID,  &s_ota_status_uuid);
+    parse_uuid128(OTA_DATA_CHAR_UUID,         &s_ota_data_uuid);
+    parse_uuid128(OTA_STATUS_CHAR_UUID,       &s_ota_status_uuid);
+    parse_uuid128(SNAPSHOT_REQUEST_CHAR_UUID, &s_snapshot_request_uuid);
+    parse_uuid128(SNAPSHOT_DATA_CHAR_UUID,    &s_snapshot_data_uuid);
+    parse_uuid128(CAMERA_PROFILE_CHAR_UUID,   &s_camera_profile_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -270,3 +328,14 @@ void gatt_svr_notify_motor(void)       { if (s_motor_handle)       ble_gatts_chr
 void gatt_svr_notify_wifi_scan(void)   { if (s_wifi_scan_handle)   ble_gatts_chr_updated(s_wifi_scan_handle); }
 void gatt_svr_notify_wifi_status(void) { if (s_wifi_status_handle) ble_gatts_chr_updated(s_wifi_status_handle); }
 void gatt_svr_notify_ota_status(void)  { if (s_ota_status_handle)  ble_gatts_chr_updated(s_ota_status_handle); }
+
+void gatt_svr_snapshot_send(const uint8_t *buf, size_t len) {
+    uint16_t conn = ble_host_active_conn();
+    if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+    if (!s_snapshot_data_handle) return;
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
+    if (!om) return;
+    // ble_gatts_notify_custom takes ownership of the mbuf (frees on
+    // success and on error), so no cleanup path on the caller side.
+    ble_gatts_notify_custom(conn, s_snapshot_data_handle, om);
+}

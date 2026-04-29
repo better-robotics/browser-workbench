@@ -7,6 +7,8 @@
 #include "esp_log.h"
 #include "nvs.h"
 
+#include "restart_util.h"
+
 static const char *TAG = "camera";
 
 // AI-Thinker ESP32-CAM pin map — same as the .ino. If a board variant
@@ -146,4 +148,37 @@ bool camera_init(void) {
     }
     s_ready = true;
     return true;
+}
+
+void camera_handle_profile_write(const uint8_t *json, size_t len) {
+    // Tiny extractor — find "profile":"name". Same shape as the .ino's
+    // CameraProfileCallbacks logic, just inlined.
+    static const char needle[] = "\"profile\"";
+    const char *p = (const char *)json;
+    const char *end = p + len;
+    const char *q = NULL;
+    for (const char *i = p; i + sizeof(needle) - 1 <= end; i++) {
+        if (memcmp(i, needle, sizeof(needle) - 1) == 0) { q = i + sizeof(needle) - 1; break; }
+    }
+    if (!q) { ESP_LOGW(TAG, "bad payload"); return; }
+    while (q < end && (*q == ' ' || *q == '\t' || *q == ':')) q++;
+    if (q >= end || *q != '"') { ESP_LOGW(TAG, "bad payload"); return; }
+    q++;
+    char value[16] = {0};
+    int n = 0;
+    while (q < end && *q != '"' && n < (int)sizeof(value) - 1) value[n++] = *q++;
+    value[n] = 0;
+
+    camera_profile_t next = camera_profile_from_name(value);
+    if (next == s_profile) {
+        ESP_LOGI(TAG, "already %s, no-op", value);
+        return;
+    }
+    nvs_handle_t h;
+    if (nvs_open("cam", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i32(h, "profile", (int32_t)next);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "%s → %s, restarting", camera_profile_name(s_profile), value);
+    schedule_restart(500);
 }

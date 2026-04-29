@@ -15,6 +15,9 @@ static const char *TAG = "ble_host";
 
 static uint8_t s_addr_type;
 static char s_name[32];
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+
+uint16_t ble_host_active_conn(void) { return s_conn_handle; }
 
 static void start_advertising(void);
 
@@ -22,10 +25,15 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "connect status=%d", event->connect.status);
-            if (event->connect.status != 0) start_advertising();
+            if (event->connect.status == 0) {
+                s_conn_handle = event->connect.conn_handle;
+            } else {
+                start_advertising();
+            }
             break;
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(TAG, "disconnect reason=%d", event->disconnect.reason);
+            s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             start_advertising();
             break;
         case BLE_GAP_EVENT_ADV_COMPLETE:
