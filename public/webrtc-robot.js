@@ -44,9 +44,24 @@ const _peers = new Map();  // robotId → { pc, ws?, channels: Map<label, ch> }
 //   robotType:   "pi" | "esp32"   — picks wss room shape if BLE absent
 //   signalChar:  BluetoothRemoteGATTCharacteristic — if present, BLE path
 //   onStatus:    (msg) => void    — progress messages for UI
+//
+// Selector: try BLE-signaling when signalChar is present. On any failure
+// (handshake timeout, char write rejected, BLE disconnect mid-flight),
+// fall through to wss. The wss path is the last-resort relay for
+// cross-network access; rolling out 2.F.1 means the BLE path covers the
+// daily LAN flow but transient BLE issues don't strand the operator.
 export async function openChannel(robotId, robotName, label, opts = {}) {
-  const { signalChar } = opts;
-  if (signalChar) return openChannelViaBLE(robotId, label, signalChar, opts);
+  const { signalChar, onStatus = () => {} } = opts;
+  if (signalChar) {
+    try {
+      return await openChannelViaBLE(robotId, label, signalChar, opts);
+    } catch (err) {
+      onStatus(`BLE signaling failed (${err.message}); trying signal.neevs.io…`);
+      console.warn("[webrtc-robot] BLE signaling failed, falling back to wss:", err);
+      // Fall through to wss. closePeer(robotId) was already called inside
+      // openChannelViaBLE on its way out, so wss starts from a clean slate.
+    }
+  }
   return openChannelViaWss(robotId, robotName, label, opts);
 }
 
