@@ -22,7 +22,7 @@ if(EXISTS "${MANAGED_COMPONENTS}" AND EXISTS "${PATCH_DIR}")
     file(GLOB LOCAL_PATCHES "${PATCH_DIR}/*.patch")
     foreach(PATCH IN LISTS LOCAL_PATCHES)
         execute_process(
-            COMMAND patch -p3 -d "${MANAGED_COMPONENTS}" --forward --silent --batch
+            COMMAND patch -p2 -d "${MANAGED_COMPONENTS}" --forward --silent --batch
             INPUT_FILE "${PATCH}"
             RESULT_VARIABLE PATCH_RESULT
             OUTPUT_QUIET ERROR_QUIET

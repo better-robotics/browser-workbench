@@ -1,0 +1,89 @@
+# Patch sepfy/libpeer (commit 9319aa434cb9) to fix three bugs that block
+# WebRTC data channels from working with browser-initiated channels:
+#
+# 1. sctp_outgoing_data hardcoded chunk->sid to htons(0), ignoring the
+#    sid arg from peer_connection_datachannel_send_sid. Frames went out
+#    on sid=0 regardless of which channel they were destined for; the
+#    browser dropped them silently because its channels live on other
+#    sids. (Manual SCTP / non-USRSCTP path.)
+#
+# 2. The manual SCTP chunk parser saw DATA_CHANNEL_OPEN messages and
+#    sent ACKs back, but never called sctp_add_stream_mapping. So the
+#    stream_table stayed empty, peer_connection_lookup_sid_label
+#    returned NULL on every received message, and on_dc_message
+#    couldn't dispatch by label. (Manual SCTP / non-USRSCTP path —
+#    the one CMakeLists has CONFIG_USE_USRSCTP=0, so this is the
+#    code path actually shipped.)
+#
+# 3. sctp_handle_incoming_data dispatched DATA_CHANNEL_PPID_CONTROL to
+#    a no-op `break`. Mirrors fix #2 for the USRSCTP path. Belt-and-
+#    braces in case the build flag flips.
+#
+# All three were validated end-to-end on hardware. Without these,
+# WebRTC video / OTA over data channel silently fail to receive any
+# payload from the browser side.
+#
+# TODO: upstream to sepfy/libpeer.
+#
+# Applied via firmware/esp32_robot_idf/CMakeLists.txt's existing
+# patch-applying hook (patch -p3 -d managed_components --forward).
+
+--- a/managed_components/libpeer/src/sctp.c
++++ b/managed_components/libpeer/src/sctp.c
+@@ -124,7 +124,12 @@
+ 
+   chunk->type = SCTP_DATA;
+   chunk->iube = 0x06;
+-  chunk->sid = htons(0);
++  // LOCAL PATCH: route outgoing data on the requested SID rather than
++  // hardcoded 0. Without this, peer_connection_datachannel_send_sid's
++  // sid arg is ignored and every channel's traffic ships on sid=0;
++  // browser drops it because its data channels live on different sids.
++  // TODO: upstream to sepfy/libpeer.
++  chunk->sid = htons(sid);
+   chunk->sqn = htons(sqn++);
+   chunk->ppid = htonl(ppid);
+ 
+@@ -261,6 +266,27 @@
+ 
+         LOGD("SCTP_DATA. ppid = %ld, data = %.2x", ntohl(data_chunk->ppid), data_chunk->data[0]);
+         if (ntohl(data_chunk->ppid) == DATA_CHANNEL_PPID_CONTROL && data_chunk->data[0] == DATA_CHANNEL_OPEN) {
++          // LOCAL PATCH: register the label-sid mapping so user code
++          // (peer_connection_lookup_sid_label) can route messages by
++          // label. Without this, browser-initiated channels never get
++          // tracked in the stream_table; on_dc_message lookups all
++          // return NULL and dispatch silently drops messages.
++          // TODO: upstream to sepfy/libpeer.
++          {
++            char* dceo = (char*)data_chunk->data;
++            uint16_t open_sid = ntohs(data_chunk->sid);
++            size_t dceo_len = ntohs(data_chunk->length) - sizeof(SctpDataChunk);
++            if (dceo_len >= 12) {
++              uint16_t label_length = ntohs(*(uint16_t*)(dceo + 8));
++              if ((size_t)(12 + label_length) <= dceo_len && label_length < 128) {
++                char label_str[label_length + 1];
++                memcpy(label_str, dceo + 12, label_length);
++                label_str[label_length] = '\0';
++                printf("[sctp] register label='%s' sid=%u\n", label_str, open_sid);
++                sctp_add_stream_mapping(sctp, label_str, open_sid);
++              }
++            }
++          }
+           data_chunk = (SctpDataChunk*)sack_chunk->blocks;
+           data_chunk->type = SCTP_DATA;
+           data_chunk->iube = 0x03;
+@@ -417,6 +443,14 @@
+ #if CONFIG_USE_USRSCTP
+   switch (ppid) {
+     case DATA_CHANNEL_PPID_CONTROL:
++      // LOCAL PATCH: DATA_CHANNEL_OPEN messages arrive on the CONTROL
++      // PPID and need to register the label→sid mapping in stream_table.
++      // Without this, peer_connection_lookup_sid_label() returns NULL
++      // for every offer-initiated channel and on_dc_message can't
++      // dispatch by label. Mirrors what the non-usrsctp path
++      // (sctp_handle_sctp_packet) already does via sctp_parse_data_channel_open.
++      // TODO: upstream this fix to sepfy/libpeer.
++      sctp_parse_data_channel_open(sctp, sid, data, len);
+       break;
+ 
+     case DATA_CHANNEL_PPID_DOMSTRING:

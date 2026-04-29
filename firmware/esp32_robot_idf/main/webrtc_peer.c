@@ -8,6 +8,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -265,52 +266,56 @@ static void handle_ota_dc(const char *msg, size_t len) {
 // Single SCTP message per frame; SCTP's universal floor is 16 KB, so the
 // camera profile must stay at compact (QVGA q=15, ~5-10 KB) for reliable
 // delivery. Standard/full can exceed the limit and fragment unreliably.
+//
+// The frame pump runs INSIDE rtc_loop_task instead of its own task — by
+// the time a video session starts, internal DRAM is fragmented enough
+// that no contiguous 4 KB block remains for a fresh task stack, and an
+// SPIRAM-stacked task panics during DTLS/SRTP encrypt (cache-coherence
+// quirks on classic ESP32). Pacing by esp_timer_get_time() keeps it
+// independent of vTaskDelay quantization.
 
 static volatile bool s_video_active = false;
-static TaskHandle_t s_video_task = NULL;
 static int s_video_fps = 10;
+static int64_t s_video_last_frame_us = 0;
 
-static void video_task_fn(void *arg) {
-    ESP_LOGI(TAG, "video stream task started, fps=%d", s_video_fps);
-    while (s_video_active) {
-        if (!camera_ready() || !s_pc) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-            continue;
-        }
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (!fb) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-        uint16_t sid;
-        if (peer_connection_lookup_sid(s_pc, "video", &sid) == 0) {
-            peer_connection_datachannel_send_sid(s_pc, (char *)fb->buf, fb->len, sid);
-        }
-        esp_camera_fb_return(fb);
-        vTaskDelay(pdMS_TO_TICKS(1000 / s_video_fps));
+static int s_video_frame_count = 0;
+static void video_pump_tick(void) {
+    if (!s_video_active || !camera_ready() || !s_pc) return;
+    int64_t now = esp_timer_get_time();
+    int64_t period_us = (int64_t)1000000 / (s_video_fps > 0 ? s_video_fps : 10);
+    if (now - s_video_last_frame_us < period_us) return;
+    s_video_last_frame_us = now;
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        ESP_LOGW(TAG, "video pump: fb_get failed");
+        return;
     }
-    ESP_LOGI(TAG, "video stream task stopped");
-    s_video_task = NULL;
-    vTaskDelete(NULL);
+    uint16_t sid = 0;
+    int rc = peer_connection_lookup_sid(s_pc, "video", &sid);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "video pump: lookup_sid rc=%d", rc);
+        esp_camera_fb_return(fb);
+        return;
+    }
+    int sent = peer_connection_datachannel_send_sid(s_pc, (char *)fb->buf, fb->len, sid);
+    if ((s_video_frame_count++ % 10) == 0) {
+        ESP_LOGI(TAG, "video pump: sent frame #%d, %u B → sid=%u rc=%d",
+                 s_video_frame_count, (unsigned)fb->len, sid, sent);
+    }
+    esp_camera_fb_return(fb);
 }
 
 static void start_video_streaming(int fps) {
-    if (s_video_active) {
-        // Already running — update fps and continue.
-        if (fps > 0 && fps <= 30) s_video_fps = fps;
-        return;
-    }
     s_video_fps = (fps > 0 && fps <= 30) ? fps : 10;
     s_video_active = true;
-    if (xTaskCreate(video_task_fn, "rtc_video", 4096, NULL, 4, &s_video_task) != pdPASS) {
-        ESP_LOGE(TAG, "video task create failed");
-        s_video_active = false;
-    }
+    s_video_last_frame_us = 0;  // fire on the next loop tick
+    ESP_LOGI(TAG, "video stream started, fps=%d", s_video_fps);
 }
 
 static void stop_video_streaming(void) {
+    if (s_video_active) ESP_LOGI(TAG, "video stream stopped");
     s_video_active = false;
-    // task self-deletes on next loop iteration
 }
 
 static void handle_video_dc(const char *msg, size_t len) {
@@ -513,6 +518,7 @@ static void loop_task_fn(void *arg) {
             free(ev.payload);
         }
         if (s_pc) peer_connection_loop(s_pc);
+        video_pump_tick();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
