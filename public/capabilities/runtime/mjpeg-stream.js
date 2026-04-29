@@ -30,6 +30,49 @@ function streamUrl(entry, schema) {
   return `http://${ip}:${port}${path}`;
 }
 
+// Open a WebRTC `video` data channel, ask the firmware for a stream at
+// 10 fps, render incoming binary frames into the existing <img> via
+// blob URLs. Returns a disposer; null on open failure.
+async function startEsp32WebRTCVideo(entry, img) {
+  const { openChannel, closePeer } = await import("../../webrtc-robot.js");
+  let channel;
+  try {
+    channel = await openChannel(entry.id, entry.name, "video", {
+      onStatus: (s) => logFor(entry, `video webrtc: ${s}`),
+      robotType: entry.fwType,
+      signalChar: entry.signalChar,
+    });
+  } catch (err) {
+    logFor(entry, `video webrtc open failed: ${err.message}`);
+    return null;
+  }
+  channel.binaryType = "arraybuffer";
+  let prevUrl = null;
+  const onMsg = (e) => {
+    if (typeof e.data === "string") return;  // ignore control replies
+    const blob = new Blob([e.data], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    img.src = url;
+    // Revoke the previous URL only after the new one is assigned —
+    // otherwise the browser may release the bytes while still decoding.
+    if (prevUrl) URL.revokeObjectURL(prevUrl);
+    prevUrl = url;
+  };
+  channel.addEventListener("message", onMsg);
+  try { channel.send(JSON.stringify({ type: "start", fps: 10 })); } catch {}
+  logFor(entry, `video webrtc: streaming`);
+  return {
+    channel,
+    dispose() {
+      channel.removeEventListener("message", onMsg);
+      try { channel.send(JSON.stringify({ type: "stop" })); } catch {}
+      try { channel.close(); } catch {}
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      closePeer(entry.id);
+    },
+  };
+}
+
 export function makeMjpegStreamCap(schema) {
   const { name } = schema;
   const runningField = `${name}Running`;
@@ -69,8 +112,14 @@ export function makeMjpegStreamCap(schema) {
         body = `<div class="meta">Waiting for the robot to join WiFi — stream needs a LAN IP.</div>`;
       } else if (running) {
         // crossOrigin="anonymous" lets canvas read pixels (perception.js needs
-        // it). ESP32 firmware already serves Access-Control-Allow-Origin: *.
-        body = `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" src="${escapeHtml(url)}" alt="MJPEG stream">`;
+        // it). For ESP32 we try WebRTC video first (frames as binary on the
+        // `video` data channel, blob-URL'd into this img); HTTP /stream is
+        // the fallback. Render without a static src for ESP32 — the click
+        // handler decides which transport to attach.
+        const useWebRTCFirst = entry.fwType === "esp32";
+        body = useWebRTCFirst
+          ? `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" alt="WebRTC video">`
+          : `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" src="${escapeHtml(url)}" alt="MJPEG stream">`;
       }
       // Stream URL omitted from idle body — it's debug info that leaked
       // into daily UX. The dashboard log echoes it on connect for anyone
@@ -120,16 +169,36 @@ export function makeMjpegStreamCap(schema) {
     },
 
     wireActions(entry, node) {
-      node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", () => {
+      node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", async () => {
         entry[runningField] = true;
         renderEntry(entry);
-        // Canvas-restream after render so the <img> exists. Load event
-        // inside startMjpegForward handles the "img not decoded yet" case.
         const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
-        if (img) startMjpegForward(entry, img);
+        if (!img) return;
+
+        // ESP32 path: try WebRTC video first. firmware/webrtc_peer.c routes
+        // a `video` data channel into an esp_camera_fb_get loop, sending
+        // each JPEG as binary. Browser blob-URLs each frame into the img.
+        // perception's startMjpegForward still works (canvas reads from
+        // img regardless of how it's getting frames).
+        if (entry.fwType === "esp32") {
+          const ctrl = await startEsp32WebRTCVideo(entry, img);
+          if (ctrl) {
+            entry._webrtcVideo = ctrl;
+            // User may have clicked Stop while we were negotiating —
+            // dispose immediately if running flipped back to false.
+            if (!entry[runningField]) { ctrl.dispose(); entry._webrtcVideo = null; return; }
+            startMjpegForward(entry, img);
+            return;
+          }
+          // WebRTC failed — fall back to HTTP /stream.
+          logFor(entry, `video: falling back to HTTP /stream`);
+          img.src = streamUrl(entry, schema);
+        }
+        startMjpegForward(entry, img);
       });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click", () => {
         if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
+        if (entry._webrtcVideo) { entry._webrtcVideo.dispose(); entry._webrtcVideo = null; }
         stopMjpegForward(entry);
         entry[runningField] = false;
         renderEntry(entry);
