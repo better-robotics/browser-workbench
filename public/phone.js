@@ -1,10 +1,10 @@
 import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pairing.js";
 import { attachJoypad, mix } from "./joypad.js";
-import { discover } from "./discover.js";
-import { getMyPubkeyB64 } from "./peer-key.js";
+import { discover } from "./signal-sdk/v1/discover.js";
+import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
-import { pairRequestClient } from "./pair-request.js";
+import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, setReportIssueLink, readSwVersion,

@@ -14,10 +14,10 @@ import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { state } from "./state.js";
 import { setPhoneStream } from "./helpers.js";
-import { discover } from "./discover.js";
-import { getMyPubkeyB64 } from "./peer-key.js";
+import { discover } from "./signal-sdk/v1/discover.js";
+import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
-import { pairRequestClient } from "./pair-request.js";
+import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the

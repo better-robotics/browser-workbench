@@ -109,19 +109,26 @@ function patchOtaSectionThrottled(entry) {
   });
 }
 
-// Stream the bundle to the Pi's RTC daemon over a WebRTC DataChannel,
-// which stages to /tmp/pi-robot-staged-ota.json. Then trigger the
-// privileged apply via the existing BLE ops verb apply-staged-ota.
+// Stream the bundle to the robot's WebRTC peer over a DataChannel.
 //
-// Why split: RTC daemon runs as `robot` (low priv); _apply_bundle in
-// pi_robot.py runs as root (writes /etc/systemd/system/, runs systemctl).
-// WebRTC handles the bulk transfer (MB/s); BLE op handles the ack +
-// kicks the privileged apply. End-to-end ~seconds for 1.6 MB instead
-// of minutes.
+// Pi flow: RTC daemon (low priv `robot` user) stages to /tmp/...json,
+// replies "staged"; we then BLE-trigger apply-staged-ota which the root
+// pi_robot.py service picks up and applies. Two-step because privilege
+// boundaries — bulk transfer at user privs, apply at root privs.
+//
+// ESP32 flow: webrtc_peer.c routes the channel directly into the same
+// esp_ota_* state as BLE/HTTP OTA. On commit, the chip restarts itself
+// 500 ms after sending "staged". No apply-staged-ota call — the chip is
+// already rebooting; trying to BLE-write would fail and confuse the
+// dashboard. The "staged" reply doubles as "we're about to reboot."
 //
 // Throws on any failure — caller falls back to BLE-stream.
 async function streamOtaViaWebRTC(entry, bytes) {
-  if (!entry.opsChar) throw new Error("no ops channel — can't trigger apply");
+  // Pi requires the ops channel to trigger the privileged apply. ESP32
+  // commits inline (see comment above), so the ops channel is unused.
+  if (entry.fwType === "pi" && !entry.opsChar) {
+    throw new Error("no ops channel — can't trigger apply");
+  }
   const { openChannel, closePeer } = await import("../webrtc-robot.js");
   let channel;
   try {
@@ -182,15 +189,18 @@ async function streamOtaViaWebRTC(entry, bytes) {
     entry.otaSent = bytes.length;
     patchOtaSection(entry);
 
-    // Trigger apply on the BLE side — the existing _apply_bundle path
-    // runs as root and drives the OTA status notifies the dashboard
-    // already renders. Body matches the apply-staged-ota verb's args
-    // shape (path is allowlisted on the Pi side).
-    const applyMsg = encodeJson({
-      op: "apply-staged-ota",
-      args: { path: "/tmp/pi-robot-staged-ota.json" },
-    });
-    await entry.opsChar.writeValueWithResponse(applyMsg);
+    if (entry.fwType === "pi") {
+      // Pi-only: trigger the privileged apply. The existing _apply_bundle
+      // path runs as root and drives the OTA status notifies the dashboard
+      // already renders. Body matches the apply-staged-ota verb's args
+      // shape (path is allowlisted on the Pi side).
+      const applyMsg = encodeJson({
+        op: "apply-staged-ota",
+        args: { path: "/tmp/pi-robot-staged-ota.json" },
+      });
+      await entry.opsChar.writeValueWithResponse(applyMsg);
+    }
+    // ESP32: chip is restarting on its own; nothing more to do.
   } finally {
     try { channel?.close(); } catch {}
     closePeer(entry.id);

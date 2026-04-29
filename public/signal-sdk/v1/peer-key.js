@@ -1,3 +1,9 @@
+// signal.neevs.io SDK v1 — source of truth.
+// Mirrored to https://signal.neevs.io/sdk/v1/peer-key.js. Both copies
+// stay in sync; once signal.neevs.io serves this URL stably, consumers
+// will import directly from there and the local copy retires.
+// See public/signal-sdk/README.md for the migration plan.
+//
 // Per-origin persistent device key + sign/verify primitives.
 //
 // Used by discover.js (opt-in signed ads) and by consumers that build
