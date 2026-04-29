@@ -1658,9 +1658,10 @@ details.tray.has-alert > summary::after {
   min-height: 0;  /* default `min-height: auto` on flex items prevents shrinking below content */
   overflow: hidden;
 }
-/* Shell dialog: explicit height bound. The dialog isn't a flex column so
-   .recovery-term's `flex: 1` doesn't apply — xterm.js's FitAddon would
-   otherwise loop measure → grow → re-measure indefinitely. */
+/* Shell dialog: terminal-shaped, deserves more horizontal room than the
+   default prepare-dialog 560px. Override width and bound the term height
+   so xterm's FitAddon doesn't loop measure → grow → re-measure. */
+#shell-modal { width: min(960px, calc(100vw - 32px)); }
 #shell-term { height: 60vh; min-height: 320px; }
 
 .robot-camera {
