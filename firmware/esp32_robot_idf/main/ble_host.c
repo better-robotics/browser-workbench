@@ -10,6 +10,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "gatt_svr.h"
+#include "pair_mailbox.h"
 
 static const char *TAG = "ble_host";
 
@@ -17,24 +18,78 @@ static uint8_t s_addr_type;
 static char s_name[32];
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 
+// All currently-connected centrals. Used by the pair-mailbox to
+// broadcast ads to every subscriber. Single-peer flows (snapshot,
+// signal char) keep using ble_host_active_conn for convenience —
+// they target the most-recent peer, which is correct for those.
+static uint16_t s_conns[BLE_HOST_MAX_CONNS];
+static size_t s_conns_count = 0;
+
 uint16_t ble_host_active_conn(void) { return s_conn_handle; }
+
+size_t ble_host_active_conns(uint16_t *out, size_t cap) {
+    size_t n = s_conns_count < cap ? s_conns_count : cap;
+    for (size_t i = 0; i < n; i++) out[i] = s_conns[i];
+    return n;
+}
+
+static void conns_add(uint16_t handle) {
+    for (size_t i = 0; i < s_conns_count; i++) {
+        if (s_conns[i] == handle) return;
+    }
+    if (s_conns_count < BLE_HOST_MAX_CONNS) {
+        s_conns[s_conns_count++] = handle;
+    }
+}
+
+static void conns_remove(uint16_t handle) {
+    for (size_t i = 0; i < s_conns_count; i++) {
+        if (s_conns[i] == handle) {
+            s_conns[i] = s_conns[--s_conns_count];
+            return;
+        }
+    }
+}
 
 static void start_advertising(void);
 
 static int gap_event(struct ble_gap_event *event, void *arg) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
-            ESP_LOGI(TAG, "connect status=%d", event->connect.status);
+            ESP_LOGI(TAG, "connect status=%d handle=%u",
+                     event->connect.status, event->connect.conn_handle);
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
+                conns_add(event->connect.conn_handle);
+                // Keep advertising even with active conns — phone-pair
+                // (Phase 2.F.2) needs the robot reachable to a SECOND
+                // central while desktop is already connected.
+                if (s_conns_count < BLE_HOST_MAX_CONNS) start_advertising();
             } else {
                 start_advertising();
             }
             break;
         case BLE_GAP_EVENT_DISCONNECT:
-            ESP_LOGI(TAG, "disconnect reason=%d", event->disconnect.reason);
-            s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+            ESP_LOGI(TAG, "disconnect reason=%d handle=%u",
+                     event->disconnect.reason, event->disconnect.conn.conn_handle);
+            conns_remove(event->disconnect.conn.conn_handle);
+            if (s_conn_handle == event->disconnect.conn.conn_handle) {
+                s_conn_handle = s_conns_count > 0 ? s_conns[0] : BLE_HS_CONN_HANDLE_NONE;
+            }
             start_advertising();
+            break;
+        case BLE_GAP_EVENT_SUBSCRIBE:
+            // Replay buffered pair-mailbox ads to a new subscriber. The
+            // mailbox helper checks the attr_handle against the mailbox
+            // char itself before replaying, so this is safe to call on
+            // every subscribe event.
+            ESP_LOGI(TAG, "subscribe conn=%u attr=%u cur_notify=%d",
+                     event->subscribe.conn_handle, event->subscribe.attr_handle,
+                     event->subscribe.cur_notify);
+            if (event->subscribe.cur_notify
+                && event->subscribe.attr_handle == gatt_svr_pair_mailbox_handle()) {
+                pair_mailbox_replay_to(event->subscribe.conn_handle);
+            }
             break;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             start_advertising();

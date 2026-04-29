@@ -13,6 +13,7 @@
 #include "mdns_advertise.h"
 #include "motors.h"
 #include "ota.h"
+#include "pair_mailbox.h"
 #include "pin_config.h"
 #include "telemetry.h"
 #include "webrtc_peer.h"
@@ -71,6 +72,7 @@ void app_main(void) {
     // BLE read, but having it ready before BLE is up is cleaner.
     fw_info_init(&pins);
 
+    pair_mailbox_init();
     ble_host_init(ble_name);
     ota_init();
     telemetry_init();
