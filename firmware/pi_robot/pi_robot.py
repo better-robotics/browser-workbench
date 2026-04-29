@@ -524,6 +524,19 @@ async def _apply_bundle(bundle: dict) -> None:
         # service-user name without a repo-side template step.
         content = content.replace(b"__HOME__", _OTA_HOME.encode())
         content = content.replace(b"__USER__", _OTA_USER.encode())
+        # Defensive check: never deploy a text file with leftover placeholders.
+        # If we got here with `__HOME__` still in the content, _OTA_HOME is
+        # empty (would have replaced with nothing) or the placeholder format
+        # changed. Fail loudly instead of writing a broken systemd unit.
+        if not src.endswith((".whl", ".bin", ".img")):
+            for placeholder in (b"__HOME__", b"__USER__"):
+                if placeholder in content:
+                    _set_ota_status(
+                        "failed",
+                        err=f"unsubst {placeholder.decode()} in {src} "
+                            f"(_OTA_HOME={_OTA_HOME!r} _OTA_USER={_OTA_USER!r})"[:120],
+                    )
+                    return
         if dest.endswith(".py"):
             try:
                 ast.parse(content)
