@@ -1,7 +1,7 @@
 import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
-import { createPip, renderMd } from "./pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/gh/jonasneves/pip@v1.2.0/pip-core.esm.js";
 
 // Auto-dismiss timings match Buddy: 10s total show, fade begins at 7s (last 3s).
 const SHOW_MS = 10000;

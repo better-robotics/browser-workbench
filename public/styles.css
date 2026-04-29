@@ -1839,9 +1839,12 @@ dialog[open]::backdrop { opacity: 1; }
 .settings-modal { width: min(440px, calc(100vw - 32px)); }
 .setup-dialog { width: min(560px, calc(100vw - 32px)); max-width: 560px; }
 
-/* Pip — bubble / panel / notify / turns / reply / form come from pip-core.esm.js.
+/* Pip — bubble / panel / notify / turns / reply / form come from pip (jsdelivr).
    This block only carries the site-specific layer: tool-trace rows, stop button,
    non-destructive turn collapse, and desktop-tight input sizing. */
+
+/* ESC and click-outside already dismiss; the × is redundant. */
+.pip-close { display: none; }
 
 /* Dashboard is desktop-dominant; override core's 16px (iOS zoom-prevention) to
    keep the input visually tight. */
