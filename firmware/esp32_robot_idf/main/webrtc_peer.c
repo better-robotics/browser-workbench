@@ -314,12 +314,17 @@ static void stop_video_streaming(void) {
 }
 
 static void handle_video_dc(const char *msg, size_t len) {
+    ESP_LOGI(TAG, "video dc msg: %.*s", (int)(len > 80 ? 80 : len), msg);
     if (len == 0 || msg[0] != '{') return;
     cJSON *root = cJSON_ParseWithLength(msg, len);
-    if (!root) return;
+    if (!root) {
+        ESP_LOGW(TAG, "video dc: bad json");
+        return;
+    }
     cJSON *type = cJSON_GetObjectItem(root, "type");
     if (cJSON_IsString(type)) {
         const char *t = type->valuestring;
+        ESP_LOGI(TAG, "video dc type=%s", t);
         if (strcmp(t, "start") == 0) {
             cJSON *fps = cJSON_GetObjectItem(root, "fps");
             int f = cJSON_IsNumber(fps) ? (int)fps->valuedouble : 10;
@@ -332,8 +337,13 @@ static void handle_video_dc(const char *msg, size_t len) {
 }
 
 static void on_dc_message(char *msg, size_t len, void *ud, uint16_t sid) {
-    if (!s_pc) return;
+    if (!s_pc) {
+        ESP_LOGW(TAG, "dc msg sid=%u len=%u: no PC", (unsigned)sid, (unsigned)len);
+        return;
+    }
     char *label = peer_connection_lookup_sid_label(s_pc, sid);
+    ESP_LOGI(TAG, "dc msg sid=%u len=%u label=%s",
+             (unsigned)sid, (unsigned)len, label ? label : "<null>");
     if (!label) return;
     if (strcmp(label, "ota") == 0) {
         handle_ota_dc(msg, len);

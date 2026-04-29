@@ -12,6 +12,28 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+# Apply local patches to managed components after the component-manager
+# has fetched them but before they're built. Each patch is idempotent —
+# `patch --forward` skips already-applied patches without erroring.
+# See firmware/esp32_robot_idf/patches/ for the patch set.
+set(MANAGED_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/managed_components")
+set(PATCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/patches")
+if(EXISTS "${MANAGED_COMPONENTS}" AND EXISTS "${PATCH_DIR}")
+    file(GLOB LOCAL_PATCHES "${PATCH_DIR}/*.patch")
+    foreach(PATCH IN LISTS LOCAL_PATCHES)
+        execute_process(
+            COMMAND patch -p3 -d "${MANAGED_COMPONENTS}" --forward --silent --batch
+            INPUT_FILE "${PATCH}"
+            RESULT_VARIABLE PATCH_RESULT
+            OUTPUT_QUIET ERROR_QUIET
+        )
+        # patch returns 1 if already-applied (--forward); treat as success.
+        if(NOT PATCH_RESULT EQUAL 0 AND NOT PATCH_RESULT EQUAL 1)
+            message(WARNING "Patch ${PATCH} failed with code ${PATCH_RESULT}")
+        endif()
+    endforeach()
+endif()
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(esp32_robot)
