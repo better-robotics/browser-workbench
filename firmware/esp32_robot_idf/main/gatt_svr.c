@@ -262,7 +262,12 @@ static int signal_access(uint16_t conn, uint16_t attr,
         uint8_t buf[256];
         uint16_t copied = 0;
         ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
-        if (copied > 0) webrtc_peer_handle_ble_signal_write(buf, copied);
+        // Pass the writer's conn handle so the answer routes back to the
+        // same central. Without this, gatt_svr_signal_send falls through
+        // to ble_host_active_conn() which is "most-recent connect" — wrong
+        // when a second browser window is BLE-connected concurrently
+        // (Phase 2.F.2 raised MAX_CONNECTIONS to 4).
+        if (copied > 0) webrtc_peer_handle_ble_signal_write(conn, buf, copied);
         return 0;
     }
     return BLE_ATT_ERR_UNLIKELY;
@@ -439,8 +444,7 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len) {
     ble_gatts_notify_custom(conn, s_snapshot_data_handle, om);
 }
 
-void gatt_svr_signal_send(const uint8_t *buf, size_t len) {
-    uint16_t conn = ble_host_active_conn();
+void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len) {
     if (conn == BLE_HS_CONN_HANDLE_NONE) return;
     if (!s_signal_handle) return;
     struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);

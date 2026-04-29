@@ -49,6 +49,11 @@ typedef enum {
 // Tracked across handle_offer → create_answer so the answer routes back
 // through the same transport the offer came in on.
 static offer_src_t s_active_offer_src = OFFER_SRC_WS;
+// BLE-only: the conn handle of the central that wrote the offer. The
+// answer notify routes here, not to ble_host_active_conn() (which is
+// the most-recent connection — wrong when two browsers are both
+// connected, since 2.F.2 raised MAX_CONNECTIONS to 4).
+static uint16_t s_active_offer_conn = 0;
 
 typedef struct {
     event_type_t type;
@@ -98,18 +103,19 @@ static void send_ble_signal_error(const char *msg) {
     buf[0] = 0xFF;
     size_t n = strnlen(msg, sizeof(buf) - 1);
     memcpy(buf + 1, msg, n);
-    gatt_svr_signal_send(buf, 1 + n);
+    gatt_svr_signal_send(s_active_offer_conn, buf, 1 + n);
 }
 
 static void send_answer_via_ble(const char *sdp) {
     size_t total = strlen(sdp);
-    ESP_LOGI(TAG, "send_answer_via_ble: total=%u", (unsigned)total);
+    ESP_LOGI(TAG, "send_answer_via_ble: total=%u conn=%u",
+             (unsigned)total, (unsigned)s_active_offer_conn);
     if (total == 0 || total > 0xFFFF) {
         send_ble_signal_error("answer size out of range");
         return;
     }
     uint8_t begin[3] = { 0x01, (uint8_t)(total >> 8), (uint8_t)(total & 0xff) };
-    gatt_svr_signal_send(begin, 3);
+    gatt_svr_signal_send(s_active_offer_conn, begin, 3);
 
     uint8_t chunk[1 + BLE_SIG_CHUNK];
     chunk[0] = 0x02;
@@ -117,7 +123,7 @@ static void send_answer_via_ble(const char *sdp) {
     while (offset < total) {
         size_t take = total - offset > BLE_SIG_CHUNK ? BLE_SIG_CHUNK : total - offset;
         memcpy(chunk + 1, sdp + offset, take);
-        gatt_svr_signal_send(chunk, 1 + take);
+        gatt_svr_signal_send(s_active_offer_conn, chunk, 1 + take);
         offset += take;
         // Pace notifies — same reasoning as snapshot's 40 ms gap, but our
         // chunk size is much smaller so 5 ms is enough for the BLE tx
@@ -125,18 +131,23 @@ static void send_answer_via_ble(const char *sdp) {
         vTaskDelay(pdMS_TO_TICKS(5));
     }
     uint8_t commit[1] = { 0x03 };
-    gatt_svr_signal_send(commit, 1);
+    gatt_svr_signal_send(s_active_offer_conn, commit, 1);
     ESP_LOGI(TAG, "send_answer_via_ble: done (%u chunks)",
              (unsigned)((total + BLE_SIG_CHUNK - 1) / BLE_SIG_CHUNK));
 }
 
-void webrtc_peer_handle_ble_signal_write(const uint8_t *buf, size_t len) {
+void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf, size_t len) {
     if (len == 0) return;
     uint8_t op = buf[0];
     if (op == 0x01) {
         if (len < 3) { send_ble_signal_error("bad begin"); return; }
+        // Bind the answer to this writer's conn for the rest of the
+        // handshake. Captured here (not at op==0x03) so error frames
+        // sent during reassembly route to the right central.
+        s_active_offer_conn = from_conn;
         size_t total = ((size_t)buf[1] << 8) | buf[2];
-        ESP_LOGI(TAG, "ble signal: begin total=%u", (unsigned)total);
+        ESP_LOGI(TAG, "ble signal: begin total=%u conn=%u",
+                 (unsigned)total, (unsigned)from_conn);
         if (total == 0 || total > BLE_SIG_MAX_OFFER) {
             send_ble_signal_error("offer size out of range");
             return;

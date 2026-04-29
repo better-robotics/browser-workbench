@@ -24,4 +24,7 @@ void webrtc_peer_init(const char *robot_name);
 
 // Called by gatt_svr from the SIGNAL_CHAR_UUID write access callback.
 // Reassembles chunked offer SDP and queues it for the rtc loop task.
-void webrtc_peer_handle_ble_signal_write(const uint8_t *buf, size_t len);
+// `from_conn` is the writer's BLE conn handle — the answer notify
+// routes back to that same central so a second concurrently-connected
+// browser doesn't intercept it (Phase 2.F.2 multi-conn world).
+void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf, size_t len);

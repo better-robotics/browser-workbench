@@ -34,8 +34,11 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
 
 // Same shape as gatt_svr_snapshot_send but on the SIGNAL char — wraps
 // the chunked WebRTC SDP answer (and error frames) on the way back to
-// the dashboard during BLE-signaled handshakes.
-void gatt_svr_signal_send(const uint8_t *buf, size_t len);
+// the dashboard during BLE-signaled handshakes. `conn` is the central
+// the answer is for; webrtc_peer remembers the conn that wrote the
+// offer so the right window receives the response when multiple
+// browsers are simultaneously connected.
+void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len);
 
 // Phase 2.F.2: pair-mailbox notifies. Per-conn target so the mailbox
 // can broadcast (skipping the writer) and replay (single subscriber).
