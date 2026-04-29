@@ -112,6 +112,19 @@ async function connect() {
     try { _channel.send(enc.encode(data)); }
     catch (err) { _term?.writeln(`\r\n[send error: ${err.message}]`); }
   });
+  // Send terminal dimensions over the control channel (text/JSON, distinct
+  // from binary stdin). Sent once at open + on every xterm resize so the
+  // PTY's TIOCSWINSZ matches what the user actually sees.
+  const sendResize = () => {
+    if (_channel?.readyState !== "open") return;
+    try {
+      _channel.send(JSON.stringify({
+        type: "resize", cols: _term.cols, rows: _term.rows,
+      }));
+    } catch {}
+  };
+  sendResize();
+  _term.onResize(sendResize);
 }
 
 function disconnect() {

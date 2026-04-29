@@ -205,8 +205,25 @@ class Session:
 
                 @channel.on("message")
                 def on_msg(message):
+                    # Binary = raw PTY bytes (stdin). Text = JSON control
+                    # messages (resize, future: signals, env). Splitting on
+                    # WebRTC's native text/binary discriminator avoids inline
+                    # escape-sequence games.
                     if isinstance(message, str):
-                        bridge.write(message.encode())
+                        try:
+                            ctrl = json.loads(message)
+                        except json.JSONDecodeError:
+                            return
+                        if ctrl.get("type") == "resize" and bridge.master_fd is not None:
+                            cols = int(ctrl.get("cols") or 80)
+                            rows = int(ctrl.get("rows") or 24)
+                            try:
+                                fcntl.ioctl(
+                                    bridge.master_fd, termios.TIOCSWINSZ,
+                                    struct.pack("HHHH", rows, cols, 0, 0),
+                                )
+                            except OSError:
+                                pass
                     else:
                         bridge.write(message)
 
