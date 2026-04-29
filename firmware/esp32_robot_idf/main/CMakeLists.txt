@@ -18,6 +18,7 @@ idf_component_register(
         "motors.c"
         "ota.c"
         "http_server.c"
+        "camera.c"
     INCLUDE_DIRS
         "."
         "../../esp32_robot"

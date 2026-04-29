@@ -3,10 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_camera.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+#include "camera.h"
 #include "ota.h"
 #include "version.h"
 
@@ -60,6 +64,39 @@ static esp_err_t health_handler(httpd_req_t *req) {
     set_cors_headers(req);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, body, n);
+    return ESP_OK;
+}
+
+// MJPEG over HTTP — multipart/x-mixed-replace stream. Sent as chunked
+// transfer-encoding via httpd_resp_send_chunk; Chrome parses the dual
+// chunked + multipart correctly. Loop exits when the client disconnects
+// (next send_chunk returns non-OK).
+//
+// One vTaskDelay(1) per frame feeds IDLE so the watchdog can't trip
+// even when esp_camera_fb_get returns immediately and httpd's TX fits
+// entirely in the LWIP buffer (no natural BLOCKED state). 10 ms cost
+// per frame is well under the 67 ms practical budget at 15 fps.
+static esp_err_t stream_handler(httpd_req_t *req) {
+    if (!camera_ready()) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no camera");
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=frame");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    char part[80];
+    while (true) {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) break;
+        int n = snprintf(part, sizeof(part),
+            "\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+            fb->len);
+        if (httpd_resp_send_chunk(req, part, n) != ESP_OK) { esp_camera_fb_return(fb); break; }
+        if (httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len) != ESP_OK) {
+            esp_camera_fb_return(fb); break;
+        }
+        esp_camera_fb_return(fb);
+        vTaskDelay(1);
+    }
     return ESP_OK;
 }
 
@@ -127,10 +164,14 @@ void http_server_init(const char *robot_name) {
     static const httpd_uri_t ota_options = {
         .uri = "/ota", .method = HTTP_OPTIONS, .handler = options_preflight_handler,
     };
+    static const httpd_uri_t stream_get = {
+        .uri = "/stream", .method = HTTP_GET, .handler = stream_handler,
+    };
     httpd_register_uri_handler(s_server, &health_get);
     httpd_register_uri_handler(s_server, &health_options);
     httpd_register_uri_handler(s_server, &ota_post);
     httpd_register_uri_handler(s_server, &ota_options);
+    httpd_register_uri_handler(s_server, &stream_get);
 
-    ESP_LOGI(TAG, "ready on :81 (/health, /ota)");
+    ESP_LOGI(TAG, "ready on :81 (/health, /ota, /stream)");
 }

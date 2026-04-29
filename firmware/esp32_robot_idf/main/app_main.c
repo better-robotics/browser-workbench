@@ -5,6 +5,7 @@
 #include "nvs_flash.h"
 
 #include "ble_host.h"
+#include "camera.h"
 #include "flash.h"
 #include "http_server.h"
 #include "led.h"
@@ -16,14 +17,23 @@
 
 static const char *TAG = "esp32_robot";
 
-// Init order tracks the .ino's allocation rationale (CLAUDE.md
-// "connection-first init"): NVS → WiFi → caps → BLE → mDNS. Camera +
-// HTTP server come in 2.C.4; WebRTC peer in 2.D.
+// Connection-first init (CLAUDE.md), but on classic ESP32-CAM the camera
+// must allocate its 32 KB DMA buffer in fresh internal heap (PSRAM isn't
+// DMA-coherent on this chip). Allocation order matches the .ino:
 //
-// On classic ESP32-CAM, BLE+WiFi+camera compete for ~250 KB DRAM. The
-// .ino bound camera before BLE so its DMA buffer lands in fresh internal
-// heap. Once camera_init joins (2.C.4), this order moves it ahead of
-// BLE here too.
+//   1. NVS              (Preferences-equivalent for pin / wifi / cam)
+//   2. pin_config       (load runtime overrides)
+//   3. Camera           (esp32-camera; fights for DRAM first, fails
+//                        loudly if PSRAM is missing — fw-info hides
+//                        the cap so the dashboard adapts)
+//   4. LED / Flash / Motors
+//   5. NimBLE host      (BLE before WiFi — controller pool fits while
+//                        heap is mostly fresh; reverse order panics)
+//   6. OTA              (no radio; just esp_partition lookup)
+//   7. WiFi STA         (whatever's left — comes up with fewer RX
+//                        buffers if needed)
+//   8. HTTP server :81  (LWIP up by now)
+//   9. mDNS
 
 void app_main(void) {
     esp_err_t ret = nvs_flash_init();
@@ -37,9 +47,7 @@ void app_main(void) {
     pin_config_load(&pins);
 
     // Stable per-chip suffix — low 16 bits of the WiFi MAC. Same shape as
-    // the .ino so paired robots in localStorage keep matching after the
-    // cutover. BLE name uppercases; the mDNS / hostname form lowercases
-    // for `<name>.local` lookups.
+    // the .ino so paired robots in localStorage keep matching.
     uint8_t mac[6];
     ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
     char ble_name[16];
@@ -48,21 +56,15 @@ void app_main(void) {
     snprintf(hostname, sizeof(hostname), "br-%02x%02x", mac[4], mac[5]);
     ESP_LOGI(TAG, "robot id: ble=%s host=%s", ble_name, hostname);
 
-    wifi_sta_init(hostname);
+    camera_init();
 
-    // Capability hardware init — gated on pin validity. Each module
-    // tolerates -1 by skipping hardware setup, so a chassis with no
-    // motors / no flash boots clean.
     led_init(pins.led);
     flash_init(pins.flash);
     motors_init(&pins);
 
-    ota_init();
-    http_server_init(ble_name);
-
-    // BLE last among the radios so the GATT service table is registered
-    // and ready before any central can connect. gatt_svr_init runs inside
-    // ble_host_init in the right order relative to the host stack.
     ble_host_init(ble_name);
+    ota_init();
+    wifi_sta_init(hostname);
+    http_server_init(ble_name);
     mdns_advertise_init(hostname);
 }
