@@ -64,10 +64,16 @@ Each transport has a distinct job:
 - **BLE** — control plane. Low latency, proximity-authenticated, lossy. Anything that sets motor speed, toggles an LED, commits state.
 - **Typed ops over BLE** — structured verbs on a single characteristic (`get-log`, `get-config`, `restart-service`, `wifi-scan`, `wifi-join`). Each verb is a deliberate, reviewable decision instead of a real-shell transport.
 - **WebRTC** — phone ↔ desktop. Pair-ceremony authenticated (Ed25519 pubkey + signed pair-request). Carries camera frames, ask-human responses, robot-command relays.
-- **Wifi-presence** — mDNS + cached-IP probe. Robots publish over mDNS; dashboard probes `<name>.local:81/health`. No internet rendezvous (signal.neevs.io stays for cross-network phone-pair only).
+- **Wifi-presence** — Pi exposes `<name>.local:81/health` (pi_robot_health.py); dashboard probes it for the "on wifi" badge + service-crash detection. ESP32 retired its HTTP server in Phase 2.H — its presence shows up only when BLE-paired (wifi-status notify). No internet rendezvous for robot presence (signal.neevs.io stays for cross-network phone-pair only).
 - **USB-CDC** — recovery plane. Last-resort serial console, runs as its own systemd unit so a `pi-robot.service` crash doesn't take recovery with it. Bounded by physical access.
 
 Pattern: control = BLE, observe = wifi/discover, recover = USB.
+
+# LAN client-isolation gotcha
+
+Apartment-WiFi-as-a-service products (WhiteSky, Spectrum Community, etc.) and most public/guest WiFi enable **client isolation** — same-SSID devices can't reach each other directly even though they appear on the same subnet. WebRTC ICE then fails *silently from the application's perspective*: BLE-signaled handshakes complete cleanly, the chip generates a valid answer SDP, the dashboard sets remote description, and then ICE just doesn't converge until the 30 s timeout. wss fallback fails the same way for the same reason — the signal exchange isn't the problem, the data path is.
+
+If WebRTC video / phone-pair is failing on a network that "should work," verify the SSID isn't isolating clients before assuming code regression. Quickest test: tether to a phone hotspot and re-try. If the hotspot works, it's the AP, not us. (We burned hours debugging this on 2026-04-30.)
 
 # Connection-first init
 
