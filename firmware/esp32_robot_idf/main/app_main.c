@@ -15,7 +15,6 @@
 #include "pair_mailbox.h"
 #include "pin_config.h"
 #include "telemetry.h"
-#include "turn_creds.h"
 #include "webrtc_peer.h"
 #include "wifi_sta.h"
 
@@ -80,11 +79,13 @@ void app_main(void) {
     telemetry_init();
     wifi_sta_init(hostname);
     mdns_advertise_init(hostname);
-    // turn_creds task waits for GOT_IP, then fetches Cloudflare TURN
-    // credentials so handle_offer can populate libpeer's ice_servers.
-    // Without it the chip falls back to STUN-only and can't pair on
-    // networks with client isolation (apartment WiFi, some hotspots).
-    turn_creds_init();
+    // turn_creds_init() intentionally NOT called: the HTTPS fetch +
+    // mbedTLS handshake panicked on the ESP32-CAM's tight DRAM, and
+    // the dashboard already mints TURN creds on its side, which is
+    // half the battle. Chip stays STUN-only, which works on most
+    // home/coffee-shop networks. Revisit when we have time to design
+    // chip-side TURN with a smaller footprint (PSRAM-backed task,
+    // on-demand fetch, or a libpeer fork that takes pre-allocated creds).
     // WebRTC peer last — websocket client connects asynchronously when
     // WiFi gets an IP. Safe to start before the first GOT_IP event.
     webrtc_peer_init(ble_name);
