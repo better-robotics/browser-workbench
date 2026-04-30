@@ -12,7 +12,6 @@
 #include "flash.h"
 #include "fw_info.h"
 #include "led.h"
-#include "logs.h"
 #include "motors.h"
 #include "ota.h"
 #include "pair_mailbox.h"
@@ -42,7 +41,6 @@ static ble_uuid128_t s_telemetry_uuid;
 static ble_uuid128_t s_fw_info_uuid;
 static ble_uuid128_t s_signal_uuid;
 static ble_uuid128_t s_pair_mailbox_uuid;
-static ble_uuid128_t s_logs_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -55,10 +53,8 @@ static uint16_t s_telemetry_handle;
 static uint16_t s_fw_info_handle;
 static uint16_t s_signal_handle;
 static uint16_t s_pair_mailbox_handle;
-static uint16_t s_logs_handle;
 
 uint16_t gatt_svr_pair_mailbox_handle(void) { return s_pair_mailbox_handle; }
-uint16_t gatt_svr_logs_handle(void) { return s_logs_handle; }
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -76,15 +72,6 @@ static void parse_uuid128(const char *s, ble_uuid128_t *out) {
         i++;
     }
     memcpy(out->value, bytes, 16);
-}
-
-// NimBLE requires an access_cb even for notify-only chars (it dereferences
-// the pointer during ble_gatts_count_cfg). This stub satisfies that for
-// LOGS — flags carry no read/write, so it never gets dispatched in
-// practice.
-static int noop_access(uint16_t conn, uint16_t attr,
-                       struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    return BLE_ATT_ERR_UNLIKELY;
 }
 
 static int led_access(uint16_t conn, uint16_t attr,
@@ -399,17 +386,6 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_pair_mailbox_handle,
     },
-    {
-        // Logs (Phase 2.G): NOTIFY-only. Dashboard subscribes; chip's
-        // logs.c worker drains the ring buffer and emits chunked
-        // notifies. NimBLE rejects access_cb=NULL with EINVAL even
-        // for notify-only chars; the stub never fires because there
-        // are no read/write flags on this characteristic.
-        .uuid = &s_logs_uuid.u,
-        .access_cb = noop_access,
-        .flags = BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &s_logs_handle,
-    },
     { 0 },
 };
 
@@ -440,7 +416,6 @@ void gatt_svr_init(void) {
     parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
     parse_uuid128(SIGNAL_CHAR_UUID,           &s_signal_uuid);
     parse_uuid128(PAIR_MAILBOX_CHAR_UUID,     &s_pair_mailbox_uuid);
-    parse_uuid128(LOGS_CHAR_UUID,             &s_logs_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -475,14 +450,6 @@ void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len) {
     struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
     if (!om) return;
     ble_gatts_notify_custom(conn, s_signal_handle, om);
-}
-
-void gatt_svr_logs_send(uint16_t conn, const uint8_t *buf, size_t len) {
-    if (conn == BLE_HS_CONN_HANDLE_NONE) return;
-    if (!s_logs_handle) return;
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
-    if (!om) return;
-    ble_gatts_notify_custom(conn, s_logs_handle, om);
 }
 
 void gatt_svr_pair_mailbox_send(uint16_t conn_handle, const uint8_t *buf, size_t len) {

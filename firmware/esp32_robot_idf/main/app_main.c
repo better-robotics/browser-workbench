@@ -9,7 +9,6 @@
 #include "flash.h"
 #include "fw_info.h"
 #include "led.h"
-#include "logs.h"
 #include "mdns_advertise.h"
 #include "motors.h"
 #include "ota.h"
@@ -42,10 +41,6 @@ static const char *TAG = "esp32_robot";
 //                        is WebRTC, both find each other via BLE pairing)
 
 void app_main(void) {
-    // logs_init() is currently disabled — the vprintf hook panicked
-    // the chip in early boot. Keeping the GATT char registered but
-    // inert until the hook is rewritten with a safer reentry strategy.
-
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -87,6 +82,4 @@ void app_main(void) {
     // WebRTC peer last — websocket client connects asynchronously when
     // WiFi gets an IP. Safe to start before the first GOT_IP event.
     webrtc_peer_init(ble_name);
-
-    // logs_start() disabled — see logs_init() note above.
 }
