@@ -322,6 +322,7 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .menu-item .icon-svg { width: 16px; height: 16px; color: var(--ink-muted); flex-shrink: 0; }
 .menu-item:hover { background: var(--line); }
 .menu-item.destructive { color: var(--danger); }
+.menu-item.destructive .icon-svg { color: var(--danger); }
 .menu-item.destructive:hover { background: rgba(215, 0, 21, 0.08); }
 a.menu-item { text-decoration: none; }
 .menu-meta {
