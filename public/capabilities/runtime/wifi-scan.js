@@ -121,11 +121,23 @@ export function makeWifiScanCap(schema) {
   // When scan fails (classic ESP32 + BLE coexistence commonly returns zero
   // APs even when networks exist), the user can still join by typing SSID +
   // password directly. Mirrors iOS's "Join Other Network…" affordance.
+  // macOS auto-corrects ' / " to curly equivalents (\u2018\u2019\u201C\u201D)
+  // inside prompt() dialogs unless the user has Smart Quotes off. Network
+  // SSIDs are byte-exact — "Jonas's iPhone" with a curly apostrophe doesn't
+  // match the AP's beacon "Jonas's iPhone" with a straight one, and the chip
+  // returns ssid_not_found. Normalize before sending so the typed path
+  // matches the scan-and-join path.
+  function straightenQuotes(s) {
+    return (s || "")
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"');
+  }
+
   async function joinManual(entry) {
     if (!entry[joinField]) return;
-    const ssid = prompt("Network name (SSID):");
+    const ssid = straightenQuotes(prompt("Network name (SSID):"));
     if (!ssid) return;
-    const password = prompt(`Password for "${ssid}" (leave blank for open):`);
+    const password = straightenQuotes(prompt(`Password for "${ssid}" (leave blank for open):`));
     if (password === null) return;
     try {
       await entry[joinField].writeValueWithResponse(encodeJson({ s: ssid, p: password }));
