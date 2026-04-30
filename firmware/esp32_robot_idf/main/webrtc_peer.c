@@ -655,7 +655,13 @@ void webrtc_peer_init(const char *robot_name) {
     esp_websocket_client_config_t cfg = {
         .uri = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .reconnect_timeout_ms = 5000,
+        // 60s, not 5s. When the network truly can't reach
+        // signal.neevs.io, the 5s retry loop hammers lwIP's pbuf pool
+        // and the phone hotspot's NAT table — eventually libpeer's STUN
+        // sendto starts failing with "Not enough space". The wss path
+        // is a fallback only (BLE signaling is primary), so a slow
+        // reconnect costs nothing on healthy networks.
+        .reconnect_timeout_ms = 60000,
         .network_timeout_ms = 10000,
         .buffer_size = 4096,
         // Task creation fails at the default 6 KB stack on classic
