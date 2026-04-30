@@ -10,6 +10,7 @@ on:
       - 'firmware/**'
       - 'Makefile'
       - 'tools/gen-uuids.py'
+      - 'tools/check-dram-budget.py'
       - 'protocol/uuids.json'
       - '.github/workflows/build-firmware.yml'
   workflow_dispatch: {}

@@ -6,6 +6,7 @@ One-page cheat sheet for diagnostic flags, console handles, and debug paths. If 
 
 ### Dashboard (`index.html`)
 - `?debug` or `#debug` — verbose pairing logs to console **and** a floating green-on-black log panel (bottom-right). Implementation: `pairing.js`.
+- `?probe` — runs a unilateral STUN probe on load (no pair, no peer) and logs candidate types, public IP, and `stunReachable`. Composes with `?debug` (also goes to the floating panel). Implementation: `pairing.js` + `net-probe.js`.
 - `?prepare` — opens the Customize-card SD-prep dialog on load. Implementation: `app.js`.
 - `?robot=<name>` — pre-selects a robot by name (useful for direct-link workflows). Implementation: `app.js`.
 
@@ -23,6 +24,9 @@ Live on both desktop and phone while `pairing.js` is loaded.
 - `window.replayAll()` — resolves to the full in-memory array of records.
 - `window.replayClear()` — wipes the replay store. Destructive.
 - `window.replaySession` — the current session id (string).
+- `window.lastPairDiagnostic()` — local + remote ICE candidates from this side's most recent pair attempt, plus role/roomId/iceServers. Resets on each new `hostPairingRoom`/`joinPairingRoom` call. Reach for it when a pair fails — what each side gathered tells you whether STUN succeeded, what NAT shape, etc.
+- `window.probeNetwork({ timeoutMs })` — runs a unilateral STUN probe on demand and returns `{stunReachable, candidateTypes, publicIp, mdnsObfuscated, candidates, durationMs}`. Stashes the result in `window.lastNetProbe()`.
+- `window.lastNetProbe()` — last `probeNetwork()` result, or `null` if never run.
 
 ## What gets recorded in replay
 
@@ -52,7 +56,7 @@ Chrome ships several diagnostic dashboards behind `chrome://` URLs that surface 
 
 ## When to reach for what
 
-- Pairing hangs or fails silently → enable `?debug` on whichever side is stuck (desktop and/or phone).
+- Pairing hangs or fails silently → enable `?debug` on whichever side is stuck, then read `window.lastPairDiagnostic()` from the console for each side's gathered candidates. If even a unilateral probe (`?probe` or `window.probeNetwork()`) returns no `srflx`, the network is blocking outbound STUN/UDP — pair will fail before it starts.
 - Understand what Pip did last session → `replayDownload()` from DevTools console, inspect the JSON.
 - Camera / VLM misbehaving → enable Watch, inspect the scene card on the robot's dashboard tile. VLM output is read-only; to cross-check, use the `ask_robot_scene` tool in a Pip chat with a neutrally-framed question.
 - Spatial grounding (which way to turn toward a target) → `get_robot_detections` Pip tool. Returns normalized bboxes. Model loads on first call (~30–60s, cached).

@@ -57,10 +57,34 @@ const QUEUE_MAX = 1000;
 // as long as the dialog is — cleanup happens on dialog close.
 const ICE_TIMEOUT_MS = 30000;
 
+import { parseCandidate, probeNetwork } from "./net-probe.js";
+
 // Verbose transition logging, opt-in via ?debug or #debug in the URL. When
 // set, dbg() mirrors to both console and any subscribed sinks (the floating
 // in-page panel, so phones can diagnose without remote DevTools).
 export const DEBUG = typeof location !== "undefined" && /\bdebug\b/.test((location.search || "") + (location.hash || ""));
+const PROBE = typeof location !== "undefined" && /\bprobe\b/.test((location.search || "") + (location.hash || ""));
+
+// Per-attempt diagnostic capture: every local + remote ICE candidate this
+// side has seen during the most recent pair attempt. State transitions are
+// already covered by ?debug logging; this fills the gap that bit us on
+// 2026-04-30 — the candidate sets are usually what reveals whether STUN
+// succeeded, both sides gathered, etc. Resets per host/joinPairingRoom call.
+const _diag = { local: [], remote: [], iceServers: [], role: null, roomId: null, startedAt: 0 };
+function diagReset(role, roomId, iceServers) {
+  _diag.local = [];
+  _diag.remote = [];
+  _diag.iceServers = (iceServers || []).map((s) => ({ urls: s.urls }));
+  _diag.role = role;
+  _diag.roomId = roomId;
+  _diag.startedAt = Date.now();
+}
+function diagLocal(c)  { const p = parseCandidate(c); if (p) _diag.local.push(p); }
+function diagRemote(c) { const p = parseCandidate(c); if (p) _diag.remote.push(p); }
+
+if (typeof window !== "undefined") {
+  window.lastPairDiagnostic = () => ({ ..._diag });
+}
 const _logSinks = new Set();
 export function onDebugLog(fn) { _logSinks.add(fn); return () => _logSinks.delete(fn); }
 
@@ -91,6 +115,19 @@ if (DEBUG && typeof document !== "undefined") {
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
   else install();
+}
+
+// ?probe — runs a unilateral STUN probe on module load and reports the
+// result. Composes with ?debug (also surfaces in the floating panel).
+// Useful as a baseline before opening a real pair: did STUN reach Google
+// at all, what candidate types did we get, what's the public IP.
+if (PROBE) {
+  probeNetwork().then((r) => {
+    try { console.log("[net-probe]", r); } catch {}
+    dbg("net-probe", r);
+  }).catch((err) => {
+    try { console.warn("[net-probe] failed", err); } catch {}
+  });
 }
 
 function makePeerId(role) {
@@ -291,7 +328,7 @@ class Peer {
         this._ws.send(JSON.stringify({ type: "signal", peer: this._myPeerId, data: { answer } }));
       }
       if (data.answer) await this._pc.setRemoteDescription(data.answer);
-      if (data.ice)    { try { await this._pc.addIceCandidate(data.ice); } catch {} }
+      if (data.ice)    { diagRemote(data.ice); try { await this._pc.addIceCandidate(data.ice); } catch {} }
     } catch (err) {
       dbg("peer signal error", err.message || err);
     }
@@ -422,7 +459,9 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const otherRolePrefix = "phone";
   dbg("desktop: opening room", roomId, "peerId=", myPeerId);
   const iceServers = await fetchIceServers();
+  diagReset("desktop", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
+  pc.addEventListener("icecandidate", (e) => { if (e.candidate) diagLocal(e.candidate); });
   const ws = openSignalWs(roomId);
   wireIceTrickle(pc, ws, myPeerId);
   let resolvePeer, rejectPeer;
@@ -477,6 +516,7 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
       dbg("desktop: answer sent");
     }
     if (data.ice) {
+      diagRemote(data.ice);
       if (pc.remoteDescription) { try { await pc.addIceCandidate(data.ice); } catch {} }
       else pendingIce.push(data.ice);
     }
@@ -531,7 +571,9 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   dbg("phone: joining room", roomId, "peerId=", myPeerId);
   try { onStatus("Opening signal channel…"); } catch {}
   const iceServers = await fetchIceServers();
+  diagReset("phone", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
+  pc.addEventListener("icecandidate", (e) => { if (e.candidate) diagLocal(e.candidate); });
   const channel = pc.createDataChannel("pip");
   const ws = openSignalWs(roomId);
   wireIceTrickle(pc, ws, myPeerId);
@@ -583,6 +625,7 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
         pendingIce.length = 0;
       }
       if (data.ice) {
+        diagRemote(data.ice);
         if (pc.remoteDescription) { try { await pc.addIceCandidate(data.ice); } catch {} }
         else pendingIce.push(data.ice);
       }
