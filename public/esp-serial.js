@@ -50,12 +50,19 @@ function pickKnown(ports) {
 // a previous disconnect because the kernel hasn't fully released the
 // /dev/cu.usbserial node. A 200ms retry covers that without a user-visible
 // glitch (the previous symptom was "reconnect 2-3 times until it works").
+//
+// Then deassert DTR/RTS immediately. ESP32-CAM (and most ESP32 dev boards)
+// wire DTR/RTS through transistors to EN + GPIO0 — Chrome's default
+// asserted state on open() pulses those, which resets the chip and kills
+// any active BLE session. Setting both low keeps the chip running. No-op
+// on hardware that doesn't wire those signals (e.g. Pi USB-CDC gadgets).
 async function openWithRetry(port) {
   try { await port.open({ baudRate: 115200 }); }
   catch (err) {
     await new Promise((r) => setTimeout(r, 200));
     await port.open({ baudRate: 115200 });
   }
+  try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
 }
 
 async function connect() {

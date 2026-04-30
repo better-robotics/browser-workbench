@@ -85,6 +85,11 @@ async function connect() {
       await new Promise((r) => setTimeout(r, 200));
       await _port.open({ baudRate: 115200 });
     }
+    // Deassert DTR/RTS — harmless for Pi USB-CDC, critical when the
+    // user accidentally points this at an ESP32 (DTR/RTS map to EN/GPIO0
+    // on most ESP32 boards; default asserted state would reset it and
+    // kill an active BLE session).
+    try { await _port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
     rememberPort(_port);
   } catch (err) {
     if (err.name !== "NotFoundError") log(`Recovery connect error: ${err.message}`);

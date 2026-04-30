@@ -22,6 +22,7 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
+#include "wifi_sta.h"
 
 static const char *TAG = "rtc";
 
@@ -551,6 +552,14 @@ static void loop_task_fn(void *arg) {
 
 // ── init ─────────────────────────────────────────────────────────────────
 
+static void ws_start_when_wifi_up(void *arg) {
+    while (!wifi_sta_has_ip()) vTaskDelay(pdMS_TO_TICKS(500));
+    // Brief grace so DNS resolver is up after GOT_IP.
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    if (s_ws) esp_websocket_client_start(s_ws);
+    vTaskDelete(NULL);
+}
+
 void webrtc_peer_init(const char *robot_name) {
     uint32_t r = esp_random();
     snprintf(s_my_peer_id, sizeof(s_my_peer_id), "esp32-%06lx", (unsigned long)(r & 0xFFFFFF));
@@ -590,6 +599,12 @@ void webrtc_peer_init(const char *robot_name) {
     s_ws = esp_websocket_client_init(&cfg);
     if (!s_ws) { ESP_LOGE(TAG, "ws init failed"); return; }
     esp_websocket_register_events(s_ws, WEBSOCKET_EVENT_ANY, on_ws_event, NULL);
-    esp_websocket_client_start(s_ws);
-    ESP_LOGI(TAG, "rtc init: peer=%s room=%s", s_my_peer_id, s_room_id);
+    // Defer client start to a tiny task that waits for wifi_sta_has_ip().
+    // Starting before WiFi has DNS sends esp_websocket_client into a
+    // 5s-retry loop on getaddrinfo failures; that loop's socket churn
+    // races libpeer's UDP socket allocation during create_answer and
+    // produces "Failed to sendto: Bad file number" — STUN never sends,
+    // create_answer hangs, task watchdog fires. Costs nothing to wait.
+    xTaskCreate(ws_start_when_wifi_up, "ws_start", 2048, NULL, 4, NULL);
+    ESP_LOGI(TAG, "rtc init: peer=%s room=%s (ws start deferred)", s_my_peer_id, s_room_id);
 }

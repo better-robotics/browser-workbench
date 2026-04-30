@@ -5,7 +5,7 @@ IDF_DIR     := firmware/esp32_robot_idf
 IDF_BUILD   := $(IDF_DIR)/build
 PUBLISH_DIR := public/firmware/bins
 
-.PHONY: help setup compile flash monitor flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks
+.PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks
 
 help:
 	@echo ""
@@ -15,7 +15,8 @@ help:
 	@echo "\033[2mFirmware (ESP32 local dev loop — wraps idf.py)\033[0m"
 	@echo "  \033[36mcompile\033[0m        Compile firmware/esp32_robot_idf"
 	@echo "  \033[36mflash\033[0m          Compile + upload over USB — fast dev iteration"
-	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200"
+	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200 (idf.py — pulses DTR/RTS, resets chip)"
+	@echo "  \033[36mmonitor-noreset\033[0m Live tail without resetting chip (safe alongside an active BLE session)"
 	@echo "  \033[36mflash-monitor\033[0m  Flash then open monitor"
 	@echo ""
 	@echo "\033[2mPi SD provisioning\033[0m"
@@ -72,6 +73,17 @@ flash: compile
 monitor:
 	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*" && exit 1)
 	cd $(IDF_DIR) && idf.py -p "$(PORT)" monitor
+
+# Live serial tail that does NOT reset the chip on connect. idf.py monitor
+# pulses DTR/RTS as part of opening the port, which the USB-UART chip
+# translates into chip reset — that kills any active BLE session and
+# breaks the very thing you wanted to debug. We open the port manually
+# with DTR/RTS held low so the chip keeps running undisturbed.
+# Ctrl+C to exit. Read-only (no input forwarded).
+monitor-noreset:
+	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*" && exit 1)
+	@python3 -c "import serial,sys,time; s=serial.Serial('$(PORT)',115200,timeout=1); s.dtr=False; s.rts=False; time.sleep(0.3); \
+	 [sys.stdout.write(s.read(4096).decode('utf-8','replace')) or sys.stdout.flush() for _ in iter(int,1)]"
 
 flash-monitor: flash monitor
 
