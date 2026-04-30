@@ -27,8 +27,15 @@ import { renderEntry } from "./render-bus.js";
 function hasWifi(entry) { return !!entry.wifiStatus?.ip; }
 
 // Open a WebRTC `video` data channel, ask the firmware for a stream at
-// 10 fps, render incoming binary frames into the existing <img> via
+// 5 fps, render incoming binary frames into the existing <img> via
 // blob URLs. Returns a disposer; null on open failure.
+//
+// 5 fps, not 10: classic ESP32 + libpeer can't drain JPEGs over UDP
+// fast enough at 10 fps with BLE notifies and STUN keepalives also
+// using lwIP — symptom was "Failed to sendto: Not enough space"
+// flooding serial and the dashboard <img> freezing on the first
+// received frame. 5 fps gives lwIP twice as long to drain pbufs
+// between frames; bump back when the libpeer fork lands a tx-queue.
 async function startEsp32WebRTCVideo(entry, img) {
   const { openChannel, closePeer } = await import("../../webrtc-robot.js");
   let channel;
@@ -55,7 +62,7 @@ async function startEsp32WebRTCVideo(entry, img) {
     prevUrl = url;
   };
   channel.addEventListener("message", onMsg);
-  try { channel.send(JSON.stringify({ type: "start", fps: 10 })); } catch {}
+  try { channel.send(JSON.stringify({ type: "start", fps: 5 })); } catch {}
   logFor(entry, `video webrtc: streaming`);
   return {
     channel,
