@@ -23,12 +23,11 @@ if git diff --cached --name-only | grep -q '^protocol/uuids\.json$'; then
 fi
 
 # 2. SW version stamp. Hashes the dashboard asset surface and rewrites
-# public/sw.js's VERSION when the hash changes — bumping VERSION is
-# what makes the browser see a new service worker and surface the
-# "Reload to update" banner. Mirrors .github/workflows/stamp-sw-version.yml
-# but folds the stamp into the user's own commit instead of a follow-up
-# bot-commit. Only fires when public/* (excluding firmware bins + sw.js
-# itself) is staged.
+# public/sw.js's VERSION when the hash changes. Bumping VERSION is what
+# makes the browser see a new service worker and surface the "Reload to
+# update" banner. Folded into the user's commit so the banner fires on
+# the right SHA. Only runs when public/* (excluding firmware bins +
+# sw.js itself) is staged.
 if git diff --cached --name-only \
     | grep -E '^public/' \
     | grep -vE '^public/firmware/|^public/sw\.js$' \
