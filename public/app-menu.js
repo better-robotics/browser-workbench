@@ -202,6 +202,17 @@ export function wireHardRefresh({
           req.onsuccess = req.onerror = req.onblocked = () => res();
         })));
       }
+      // Origin Private File System: not used by the app today (the SD-prep
+      // flow uses File System Access on a user-picked directory, not OPFS),
+      // but if anything ever lands here it would survive every other clear.
+      try {
+        if (navigator.storage?.getDirectory) {
+          const root = await navigator.storage.getDirectory();
+          const names = [];
+          for await (const [name] of root.entries()) names.push(name);
+          await Promise.allSettled(names.map(n => root.removeEntry(n, { recursive: true })));
+        }
+      } catch {}
       try { localStorage.clear(); } catch {}
       try { sessionStorage.clear(); } catch {}
       // Cookies — best-effort. JS can't see HttpOnly cookies; for the rest,
@@ -225,7 +236,11 @@ export function wireHardRefresh({
         [...all].map(u => fetch(u, { cache: "reload" }).catch(() => {})),
       );
     } finally {
-      location.reload();
+      // replace(pathname) instead of reload() so query params and hash
+      // don't survive — a hard refresh that lands you back on the same
+      // ?debug=1 isn't fully clean. pathname is preserved so phone.html
+      // stays on phone.html and the dashboard stays on the dashboard.
+      location.replace(location.pathname);
     }
   });
 }
