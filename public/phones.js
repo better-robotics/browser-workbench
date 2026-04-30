@@ -307,6 +307,18 @@ function _initPairListener() {
 // char (Phase 2.F.2 firmware). Wires a parallel pairRequestClient onto
 // the BLE-relay transport so a co-located phone can pair without
 // signal.neevs.io round-trips.
+// Pick a robot the phone can use as a BLE rendezvous. Any robot with a
+// live pair-mailbox char will do — we just need its BLE name so the
+// phone can find it via Web Bluetooth. Returns null when no robot is
+// armed for BLE-relay, in which case the QR omits the hint and the
+// phone falls back to the wss lobby.
+function _bleRendezvousHint() {
+  for (const entry of state.devices.values()) {
+    if (entry.pairMailboxChar && entry.name) return entry.name;
+  }
+  return null;
+}
+
 export function notifyRobotConnected(entry) {
   if (!entry || !entry.pairMailboxChar) return;
   if (_robotPairClients.has(entry.id)) return;
@@ -316,6 +328,16 @@ export function notifyRobotConnected(entry) {
   const client = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: transport });
   client.onRequest(_onPairRequest, _pairOnRequestOpts);
   _robotPairClients.set(entry.id, { transport, client });
+  // Republish Mac presence on this transport so phones connecting to
+  // the same robot via BLE see us in their nearby list — same wire
+  // shape as the wss lobby's "better-robotics-mac" ad. The 60s TTL
+  // matches the wss path; bleMailbox's republish loop handles refresh.
+  if (_myPubkey) {
+    transport.publish("better-robotics-mac:" + _myPubkey, {
+      app: "better-robotics-mac",
+      label: deviceLabel(),
+    }, 60000);
+  }
   log(`pair-mailbox armed on ${entry.name || entry.id}`, "phone");
 }
 
@@ -475,9 +497,18 @@ async function beginPairing() {
   // QR-fallback path: encode our pubkey alongside the room id so a
   // cross-network phone can establish trust without going through the
   // request/accept lobby (which only works on the same wifi).
+  //
+  // Phase 2.F.2: also encode &ble=<robotName> when we have at least one
+  // robot reachable via the BLE-mailbox lobby. Lets a Web-Bluetooth-
+  // capable phone skip signal.neevs.io for the trust handshake — same
+  // pair-request protocol, different lobby plugin. iPhones (no Web
+  // Bluetooth) ignore it and still use the wss lobby.
   const myPubkey = _myPubkey || await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
-  url.hash = `pair=${session.roomId}&pk=${myPubkey}`;
+  let hash = `pair=${session.roomId}&pk=${myPubkey}`;
+  const bleHint = _bleRendezvousHint();
+  if (bleHint) hash += `&ble=${encodeURIComponent(bleHint)}`;
+  url.hash = hash;
   const urlText = url.toString();
 
   if (window.qrcode) {
