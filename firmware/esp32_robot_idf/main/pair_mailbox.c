@@ -110,16 +110,16 @@ static void send_chunked(uint16_t conn, const uint8_t *buf, size_t len) {
 }
 
 static void broadcast_ad(uint16_t skip_conn, const uint8_t *buf, size_t len) {
-    (void)skip_conn;  // see below
+    // Skip the writer's own conn so they don't see their own ad echoed
+    // back. Two browsers on the same Mac sharing one CoreBluetooth GATT
+    // connection are an edge case (multi-window pair) that doesn't
+    // justify doubling the notify traffic for everyone — empirically,
+    // the extra mbuf pressure from the echo can starve the SIGNAL
+    // char's notify queue and break WebRTC ICE.
     uint16_t conns[BLE_HOST_MAX_CONNS];
     size_t n = ble_host_active_conns(conns, BLE_HOST_MAX_CONNS);
     for (size_t i = 0; i < n; i++) {
-        // Send to every subscriber, INCLUDING the writer. Two browser
-        // windows on the same macOS profile share one underlying GATT
-        // connection through CoreBluetooth; skipping the writer's conn
-        // would skip every receiver too. Each peer dedupes by ad id
-        // on its side, so echoing the writer's own ad back is harmless
-        // (their _ads cache just updates with itself).
+        if (conns[i] == skip_conn) continue;
         send_chunked(conns[i], buf, len);
     }
 }
