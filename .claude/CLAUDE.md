@@ -69,11 +69,16 @@ Each transport has a distinct job:
 
 Pattern: control = BLE, observe = wifi/discover, recover = USB.
 
-# LAN client-isolation gotcha
+# Network-shaped WebRTC failure
 
-Apartment-WiFi-as-a-service products (WhiteSky, Spectrum Community, etc.) and most public/guest WiFi enable **client isolation** — same-SSID devices can't reach each other directly even though they appear on the same subnet. WebRTC ICE then fails *silently from the application's perspective*: BLE-signaled handshakes complete cleanly, the chip generates a valid answer SDP, the dashboard sets remote description, and then ICE just doesn't converge until the 30 s timeout. wss fallback fails the same way for the same reason — the signal exchange isn't the problem, the data path is.
+Some networks (apartment WiFi-as-a-service like WhiteSky, guest WiFi, certain enterprise APs) silently break WebRTC ICE between two devices even though signaling completes cleanly. The dashboard symptom is distinctive:
 
-If WebRTC video / phone-pair is failing on a network that "should work," verify the SSID isn't isolating clients before assuming code regression. Quickest test: tether to a phone hotspot and re-try. If the hotspot works, it's the AP, not us. (We burned hours debugging this on 2026-04-30.)
+- BLE-signaled handshake completes, chip generates a valid answer SDP
+- Dashboard sets remote description, channel never opens, 30 s ICE timeout
+- wss fallback fails the same way (signal isn't the problem, data path is)
+- Bumping the chip and laptop onto **different** networks often works (cross-NAT via STUN), so it's not always pure client-isolation — could be NAT type, hairpin, port blocking, or something else network-shaped
+
+If WebRTC fails on a network that "should work," try the chip and laptop on different networks (phone hotspot is the quickest split) before assuming code regression. We burned hours on 2026-04-30 debugging this; the symptom looks like a code bug because every layer above the ICE check appears healthy.
 
 # Connection-first init
 
