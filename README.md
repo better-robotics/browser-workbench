@@ -101,6 +101,7 @@ The dashboard is flat by convention; naming prefixes carry the subsystem boundar
 - [**Pi firmware**](firmware/pi_robot/README.md) — BLE service spec, SD-card prep details, Bookworm/Trixie troubleshooting.
 - [**User code**](USER-CODE.md) — why per-user code runs in the browser, not on the Pi.
 - [**Observations**](OBSERVATIONS.md) — why Pip's proactive messages come from project state, not a scheduled content feed.
+- [**Developer reference**](DEV.md) — URL flags, console handles, replay store, Chrome `chrome://` diagnostic pages.
 
 ## Browser support
 

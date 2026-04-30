@@ -39,6 +39,17 @@ Every Pip tool call is persisted to IndexedDB automatically. Record shape:
 
 Why signaling via signal.neevs.io and not a per-Pi HTTP endpoint: browser Mixed Content blocks HTTPS dashboard → HTTP private-IP fetches before PNA preflight runs. WebSocket over wss:// avoids the gate.
 
+## Chrome internal pages
+
+Chrome ships several diagnostic dashboards behind `chrome://` URLs that surface state the page can't see. Most useful for this project:
+
+- `chrome://webrtc-internals/` — every active RTCPeerConnection, ICE candidate pair tried, which got disqualified and why, DTLS/SCTP state, getStats output. **Reach for this first** when WebRTC video or pair signaling fails — the symptom is at the application layer, the cause is usually two layers down. Auto-records on connection start; the timing of "candidate-pair selected" vs "channel open" is what you usually want.
+- `chrome://bluetooth-internals/` — Web Bluetooth devices Chrome currently knows about, services discovered, last scan results. Useful when a robot doesn't appear in the chooser or when GATT operations stall. The "Adapter" section also surfaces OS-level Bluetooth state (powered, discoverable, paired).
+- `chrome://device-log/` — Chrome's per-event log for BLE, USB, and serial. Captures errors that the page never sees (e.g. "GATT operation already in progress" comes through here with extra context).
+- `chrome://inspect/#devices` — remote DevTools for Chrome on a USB-connected Android phone. The phone surface is hard to debug otherwise; this gives full console + Sources + Network on the phone's tab from the laptop.
+- `chrome://serial-internals/` — Web Serial state. Useful when the recovery-console terminal stalls.
+- `chrome://net-export/` — full network capture. Heavyweight; reach for it when you need to share a `.json` log with someone or correlate cross-protocol failures.
+
 ## When to reach for what
 
 - Pairing hangs or fails silently → enable `?debug` on whichever side is stuck (desktop and/or phone).
