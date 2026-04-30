@@ -14,13 +14,14 @@ import { renderEntry } from "./render-bus.js";
 // can take 7-12s. 30s gives headroom; longer = real failure.
 const SCAN_TIMEOUT_MS = 30000;
 
-// Auto-retry empty scan results. BLE/WiFi coex on classic ESP32 makes
-// passive scans flaky — the chip can return 0 entries even when networks
-// exist, especially right after a failed join (radio settling). Retry up
-// to MAX_EMPTY_RETRIES times with a small delay so the user doesn't have
-// to manually click Scan repeatedly.
-const MAX_EMPTY_RETRIES = 2;
-const RETRY_DELAY_MS = 1500;
+// Auto-retry an empty scan result once. BLE/WiFi coex on classic ESP32
+// makes passive scans flaky — the chip occasionally returns 0 entries
+// when networks actually exist (especially right after a failed join).
+// One retry is the conservative knob: enough to mask the most common
+// flake, not so many that we build a positive feedback loop with the
+// chip's scan duration.
+const MAX_EMPTY_RETRIES = 1;
+const RETRY_DELAY_MS = 2500;
 
 function summarize(status) {
   const { st, ssid, err, ip } = status || {};
@@ -197,7 +198,14 @@ export function makeWifiScanCap(schema) {
             setTimeout(() => scan(entry, true), RETRY_DELAY_MS);
             return;
           }
-          entry[networksField] = result;
+          // Only overwrite networksField when the new result is non-empty
+          // OR we had nothing before. Otherwise an empty result after
+          // retries would wipe a still-useful cached list (chip's first
+          // read response) — the "list appears briefly then disappears"
+          // glitch.
+          if (result.length > 0 || !entry[networksField] || !entry[networksField].length) {
+            entry[networksField] = result;
+          }
           entry[scanningField] = false;
           entry[retriesField] = 0;
           clearScanTimer(entry);
