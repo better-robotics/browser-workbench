@@ -274,6 +274,11 @@ async function flashFlow() {
   if (reconnectAfter) await connect();
 }
 
+// Tear down any active serial session held here. Idempotent — safe to
+// call when nothing's open. Used by the global pre-flash cleanup so
+// esp-web-tools' install button doesn't trip "port is already open".
+export async function releasePort() { if (_port) await disconnect(); }
+
 export function openRecoveryDialog() {
   initOnce();
   $("recovery-modal").showModal();

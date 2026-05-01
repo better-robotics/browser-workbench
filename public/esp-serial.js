@@ -142,6 +142,9 @@ async function disconnect() {
   setStatus("");
 }
 
+// Same purpose as recovery.releasePort — see comment there.
+export async function releasePort() { if (_port) await disconnect(); }
+
 export function init() {
   if (_wired) return;
   _wired = true;

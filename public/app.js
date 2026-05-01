@@ -2044,6 +2044,25 @@ document.addEventListener("DOMContentLoaded", () => {
   $("empty-add-robot-btn").addEventListener("click", openSetup);
   $("setup-close").addEventListener("click", () => $("setup-dialog").close());
 
+  // Pre-flash cleanup. esp-web-install-button has no hook to run code
+  // before it calls port.open(), and any port we (or a prior install
+  // session) left open makes its open() throw "port is already open".
+  // Capture-phase listener fires before ewt's bubble handler, kicks off
+  // an async release that completes well before the user finishes the
+  // port picker, leaving the port unlocked when ewt finally opens it.
+  document.querySelector("esp-web-install-button")?.addEventListener("click", () => {
+    Promise.all([
+      import("./recovery.js").then(m => m.releasePort?.()).catch(() => {}),
+      import("./esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
+    ]).then(async () => {
+      if (!("serial" in navigator)) return;
+      try {
+        const ports = await navigator.serial.getPorts();
+        await Promise.all(ports.map(p => p.close().catch(() => {})));
+      } catch {}
+    });
+  }, true);
+
   initGamepad();
   initMotorsKeyboard();
   initAuthUI();
