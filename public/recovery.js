@@ -154,9 +154,18 @@ async function connect() {
 }
 
 async function disconnect() {
+  // Release order matters: cancel/release readable + writable streams
+  // BEFORE port.close(). reader.cancel() unblocks the read loop but
+  // leaves the lock on port.readable held — port.close() then rejects
+  // and the next port.open() fails with "port is already open" even
+  // though the previous session is logically gone.
   try { await _reader?.cancel(); } catch {}
+  try { _reader?.releaseLock(); } catch {}
   try { _writer?.releaseLock(); } catch {}
   try { await _port?.close(); } catch {}
+  // Brief grace for the macOS kernel to release /dev/cu.usbserial-*.
+  // Without this, an immediate flash-flow port.open() can still race.
+  await new Promise((r) => setTimeout(r, 100));
   _reader = _writer = _port = null;
   _resizeObs?.disconnect();
   _resizeObs = null;
