@@ -1,3 +1,18 @@
+# Wedge
+
+This project is the **LLM-native consumer-robotics platform** — Pip is the robot's pilot, not its admin tool. Hold that frame.
+
+**Adjacent platforms.** Viam (B2B industrial fleet, gRPC + WebRTC, server-resident SaaS) and Freedom Robotics (B2B teleop, WebRTC + TURN, server-resident SaaS) ship the same transport stack you do — they aren't hiding a better protocol. Treat them as inspirations for what becomes table-stakes, not competitors. Different audience: enterprise vs. consumer/education/hobbyist.
+
+**What's defensible here that they don't have.** LLM as operator (Pip plans, calls tools, asks human, replays). Layered safety (firmware-bounded motors; planner can't bypass; ask-human is the terminal cascade rung — openpilot-panda pattern). Browser-resident model serving (VLM, ArUco, YOLO all in-browser, no GPU server). No-cloud, GitHub-Pages-deployable, fork-and-run.
+
+**Directions worth pursuing** (when there's a session to dedicate to each):
+- **Capability schema** — JSON manifest + chip handler + auto-rendered card, so a user (or Pip itself) can ship a new hardware capability without code changes. Platform play.
+- **Opt-in replay → dataset → improvement loop.** Replay is local-only today. Aggregating opted-in Pip sessions builds the only consumer-robot LLM dataset that exists.
+- **Multi-robot Pip.** One robot is teleop. Two robots in the same room with Pip planning across them is a research demo nobody else can show.
+
+Don't drift toward "yet another teleop dashboard". The wedge is **planner-as-pilot**, not better screens for human pilots.
+
 # Developer reference
 
 `DEV.md` at the repo root is the canonical list of URL flags, `window.*` handles, IndexedDB stores, and common debug paths.
