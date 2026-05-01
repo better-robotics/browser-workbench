@@ -5,11 +5,8 @@
 #include <string.h>
 
 #include "cJSON.h"
-#include "esp_crt_bundle.h"
 #include "esp_log.h"
-#include "esp_random.h"
 #include "esp_timer.h"
-#include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -22,38 +19,23 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
-#include "wifi_sta.h"
 
 static const char *TAG = "rtc";
 
-#define SIGNAL_HOST "signal.neevs.io"
-
-static char s_my_peer_id[16];
-static char s_room_id[64];
-static esp_websocket_client_handle_t s_ws;
 static PeerConnection *s_pc;
 
-// Loop task drains events from the websocket handler and pumps libpeer.
-// Single-threaded ownership of s_pc avoids a mutex around every state-
-// machine tick — websocket events post here and unblock immediately.
+// Loop task drains events from the BLE-signaling handler and pumps
+// libpeer. Single-threaded ownership of s_pc avoids a mutex around
+// every state-machine tick.
 typedef enum {
-    EV_OFFER_WS,
     EV_OFFER_BLE,
     EV_ICE,
 } event_type_t;
 
-typedef enum {
-    OFFER_SRC_WS,
-    OFFER_SRC_BLE,
-} offer_src_t;
-
-// Tracked across handle_offer → create_answer so the answer routes back
-// through the same transport the offer came in on.
-static offer_src_t s_active_offer_src = OFFER_SRC_WS;
 // BLE-only: the conn handle of the central that wrote the offer. The
 // answer notify routes here, not to ble_host_active_conn() (which is
 // the most-recent connection — wrong when two browsers are both
-// connected, since 2.F.2 raised MAX_CONNECTIONS to 4).
+// BLE-connected concurrently).
 static uint16_t s_active_offer_conn = 0;
 
 typedef struct {
@@ -63,29 +45,6 @@ typedef struct {
 
 static QueueHandle_t s_events;
 static TaskHandle_t s_loop_task;
-
-// ── outbound signaling ───────────────────────────────────────────────────
-
-static void send_signal_data(cJSON *data) {
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", "signal");
-    cJSON_AddStringToObject(root, "peer", s_my_peer_id);
-    cJSON_AddItemToObject(root, "data", data);   // takes ownership
-    char *json = cJSON_PrintUnformatted(root);
-    if (json && esp_websocket_client_is_connected(s_ws)) {
-        esp_websocket_client_send_text(s_ws, json, strlen(json), portMAX_DELAY);
-    }
-    free(json);
-    cJSON_Delete(root);
-}
-
-static void send_answer_via_ws(const char *sdp) {
-    cJSON *data = cJSON_CreateObject();
-    cJSON *answer = cJSON_AddObjectToObject(data, "answer");
-    cJSON_AddStringToObject(answer, "sdp", sdp);
-    cJSON_AddStringToObject(answer, "type", "answer");
-    send_signal_data(data);
-}
 
 // ── BLE signaling ────────────────────────────────────────────────────────
 
@@ -289,11 +248,17 @@ static void handle_ota_dc(const char *msg, size_t len) {
 static volatile bool s_video_active = false;
 static int s_video_fps = 10;
 static int64_t s_video_last_frame_us = 0;
+// When the previous send returned partial bytes (libpeer's UDP burst hit
+// ENOMEM mid-frame), back off the next capture so lwIP's pbuf pool has
+// time to drain. Without this the pump produces frames libpeer can't
+// ship and the chip burns CPU on JPEG compression nobody sees.
+static int64_t s_video_backoff_until_us = 0;
 
 static int s_video_frame_count = 0;
 static void video_pump_tick(void) {
     if (!s_video_active || !camera_ready() || !s_pc) return;
     int64_t now = esp_timer_get_time();
+    if (now < s_video_backoff_until_us) return;
     int64_t period_us = (int64_t)1000000 / (s_video_fps > 0 ? s_video_fps : 10);
     if (now - s_video_last_frame_us < period_us) return;
     s_video_last_frame_us = now;
@@ -311,6 +276,13 @@ static void video_pump_tick(void) {
         return;
     }
     int sent = peer_connection_datachannel_send_sid(s_pc, (char *)fb->buf, fb->len, sid);
+    // Partial send = libpeer/lwIP couldn't ship this frame in full. Skip
+    // capture for one frame-period to let buffers drain. Self-throttling
+    // without a fixed cap — recovers automatically once the network and
+    // pbuf pool catch up.
+    if (sent > 0 && (size_t)sent < fb->len) {
+        s_video_backoff_until_us = now + period_us;
+    }
     if ((s_video_frame_count++ % 10) == 0) {
         ESP_LOGI(TAG, "video pump: sent frame #%d, %u B → sid=%u rc=%d",
                  s_video_frame_count, (unsigned)fb->len, sid, sent);
@@ -444,10 +416,8 @@ static char *filter_sdp_for_libpeer(const char *sdp) {
     return out;
 }
 
-static void handle_offer(const char *sdp, offer_src_t src) {
-    ESP_LOGI(TAG, "handle_offer: src=%s, sdp len=%u",
-             src == OFFER_SRC_BLE ? "BLE" : "WS", (unsigned)strlen(sdp));
-    s_active_offer_src = src;
+static void handle_offer(const char *sdp) {
+    ESP_LOGI(TAG, "handle_offer: sdp len=%u", (unsigned)strlen(sdp));
     if (s_pc) {
         // Last-window-wins: a second browser opening WebRTC kicks the
         // first one's session. The video pump references s_pc on every
@@ -493,16 +463,11 @@ static void handle_offer(const char *sdp, offer_src_t src) {
     const char *answer = peer_connection_create_answer(s_pc);
     if (!answer || !answer[0]) {
         ESP_LOGE(TAG, "create_answer empty");
-        if (src == OFFER_SRC_BLE) send_ble_signal_error("create_answer failed");
+        send_ble_signal_error("create_answer failed");
         return;
     }
-    ESP_LOGI(TAG, "handle_offer: answer ready, %u B, src=%s",
-             (unsigned)strlen(answer), src == OFFER_SRC_BLE ? "BLE" : "WS");
-    if (src == OFFER_SRC_BLE) {
-        send_answer_via_ble(answer);
-    } else {
-        send_answer_via_ws(answer);
-    }
+    ESP_LOGI(TAG, "handle_offer: answer ready, %u B", (unsigned)strlen(answer));
+    send_answer_via_ble(answer);
 }
 
 static void handle_ice(const char *candidate) {
@@ -527,78 +492,6 @@ static void post_event(event_type_t t, const char *str) {
     }
 }
 
-// Filter peers per the Pi-side rules: ignore self, accept only dashboard
-// (and phone- for the eventual phone-control flow). Anything else gets
-// dropped — the same role gate every node in the rendezvous applies.
-static bool peer_accepted(const char *peer_id) {
-    if (strcmp(peer_id, s_my_peer_id) == 0) return false;
-    return strncmp(peer_id, "dashboard-", 10) == 0
-        || strncmp(peer_id, "phone-",      6) == 0;
-}
-
-static void dispatch_signal(const char *peer_id, cJSON *data) {
-    if (!peer_accepted(peer_id)) return;
-    cJSON *offer = cJSON_GetObjectItem(data, "offer");
-    if (cJSON_IsObject(offer)) {
-        cJSON *sdp = cJSON_GetObjectItem(offer, "sdp");
-        if (cJSON_IsString(sdp)) post_event(EV_OFFER_WS, sdp->valuestring);
-    }
-    cJSON *ice = cJSON_GetObjectItem(data, "ice");
-    if (cJSON_IsObject(ice)) {
-        cJSON *cand = cJSON_GetObjectItem(ice, "candidate");
-        if (cJSON_IsString(cand)) post_event(EV_ICE, cand->valuestring);
-    }
-}
-
-static void on_ws_text(const char *data, size_t len) {
-    cJSON *root = cJSON_ParseWithLength(data, len);
-    if (!root) return;
-    cJSON *type = cJSON_GetObjectItem(root, "type");
-    if (cJSON_IsString(type)) {
-        if (strcmp(type->valuestring, "signal") == 0) {
-            cJSON *peer = cJSON_GetObjectItem(root, "peer");
-            cJSON *d    = cJSON_GetObjectItem(root, "data");
-            if (cJSON_IsString(peer) && cJSON_IsObject(d)) {
-                dispatch_signal(peer->valuestring, d);
-            }
-        } else if (strcmp(type->valuestring, "state") == 0) {
-            // The signal server replays cached signaling to peers that
-            // join after another peer sent an offer (e.g. dashboard
-            // clicked Connect while the ESP32 was momentarily offline).
-            cJSON *peers = cJSON_GetObjectItem(root, "peers");
-            if (cJSON_IsObject(peers)) {
-                cJSON *child;
-                cJSON_ArrayForEach(child, peers) {
-                    if (child->string && cJSON_IsObject(child)) {
-                        dispatch_signal(child->string, child);
-                    }
-                }
-            }
-        }
-    }
-    cJSON_Delete(root);
-}
-
-// ── websocket events ─────────────────────────────────────────────────────
-
-static void on_ws_event(void *handler_args, esp_event_base_t base,
-                        int32_t event_id, void *event_data) {
-    esp_websocket_event_data_t *d = (esp_websocket_event_data_t *)event_data;
-    switch (event_id) {
-        case WEBSOCKET_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "ws connected: %s/%s", SIGNAL_HOST, s_room_id);
-            break;
-        case WEBSOCKET_EVENT_DISCONNECTED:
-            ESP_LOGW(TAG, "ws disconnected");
-            break;
-        case WEBSOCKET_EVENT_DATA:
-            if (d->op_code == 0x01 && d->data_len > 0) {  // text frame
-                on_ws_text((const char *)d->data_ptr, d->data_len);
-            }
-            break;
-    }
-}
-
 // ── loop task ────────────────────────────────────────────────────────────
 
 static void loop_task_fn(void *arg) {
@@ -606,9 +499,8 @@ static void loop_task_fn(void *arg) {
     while (1) {
         while (xQueueReceive(s_events, &ev, 0) == pdTRUE) {
             switch (ev.type) {
-                case EV_OFFER_WS:  handle_offer(ev.payload, OFFER_SRC_WS);  break;
-                case EV_OFFER_BLE: handle_offer(ev.payload, OFFER_SRC_BLE); break;
-                case EV_ICE:       handle_ice(ev.payload);                  break;
+                case EV_OFFER_BLE: handle_offer(ev.payload);  break;
+                case EV_ICE:       handle_ice(ev.payload);    break;
             }
             free(ev.payload);
         }
@@ -620,19 +512,8 @@ static void loop_task_fn(void *arg) {
 
 // ── init ─────────────────────────────────────────────────────────────────
 
-static void ws_start_when_wifi_up(void *arg) {
-    while (!wifi_sta_has_ip()) vTaskDelay(pdMS_TO_TICKS(500));
-    // Brief grace so DNS resolver is up after GOT_IP.
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    if (s_ws) esp_websocket_client_start(s_ws);
-    vTaskDelete(NULL);
-}
-
 void webrtc_peer_init(const char *robot_name) {
-    uint32_t r = esp_random();
-    snprintf(s_my_peer_id, sizeof(s_my_peer_id), "esp32-%06lx", (unsigned long)(r & 0xFFFFFF));
-    snprintf(s_room_id, sizeof(s_room_id), "esp32-rtc-%s", robot_name);
-
+    (void)robot_name;
     if (peer_init() != 0) {
         ESP_LOGE(TAG, "peer_init failed");
         return;
@@ -642,49 +523,7 @@ void webrtc_peer_init(const char *robot_name) {
     if (!s_events) { ESP_LOGE(TAG, "queue create failed"); return; }
 
     // 8 KB stack — peer_connection_loop dives into mbedTLS / SCTP /
-    // SRTP. 16 KB was paranoia; a 16 KB grab here starves the websocket
-    // task's xTaskCreate on classic ESP32 because DRAM is fragmented by
-    // the time webrtc_peer_init runs (camera + BLE + WiFi already have
-    // their pools). 8 KB has been reported sufficient by other libpeer
-    // ESP32 integrations; bump back up if the DTLS handshake stack-
-    // overflows in practice.
+    // SRTP. Bump if the DTLS handshake stack-overflows in practice.
     xTaskCreate(loop_task_fn, "rtc_loop", 8192, NULL, 5, &s_loop_task);
-
-    char url[160];
-    snprintf(url, sizeof(url), "wss://%s/%s/ws", SIGNAL_HOST, s_room_id);
-    esp_websocket_client_config_t cfg = {
-        .uri = url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        // 60s, not 5s. When the network truly can't reach
-        // signal.neevs.io, the 5s retry loop hammers lwIP's pbuf pool
-        // and the phone hotspot's NAT table — eventually libpeer's STUN
-        // sendto starts failing with "Not enough space". The wss path
-        // is a fallback only (BLE signaling is primary), so a slow
-        // reconnect costs nothing on healthy networks.
-        .reconnect_timeout_ms = 60000,
-        .network_timeout_ms = 10000,
-        .buffer_size = 4096,
-        // Task creation fails at the default 6 KB stack on classic
-        // ESP32-CAM by the time we get here — DRAM is fragmented after
-        // camera + BLE + WiFi alloc. 4 KB is enough for the wss frame
-        // pump (TLS context lives in mbedTLS heap, not the task stack).
-        .task_stack = 4096,
-        // Pin to App CPU. The 10s blocking TLS handshakes during
-        // reconnect (Cloudflare idle-kicks long-lived idle wss conns)
-        // were starving NimBLE's host task on Pro CPU, freezing GATT
-        // discovery mid-flight — robot card stuck at "Connecting…"
-        // until wss settled (often forever, since ICE timeouts cascade).
-        .task_core_id = 1,
-    };
-    s_ws = esp_websocket_client_init(&cfg);
-    if (!s_ws) { ESP_LOGE(TAG, "ws init failed"); return; }
-    esp_websocket_register_events(s_ws, WEBSOCKET_EVENT_ANY, on_ws_event, NULL);
-    // Defer client start to a tiny task that waits for wifi_sta_has_ip().
-    // Starting before WiFi has DNS sends esp_websocket_client into a
-    // 5s-retry loop on getaddrinfo failures; that loop's socket churn
-    // races libpeer's UDP socket allocation during create_answer and
-    // produces "Failed to sendto: Bad file number" — STUN never sends,
-    // create_answer hangs, task watchdog fires. Costs nothing to wait.
-    xTaskCreate(ws_start_when_wifi_up, "ws_start", 2048, NULL, 4, NULL);
-    ESP_LOGI(TAG, "rtc init: peer=%s room=%s (ws start deferred)", s_my_peer_id, s_room_id);
+    ESP_LOGI(TAG, "rtc init: BLE-signaled WebRTC ready");
 }

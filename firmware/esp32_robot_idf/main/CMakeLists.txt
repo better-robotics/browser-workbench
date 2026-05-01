@@ -10,7 +10,6 @@ idf_component_register(
         "wifi_sta.c"
         "ble_host.c"
         "gatt_svr.c"
-        "mdns_advertise.c"
         "pin_config.c"
         "led.c"
         "flash.c"
@@ -30,7 +29,6 @@ idf_component_register(
         esp_wifi
         esp_event
         esp_netif
-        mdns
         # BLE — NimBLE matches the Arduino-side stack
         bt
         # Camera (managed component esp32-camera)

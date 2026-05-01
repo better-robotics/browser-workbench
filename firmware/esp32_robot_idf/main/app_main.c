@@ -9,7 +9,6 @@
 #include "flash.h"
 #include "fw_info.h"
 #include "led.h"
-#include "mdns_advertise.h"
 #include "motors.h"
 #include "ota.h"
 #include "pin_config.h"
@@ -34,10 +33,6 @@ static const char *TAG = "esp32_robot";
 //   6. OTA              (no radio; just esp_partition lookup)
 //   7. WiFi STA         (whatever's left — comes up with fewer RX
 //                        buffers if needed)
-//   8. mDNS             (Phase 2.H retired the chip's HTTP server; mDNS
-//                        is now just for hostname resolution, not service
-//                        discovery — control plane is BLE, data plane
-//                        is WebRTC, both find each other via BLE pairing)
 
 void app_main(void) {
     esp_err_t ret = nvs_flash_init();
@@ -76,7 +71,6 @@ void app_main(void) {
     ota_init();
     telemetry_init();
     wifi_sta_init(hostname);
-    mdns_advertise_init(hostname);
     // turn_creds_init() intentionally NOT called: the HTTPS fetch +
     // mbedTLS handshake panicked on the ESP32-CAM's tight DRAM, and
     // the dashboard already mints TURN creds on its side, which is

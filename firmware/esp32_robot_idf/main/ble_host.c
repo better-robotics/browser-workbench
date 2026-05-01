@@ -26,12 +26,6 @@ static size_t s_conns_count = 0;
 
 uint16_t ble_host_active_conn(void) { return s_conn_handle; }
 
-size_t ble_host_active_conns(uint16_t *out, size_t cap) {
-    size_t n = s_conns_count < cap ? s_conns_count : cap;
-    for (size_t i = 0; i < n; i++) out[i] = s_conns[i];
-    return n;
-}
-
 static void conns_add(uint16_t handle) {
     for (size_t i = 0; i < s_conns_count; i++) {
         if (s_conns[i] == handle) return;
