@@ -249,17 +249,24 @@ static void handle_ota_dc(const char *msg, size_t len) {
 static volatile bool s_video_active = false;
 static int s_video_fps = 10;
 static int64_t s_video_last_frame_us = 0;
-// When the previous send returned partial bytes (libpeer's UDP burst hit
-// ENOMEM mid-frame), back off the next capture so lwIP's pbuf pool has
-// time to drain. Without this the pump produces frames libpeer can't
-// ship and the chip burns CPU on JPEG compression nobody sees.
-static int64_t s_video_backoff_until_us = 0;
+static uint16_t s_video_frame_id = 0;
+
+// Chunk size below SCTP_MTU=1200 minus DTLS+header overhead — each
+// peer_connection_datachannel_send_sid hits one lwIP pbuf, no fragmentation
+// burst, no pool-exhaustion cascade. Browser reassembles by frame_id.
+//
+// Wire format per chunk (binary on data channel):
+//   [0..1] frame_id  u16 BE
+//   [2]    chunk_idx u8
+//   [3]    total_chunks u8
+//   [4..]  jpeg payload (≤ VIDEO_CHUNK_PAYLOAD bytes)
+#define VIDEO_CHUNK_PAYLOAD  900
+#define VIDEO_CHUNK_HEADER   4
 
 static int s_video_frame_count = 0;
 static void video_pump_tick(void) {
     if (!s_video_active || !camera_ready() || !s_pc) return;
     int64_t now = esp_timer_get_time();
-    if (now < s_video_backoff_until_us) return;
     int64_t period_us = (int64_t)1000000 / (s_video_fps > 0 ? s_video_fps : 10);
     if (now - s_video_last_frame_us < period_us) return;
     s_video_last_frame_us = now;
@@ -276,17 +283,42 @@ static void video_pump_tick(void) {
         esp_camera_fb_return(fb);
         return;
     }
-    int sent = peer_connection_datachannel_send_sid(s_pc, (char *)fb->buf, fb->len, sid);
-    // Partial send = libpeer/lwIP couldn't ship this frame in full. Skip
-    // capture for one frame-period to let buffers drain. Self-throttling
-    // without a fixed cap — recovers automatically once the network and
-    // pbuf pool catch up.
-    if (sent > 0 && (size_t)sent < fb->len) {
-        s_video_backoff_until_us = now + period_us;
+
+    size_t total_chunks = (fb->len + VIDEO_CHUNK_PAYLOAD - 1) / VIDEO_CHUNK_PAYLOAD;
+    if (total_chunks > 255) {
+        // Frame too big for u8 chunk_idx field. Drop and warn — typical
+        // compact-profile JPEGs are 2-15 KB so this caps at ~225 KB.
+        ESP_LOGW(TAG, "video pump: frame too big (%u B, %u chunks)",
+                 (unsigned)fb->len, (unsigned)total_chunks);
+        esp_camera_fb_return(fb);
+        return;
     }
-    if ((s_video_frame_count++ % 10) == 0) {
-        ESP_LOGI(TAG, "video pump: sent frame #%d, %u B → sid=%u rc=%d",
-                 s_video_frame_count, (unsigned)fb->len, sid, sent);
+
+    s_video_frame_id++;
+    uint8_t buf[VIDEO_CHUNK_HEADER + VIDEO_CHUNK_PAYLOAD];
+    bool full_send = true;
+    for (size_t chunk = 0; chunk < total_chunks; chunk++) {
+        size_t off  = chunk * VIDEO_CHUNK_PAYLOAD;
+        size_t plen = fb->len - off;
+        if (plen > VIDEO_CHUNK_PAYLOAD) plen = VIDEO_CHUNK_PAYLOAD;
+        buf[0] = (s_video_frame_id >> 8) & 0xff;
+        buf[1] =  s_video_frame_id       & 0xff;
+        buf[2] = (uint8_t)chunk;
+        buf[3] = (uint8_t)total_chunks;
+        memcpy(buf + VIDEO_CHUNK_HEADER, fb->buf + off, plen);
+        int sent = peer_connection_datachannel_send_sid(
+            s_pc, (char *)buf, VIDEO_CHUNK_HEADER + plen, sid);
+        if (sent <= 0 || (size_t)sent < VIDEO_CHUNK_HEADER + plen) full_send = false;
+        // Yield between chunks so lwIP's pbuf pool drains. 2ms × ~5
+        // chunks = 10ms total send time, well within 200ms/frame at 5fps.
+        if (chunk + 1 < total_chunks) vTaskDelay(pdMS_TO_TICKS(2));
+    }
+
+    s_video_frame_count++;
+    if ((s_video_frame_count % 10) == 0) {
+        ESP_LOGI(TAG, "video pump: frame #%d (id=%u), %u B in %u chunks → sid=%u %s",
+                 s_video_frame_count, s_video_frame_id, (unsigned)fb->len,
+                 (unsigned)total_chunks, sid, full_send ? "ok" : "partial");
     }
     esp_camera_fb_return(fb);
 }

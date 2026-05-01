@@ -51,13 +51,40 @@ async function startEsp32WebRTCVideo(entry, img) {
   }
   channel.binaryType = "arraybuffer";
   let prevUrl = null;
+  // Chip chunks each JPEG into ≤900 B pieces and explicitly paces them
+  // (vTaskDelay(2) between sends) — avoids libpeer's burst-of-sendto's
+  // overflowing lwIP's pbuf pool on classic ESP32. Wire format per
+  // chunk: [frame_id u16 BE][chunk_idx u8][total_chunks u8][jpeg bytes].
+  // Reassemble per frame_id; drop incomplete frames if chunks arrive
+  // out-of-order with the next frame_id starting before completion.
+  const pending = new Map();   // frame_id -> { total, parts: Map<idx, Uint8Array> }
   const onMsg = (e) => {
     if (typeof e.data === "string") return;  // ignore control replies
-    const blob = new Blob([e.data], { type: "image/jpeg" });
+    const data = new Uint8Array(e.data);
+    if (data.length < 4) return;
+    const frameId = (data[0] << 8) | data[1];
+    const chunkIdx = data[2];
+    const totalChunks = data[3];
+    const payload = data.subarray(4);
+    let frame = pending.get(frameId);
+    if (!frame) { frame = { total: totalChunks, parts: new Map() }; pending.set(frameId, frame); }
+    frame.parts.set(chunkIdx, payload);
+    if (frame.parts.size !== frame.total) return;
+    let totalLen = 0;
+    for (let i = 0; i < frame.total; i++) {
+      const p = frame.parts.get(i);
+      if (!p) { pending.delete(frameId); return; }   // missing chunk; drop
+      totalLen += p.length;
+    }
+    const merged = new Uint8Array(totalLen);
+    let off = 0;
+    for (let i = 0; i < frame.total; i++) { merged.set(frame.parts.get(i), off); off += frame.parts.get(i).length; }
+    pending.delete(frameId);
+    // Garbage-collect stale incomplete frames (older than current).
+    for (const id of pending.keys()) if (id < frameId) pending.delete(id);
+    const blob = new Blob([merged], { type: "image/jpeg" });
     const url = URL.createObjectURL(blob);
     img.src = url;
-    // Revoke the previous URL only after the new one is assigned —
-    // otherwise the browser may release the bytes while still decoding.
     if (prevUrl) URL.revokeObjectURL(prevUrl);
     prevUrl = url;
   };

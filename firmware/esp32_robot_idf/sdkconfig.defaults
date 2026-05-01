@@ -25,11 +25,13 @@ CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
 CONFIG_LWIP_TCP_WND_DEFAULT=16384
 # UDP send-side: libpeer's video-frame sends spammed "sendto: ENOMEM"
 # on classic ESP32 with default WiFi TX buffers. Doubling the dynamic
-# tx pool gives lwIP/WiFi room to drain JPEG bursts (each ~5-15 KB)
-# without throwing pbuf-alloc failures. Static rx untouched (BLE coex
-# already deals with it well).
+# tx pool + raising the lwIP pbuf pool from 10→32 gives the WiFi TX
+# path room to drain JPEG bursts without ENOMEM cascades. The video
+# pump also chunks at ~900 B with a 2ms delay between chunks so the
+# producer paces the consumer; this just adds headroom.
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=64
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=16
+CONFIG_LWIP_PBUF_POOL_SIZE=32
 
 # mbedTLS — libpeer needs DTLS; default subset usually works but be explicit
 CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
