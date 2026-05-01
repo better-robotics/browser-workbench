@@ -65,7 +65,7 @@ export async function openChannel(robotId, robotName, label, opts = {}) {
 // ── BLE signaling path ──────────────────────────────────────────────────
 
 async function openChannelViaBLE(robotId, label, signalChar, opts) {
-  const { onStatus = () => {}, addVideoRecv = false, onTrack } = opts;
+  const { onStatus = () => {} } = opts;
   closePeer(robotId);
 
   onStatus("Opening peer over BLE…");
@@ -75,16 +75,6 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
   const pc = new RTCPeerConnection({ iceServers });
   const entry = { pc, channels: new Map() };
   _peers.set(robotId, entry);
-
-  // Video transceiver (recv-only): added before createOffer so the SDP
-  // includes m=video. Chip's esp_peer answers with the matching MJPEG
-  // codec; pc.ontrack fires when the remote stream arrives.
-  if (addVideoRecv) {
-    pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addEventListener("track", (e) => {
-      if (onTrack) onTrack(e.streams[0] || new MediaStream([e.track]));
-    });
-  }
 
   const channel = pc.createDataChannel(label, { ordered: true });
   entry.channels.set(label, channel);

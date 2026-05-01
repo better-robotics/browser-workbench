@@ -187,20 +187,29 @@ static void handle_ota_dc(const char *msg, size_t len) {
     }
 }
 
-// ── video over RTP ───────────────────────────────────────────────────────
+// ── video over data channel ──────────────────────────────────────────────
 //
-// JPEG frames go out as MJPEG over RTP (RFC 2435). esp_peer handles
-// packetization, sequencing, RTCP, jitter buffer. No chunking, no
-// per-frame framing protocol. PTS is in 90 kHz clock per RTP spec.
-// The data-channel labeled "video" stays for start/stop control.
+// JPEG chunked into ≤900 B pieces with framing header so the browser
+// reassembles by frame_id. The RTP path (esp_peer_send_video MJPEG)
+// triggered TWDT on classic ESP32 — esp_peer's binary lib blocks too
+// long inside packetization. Chunked DC stays the working path.
+//
+// Wire format per chunk (binary on data channel):
+//   [0..1] frame_id u16 BE
+//   [2]    chunk_idx u8
+//   [3]    total_chunks u8
+//   [4..]  jpeg payload (≤ VIDEO_CHUNK_PAYLOAD bytes)
+#define VIDEO_CHUNK_PAYLOAD  900
+#define VIDEO_CHUNK_HEADER   4
 
 static volatile bool s_video_active = false;
 static int     s_video_fps = 10;
 static int64_t s_video_last_frame_us = 0;
+static uint16_t s_video_frame_id = 0;
 static int     s_video_frame_count = 0;
 
 static void video_pump_tick(void) {
-    if (!s_video_active || !camera_ready() || !s_peer) return;
+    if (!s_video_active || !camera_ready() || !s_peer || !s_video_sid_known) return;
     int64_t now = esp_timer_get_time();
     int64_t period_us = (int64_t)1000000 / (s_video_fps > 0 ? s_video_fps : 10);
     if (now - s_video_last_frame_us < period_us) return;
@@ -209,22 +218,47 @@ static void video_pump_tick(void) {
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) { ESP_LOGW(TAG, "video pump: fb_get failed"); return; }
 
-    esp_peer_video_frame_t frame = {
-        .data = fb->buf,
-        .size = fb->len,
-        .pts  = (uint32_t)((now * 90) / 1000),  // 90 kHz RTP clock from us
-    };
-    int rc = esp_peer_send_video(s_peer, &frame);
-    int retries = 0;
-    while (rc == ESP_PEER_ERR_WOULD_BLOCK && retries++ < 20) {
-        vTaskDelay(pdMS_TO_TICKS(3));
-        rc = esp_peer_send_video(s_peer, &frame);
+    size_t total_chunks = (fb->len + VIDEO_CHUNK_PAYLOAD - 1) / VIDEO_CHUNK_PAYLOAD;
+    if (total_chunks > 255) {
+        ESP_LOGW(TAG, "video pump: frame too big (%u B, %u chunks)",
+                 (unsigned)fb->len, (unsigned)total_chunks);
+        esp_camera_fb_return(fb);
+        return;
+    }
+
+    s_video_frame_id++;
+    uint8_t buf[VIDEO_CHUNK_HEADER + VIDEO_CHUNK_PAYLOAD];
+    bool full_send = true;
+    for (size_t chunk = 0; chunk < total_chunks; chunk++) {
+        size_t off  = chunk * VIDEO_CHUNK_PAYLOAD;
+        size_t plen = fb->len - off;
+        if (plen > VIDEO_CHUNK_PAYLOAD) plen = VIDEO_CHUNK_PAYLOAD;
+        buf[0] = (s_video_frame_id >> 8) & 0xff;
+        buf[1] =  s_video_frame_id       & 0xff;
+        buf[2] = (uint8_t)chunk;
+        buf[3] = (uint8_t)total_chunks;
+        memcpy(buf + VIDEO_CHUNK_HEADER, fb->buf + off, plen);
+        esp_peer_data_frame_t df = {
+            .type = ESP_PEER_DATA_CHANNEL_DATA,
+            .stream_id = s_video_sid,
+            .data = buf,
+            .size = VIDEO_CHUNK_HEADER + plen,
+        };
+        int rc = esp_peer_send_data(s_peer, &df);
+        int retries = 0;
+        while (rc == ESP_PEER_ERR_WOULD_BLOCK && retries++ < 20) {
+            vTaskDelay(pdMS_TO_TICKS(3));
+            rc = esp_peer_send_data(s_peer, &df);
+        }
+        if (rc != ESP_PEER_ERR_NONE) full_send = false;
+        if (chunk + 1 < total_chunks) vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     s_video_frame_count++;
-    if ((s_video_frame_count % 30) == 0) {
-        ESP_LOGI(TAG, "video pump: frame #%d, %u B rc=%d",
-                 s_video_frame_count, (unsigned)fb->len, rc);
+    if ((s_video_frame_count % 10) == 0) {
+        ESP_LOGI(TAG, "video pump: frame #%d (id=%u), %u B in %u chunks → sid=%u %s",
+                 s_video_frame_count, s_video_frame_id, (unsigned)fb->len,
+                 (unsigned)total_chunks, s_video_sid, full_send ? "ok" : "partial");
     }
     esp_camera_fb_return(fb);
 }
@@ -499,13 +533,17 @@ static void handle_offer(const char *sdp) {
     esp_peer_cfg_t cfg = {
         .role                = ESP_PEER_ROLE_CONTROLLED,    // we're the answerer
         .audio_dir           = ESP_PEER_MEDIA_DIR_NONE,
-        .video_dir           = ESP_PEER_MEDIA_DIR_SEND_ONLY,  // chip → dashboard MJPEG via RTP
-        .video_info          = {
-            .codec  = ESP_PEER_VIDEO_CODEC_MJPEG,
-            .width  = 320,
-            .height = 240,
-            .fps    = 10,
-        },
+        // video_dir = NONE: RTP MJPEG path triggered TG1WDT_SYS_RESET
+        // on the first esp_peer_send_video call. The binary lib's
+        // packetizer was built for ESP32-S3 + hardware AES/SHA + Octal
+        // PSRAM (esp_peer's example, esp-webrtc-solution demos, KVS
+        // port — all S3). On classic ESP32 it disables interrupts long
+        // enough to trip the system watchdog. ICE / DTLS / SCTP /
+        // data-channel paths are fine on classic — we keep video on a
+        // chunked binary data channel (3-5 fps verified). Revisit when
+        // we move to ESP32-S3: flip video_dir to SEND_ONLY, set
+        // video_info, drop chunking. One-flag change.
+        .video_dir           = ESP_PEER_MEDIA_DIR_NONE,
         .enable_data_channel = true,
         .server_lists        = servers,
         .server_num          = n_servers,
