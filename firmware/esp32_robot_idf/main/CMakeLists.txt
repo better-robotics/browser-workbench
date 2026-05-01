@@ -21,6 +21,7 @@ idf_component_register(
         "fw_info.c"
         "telemetry.c"
         "webrtc_peer.c"
+        "turn_creds.c"
     INCLUDE_DIRS
         "."
     PRIV_REQUIRES
@@ -38,6 +39,8 @@ idf_component_register(
         # OTA
         app_update
         esp_https_ota
+        # turn_creds — HTTPS POST to proxy.neevs.io for Cloudflare TURN creds
+        esp_http_client
         # Capabilities
         driver
         esp_timer
