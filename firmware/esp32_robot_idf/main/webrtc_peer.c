@@ -19,6 +19,7 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
+#include "turn_creds.h"
 
 static const char *TAG = "rtc";
 
@@ -433,20 +434,30 @@ static void handle_offer(const char *sdp) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    // STUN-only. Chip-side TURN is intentionally absent right now —
-    // mbedTLS + esp_http_client linkage costs enough internal DRAM that
-    // NimBLE / WiFi coex started failing on the ESP32-CAM. Dashboard
-    // side already mints Cloudflare TURN creds, which gets us through
-    // most NATs. Apartment-WiFi-isolated networks still fail — revisit
-    // chip-side TURN when we have a smaller-footprint design.
+    // STUN + Cloudflare TURN (UDP only — libpeer's TURN client doesn't
+    // do TCP). turn_creds runs in the background and may not have minted
+    // credentials yet (WiFi just up, proxy slow, etc.); on miss we fall
+    // through to STUN-only and the chip works on LAN-friendly networks
+    // but fails on apartment-WiFi-shaped client-isolated/CGNAT ones.
+    // turn_url is pre-resolved to an IP literal so libpeer's create_answer
+    // doesn't synchronously getaddrinfo() inside the BLE 30s window.
     PeerConfiguration cfg = {
-        .ice_servers = {
-            { .urls = "stun:stun.l.google.com:19302" },
-        },
         .video_codec = CODEC_NONE,    // 2.D.3 routes frames as binary on a data channel
         .audio_codec = CODEC_NONE,
         .datachannel = DATA_CHANNEL_BINARY,
     };
+    cfg.ice_servers[0].urls = "stun:stun.l.google.com:19302";
+    const char *turn_user = turn_creds_username();
+    const char *turn_pass = turn_creds_credential();
+    const char *turn_url  = turn_creds_url();
+    if (turn_user && turn_pass && turn_url) {
+        cfg.ice_servers[1].urls       = turn_url;
+        cfg.ice_servers[1].username   = turn_user;
+        cfg.ice_servers[1].credential = turn_pass;
+        ESP_LOGI(TAG, "ice_servers: STUN + Cloudflare TURN(%s)", turn_url);
+    } else {
+        ESP_LOGW(TAG, "ice_servers: STUN-only (turn_creds not ready)");
+    }
     s_pc = peer_connection_create(&cfg);
     if (!s_pc) {
         ESP_LOGE(TAG, "peer_connection_create failed");
