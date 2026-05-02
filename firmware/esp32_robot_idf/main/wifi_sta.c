@@ -402,9 +402,12 @@ void wifi_sta_init(const char *hostname) {
     }
 
     ESP_ERROR_CHECK(esp_wifi_start());
-    // Idle power-save: WiFi radio sleeps between AP beacons (~100 ms),
-    // freeing BLE coex slots. webrtc_peer flips to WIFI_PS_NONE while a
-    // peer is open and back to MIN_MODEM after the peer closes.
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    // PS_NONE: radio always on, full throughput available. Tried
+    // PS_MIN_MODEM with a webrtc-peer toggle (open=NONE, close=MIN_MODEM)
+    // to give BLE coex breathing room during idle, but it tanked HTTP
+    // streaming throughput because http_stream wasn't part of the toggle
+    // and ran with the radio sleeping. The "breathes during idle"
+    // benefit was theoretical; the streaming regression was real.
+    esp_wifi_set_ps(WIFI_PS_NONE);
     esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
 }

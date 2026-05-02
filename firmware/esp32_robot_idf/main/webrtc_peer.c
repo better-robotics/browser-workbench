@@ -7,7 +7,6 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -639,10 +638,6 @@ static void handle_offer(const char *sdp) {
         send_ble_signal_error("esp_peer_open failed");
         return;
     }
-    // Peer is up — drop power-save so video TX bursts aren't gated by
-    // DTIM intervals. wifi_sta starts in WIFI_PS_MIN_MODEM (lets the
-    // radio sleep between beacons during BLE-only idle).
-    esp_wifi_set_ps(WIFI_PS_NONE);
 
     // Inject the remote offer. esp_peer will gather candidates and emit
     // the local SDP via on_peer_msg → send_answer_via_ble (async).
@@ -688,8 +683,6 @@ static void loop_task_fn(void *arg) {
             s_peer = NULL;
             s_video_sid_known = false;
             s_ota_sid_known   = false;
-            // Back to power-save while idle — lets BLE breathe.
-            esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
         }
         s_close_requested = false;
         vTaskDelay(pdMS_TO_TICKS(10));
