@@ -203,28 +203,35 @@ async function resolveHostA(host) {
 
 // Flatten + resolve the ICE-server list for the chip. Drops TCP/TLS
 // transports (chip is UDP-only), substitutes hostnames with A-record
-// IPs, and caps at 4 entries (matches chip MAX_ICE_SERVERS).
+// IPs, dedupes, and prefers TURN over STUN — TURN gives the chip both
+// relay fallback and srflx discovery, and TURN at non-standard ports
+// (Cloudflare exposes :53) routes through networks that block STUN's
+// 19302/3478. Capped at 4 to match chip MAX_ICE_SERVERS.
 async function iceServersForChip(iceServers) {
-  const out = [];
+  const seen = new Set();
+  const turn = [];
+  const stun = [];
   for (const s of iceServers) {
     const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
     for (const url of urls) {
-      if (out.length >= 4) return out;
       if (/transport=tcp/i.test(url)) continue;
       const m = url.match(/^(turns?|stuns?):([^:]+):(\d+)(.*)$/i);
       if (!m) continue;
       const proto = m[1].toLowerCase();
       if (proto === "stuns" || proto === "turns") continue;  // no DTLS to TURN on chip
       const ip = await resolveHostA(m[2]);
-      const flat = { url: `${proto}:${ip}:${m[3]}${m[4]}` };
+      const flatUrl = `${proto}:${ip}:${m[3]}${m[4]}`;
+      if (seen.has(flatUrl)) continue;
+      seen.add(flatUrl);
+      const flat = { url: flatUrl };
       if (s.username && s.credential) {
         flat.user = s.username;
         flat.pass = s.credential;
       }
-      out.push(flat);
+      (proto === "turn" ? turn : stun).push(flat);
     }
   }
-  return out;
+  return [...turn.slice(0, 3), ...stun.slice(0, 1)];
 }
 
 function waitForIceGathering(pc, timeoutMs) {
