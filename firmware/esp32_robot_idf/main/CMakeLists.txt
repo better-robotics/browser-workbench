@@ -21,6 +21,7 @@ idf_component_register(
         "fw_info.c"
         "telemetry.c"
         "webrtc_peer.c"
+        "http_stream.c"
     INCLUDE_DIRS
         "."
     PRIV_REQUIRES
@@ -38,6 +39,8 @@ idf_component_register(
         # OTA
         app_update
         esp_https_ota
+        # HTTP MJPEG streamer (port 81/stream) — comparison path for WebRTC
+        esp_http_server
         # Capabilities
         driver
         esp_timer

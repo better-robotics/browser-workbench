@@ -171,6 +171,14 @@ export function makeMjpegStreamCap(schema) {
       // "Waiting for WiFi" earns its place — the button is disabled and the
       // user needs to know why.
       const stateText = !wifi ? "Waiting for WiFi" : "";
+      // ESP32 only: link to the chip's HTTP MJPEG stream on :81/stream as
+      // a comparison path against WebRTC. Top-level navigation, so mixed
+      // content doesn't bite from an HTTPS dashboard.
+      const httpStreamUrl = (wifi && entry.fwType === "esp32" && entry.wifiStatus?.ip)
+        ? `http://${entry.wifiStatus.ip}:81/stream` : null;
+      const httpRow = httpStreamUrl
+        ? `<div class="meta"><a href="${httpStreamUrl}" target="_blank" rel="noreferrer">Open HTTP stream ↗</a> (compare with WebRTC)</div>`
+        : "";
       return capSection({
         name,
         label,
@@ -179,7 +187,7 @@ export function makeMjpegStreamCap(schema) {
         // Child caps (Flash, Snapshot — schema-flat, conceptually camera
         // sub-controls) render here so the operator sees one Camera section
         // hosting everything camera-shaped instead of three peers in a flat list.
-        body: `${body}${watchRow}${promptField}${profileRow}${childHtml}`,
+        body: `${body}${watchRow}${promptField}${profileRow}${httpRow}${childHtml}`,
         transport: "wifi",
         sourceMember, alternativeMemberIds,
       });

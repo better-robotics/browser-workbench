@@ -8,6 +8,7 @@
 #include "camera.h"
 #include "flash.h"
 #include "fw_info.h"
+#include "http_stream.h"
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
@@ -76,4 +77,8 @@ void app_main(void) {
     // proxy.neevs.io itself, freeing flash + dropping the multi-second
     // mbedTLS-handshake-during-coex stall.
     webrtc_peer_init(ble_name);
+    // Side-by-side HTTP MJPEG streamer for benchmarking against WebRTC.
+    // Always-on (idle cost is one listen socket); the dashboard's "Try
+    // HTTP" link opens http://<ip>:81/stream in a new tab.
+    http_stream_init();
 }
