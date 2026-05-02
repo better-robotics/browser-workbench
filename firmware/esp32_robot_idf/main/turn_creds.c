@@ -85,7 +85,10 @@ static bool fetch_once(void) {
         .method = HTTP_METHOD_POST,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = http_event_handler,
-        .timeout_ms = 10000,
+        // 30s — IDF v5.5 mbedTLS handshakes routinely take >10s on classic
+        // ESP32 under BLE coex pressure (PSRAM-backed allocs are slower
+        // than DRAM, and the 8192-stack task is sharing CPU with NimBLE).
+        .timeout_ms = 30000,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) { ESP_LOGE(TAG, "client init failed"); set_err("client_init_failed"); return false; }

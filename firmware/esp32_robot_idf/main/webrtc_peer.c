@@ -431,10 +431,9 @@ static int on_peer_data(esp_peer_data_frame_t *frame, void *ctx) {
 
 // ── peer connection lifecycle ────────────────────────────────────────────
 
-// Strip lines libpeer's parser couldn't process from the offer SDP. esp_peer
-// is more robust but we keep the filter — TCP candidates and IPv6 candidates
-// can't be used by the chip on this network (no v6, libpeer-era TURN client
-// was UDP-only). Cheap defensive cleanup.
+// Strip TCP candidates from the offer SDP — chip can only use UDP for ICE.
+// IPv6 stays: lwIP IPv6 is enabled, and v6 host↔host is the fast path on
+// apartment networks where the v4 path goes through a slow centralized NAT.
 static char *filter_sdp_for_chip(const char *sdp) {
     size_t in_len = strlen(sdp);
     char *out = malloc(in_len + 1);
@@ -458,17 +457,6 @@ static char *filter_sdp_for_chip(const char *sdp) {
                                   && (q[1] == 'c' || q[1] == 'C')
                                   && (q[2] == 'p' || q[2] == 'P')) {
                 drop = true;
-            } else {
-                int adv = 0;
-                while (q < p + line_len && adv < 3) {
-                    while (q < p + line_len && *q != ' ') q++;
-                    while (q < p + line_len && *q == ' ') q++;
-                    adv++;
-                }
-                if (q < p + line_len && memchr(q, ':',
-                        (size_t)((p + line_len) - q)) != NULL) {
-                    drop = true;
-                }
             }
         }
         if (drop) dropped++;
@@ -477,7 +465,7 @@ static char *filter_sdp_for_chip(const char *sdp) {
         p = eol + 1;
     }
     out[o] = 0;
-    if (dropped) ESP_LOGI(TAG, "filtered SDP: dropped %d candidate line(s)", dropped);
+    if (dropped) ESP_LOGI(TAG, "filtered SDP: dropped %d TCP candidate(s)", dropped);
     return out;
 }
 
@@ -567,7 +555,17 @@ static void handle_offer(const char *sdp) {
         ESP_LOGW(TAG, "ice_servers: STUN-only (turn_creds not ready)");
     }
 
+    // Default-impl config — ipv6_support tells the agent to gather IPv6
+    // host candidates alongside IPv4. Without this flag esp_peer 1.3.0
+    // only binds AF_INET sockets, so the dashboard's IPv6 host can't
+    // pair and ICE falls back to the slow IPv4 path.
+    static esp_peer_default_cfg_t default_cfg = {
+        .ipv6_support = true,
+    };
+
     esp_peer_cfg_t cfg = {
+        .extra_cfg           = &default_cfg,
+        .extra_size          = sizeof(default_cfg),
         .role                = ESP_PEER_ROLE_CONTROLLED,    // we're the answerer
         .audio_dir           = ESP_PEER_MEDIA_DIR_NONE,
         // video_dir = NONE: RTP MJPEG path triggered TG1WDT_SYS_RESET
@@ -657,6 +655,10 @@ void webrtc_peer_init(const char *robot_name) {
     // chunk receive. Keep PEER_DEF and AGENT (state transitions are useful).
     esp_log_level_set("DTLS", ESP_LOG_NONE);
     esp_log_level_set("SCTP", ESP_LOG_WARN);
+    // "wifi:m f null" floods at WARN whenever radio coex drops a management
+    // frame — happens continuously during WebRTC video on classic ESP32
+    // (single radio shared with BLE + SCTP). Not actionable, just noise.
+    esp_log_level_set("wifi", ESP_LOG_ERROR);
 
     s_events = xQueueCreate(8, sizeof(event_t));
     if (!s_events) { ESP_LOGE(TAG, "queue create failed"); return; }

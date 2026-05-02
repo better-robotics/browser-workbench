@@ -5,8 +5,11 @@
 # both want PSRAM. PSRAM mode is set per-target since classic ESP32 uses
 # external SPI PSRAM and S3 uses Octal PSRAM.
 
-# Logging
+# Logging — IDF v5.5 disabled colors by default; restore them so the
+# recovery console renders I/W/E lines green/yellow/red.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_COLORS=y
+CONFIG_BOOTLOADER_LOG_COLORS=y
 
 # Bluetooth (NimBLE — matches Arduino stack)
 CONFIG_BT_ENABLED=y
@@ -32,6 +35,19 @@ CONFIG_LWIP_TCP_WND_DEFAULT=16384
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=64
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=16
 CONFIG_LWIP_PBUF_POOL_SIZE=32
+
+# IPv6. On apartment-WiFi-as-a-service the IPv4 path goes through a
+# centralized gateway that adds 100-300 ms to lateral traffic between
+# residents — but the ISP delegates each device a global IPv6 address,
+# and IPv6 packets between devices on the same /64 route directly via
+# neighbor discovery. Enabling v6 lets WebRTC ICE pair host-v6↔host-v6,
+# bypassing the slow v4 NAT entirely.
+CONFIG_LWIP_IPV6=y
+CONFIG_LWIP_IPV6_AUTOCONFIG=y
+# DHCPv6 stateless. WhiteSky-Beckon (and likely other apt-WiFi) doesn't
+# auto-send RAs to non-Apple clients via SLAAC, but does run a DHCPv6
+# server. Phones get global v6 because Apple stacks do DHCPv6 by default.
+CONFIG_LWIP_IPV6_DHCP6=y
 
 # mbedTLS — libpeer needs DTLS; default subset usually works but be explicit
 CONFIG_MBEDTLS_SSL_PROTO_DTLS=y

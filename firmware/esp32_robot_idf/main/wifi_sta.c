@@ -7,8 +7,11 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_net_stack.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "lwip/dhcp6.h"
+#include "lwip/netif.h"
 #include "nvs.h"
 
 #include "gatt_svr.h"
@@ -26,6 +29,7 @@ static const char *TAG = "wifi_sta";
 
 static bool s_has_ip = false;
 static bool s_attempting_join = false;
+static esp_netif_t *s_sta_netif = NULL;
 // Set right before we call esp_wifi_disconnect() ourselves (network
 // switch). The next STA_DISCONNECTED event is ours, not a real failure
 // — without this flag the handler reads it as "join failed" and bails,
@@ -181,6 +185,16 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         // GOT_IP may still be pending. Used by the join-timeout handler
         // to differentiate "couldn't associate" from "associated but no IP".
         s_associated = true;
+        // Kick IPv6 link-local + DHCPv6 stateless. Apple devices on this
+        // apartment WiFi get global v6 via DHCPv6, not SLAAC RAs, so
+        // CONFIG_LWIP_IPV6_AUTOCONFIG alone leaves us link-local only.
+        // dhcp6_enable_stateless asks the network's DHCPv6 server for a
+        // global lease; if no server, it just times out silently.
+        if (s_sta_netif) {
+            esp_netif_create_ip6_linklocal(s_sta_netif);
+            struct netif *lwip_netif = esp_netif_get_netif_impl(s_sta_netif);
+            if (lwip_netif) dhcp6_enable_stateless(lwip_netif);
+        }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_associated = false;
         s_has_ip = false;
@@ -222,6 +236,9 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
             persist_creds(s_pending_ssid, s_pending_pass);
         }
         publish_status("joined", s_pending_ssid, NULL, ip);
+    } else if (base == IP_EVENT && id == IP_EVENT_GOT_IP6) {
+        ip_event_got_ip6_t *ev = (ip_event_got_ip6_t *)data;
+        ESP_LOGI(TAG, "got ipv6 " IPV6STR, IPV62STR(ev->ip6_info.ip));
     }
 }
 
@@ -348,8 +365,8 @@ static bool load_saved_creds(char *ssid, size_t ssid_len, char *pass, size_t pas
 void wifi_sta_init(const char *hostname) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
-    esp_netif_set_hostname(sta_netif, hostname);
+    s_sta_netif = esp_netif_create_default_wifi_sta();
+    esp_netif_set_hostname(s_sta_netif, hostname);
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -359,6 +376,8 @@ void wifi_sta_init(const char *hostname) {
         WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
         IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        IP_EVENT, IP_EVENT_GOT_IP6, on_wifi_event, NULL, NULL));
 
     esp_timer_create_args_t targs = { .callback = on_join_timeout, .name = "wifi_join_to" };
     esp_timer_create(&targs, &s_join_timeout_timer);
