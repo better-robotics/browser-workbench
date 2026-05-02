@@ -99,21 +99,25 @@ bool camera_init(void) {
     // frame N+1 while the stream task transmits frame N — single-buffer
     // with GRAB_LATEST forces a full capture round-trip per fb_get(),
     // causing visible 100-200 ms hitches.
+    // jpeg_quality numbers are inverted (higher = more compression =
+    // smaller file). Bumped one notch from the prior 15/12/10 baseline:
+    // shorter TX bursts on classic ESP32 give BLE coex more breathing
+    // room without visibly hurting the stream at QVGA/VGA sizes.
     switch (s_profile) {
         case CAM_PROFILE_COMPACT:
             cfg.frame_size = FRAMESIZE_QVGA;
-            cfg.jpeg_quality = 15;
+            cfg.jpeg_quality = 18;
             cfg.fb_count = 1;
             break;
         case CAM_PROFILE_FULL:
             cfg.frame_size = FRAMESIZE_SVGA;
-            cfg.jpeg_quality = 10;
+            cfg.jpeg_quality = 12;
             cfg.fb_count = psram ? 2 : 1;
             break;
         case CAM_PROFILE_STANDARD:
         default:
             cfg.frame_size = FRAMESIZE_VGA;
-            cfg.jpeg_quality = 12;
+            cfg.jpeg_quality = 14;
             cfg.fb_count = psram ? 2 : 1;
             break;
     }
