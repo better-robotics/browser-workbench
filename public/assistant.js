@@ -2,7 +2,8 @@ import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { registerSlash, slashSource, dispatchSlash } from "./slash.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.6.0/pip-core.esm.js";
+import { settings, saveSettings } from "./settings.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.6.1/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -232,6 +233,8 @@ function rehoistPip() {
 // First slash commands wired through the registry. /help is auto-generated
 // from the registered list. Add more here (or have other modules call
 // registerSlash directly) as the surface grows.
+const PIP_BACKENDS = ["github", "bridge", "anthropic", "openai", "local"];
+
 function registerInitialSlashCommands() {
   registerSlash({
     name: "clear",
@@ -240,6 +243,36 @@ function registerInitialSlashCommands() {
       _pip.history.length = 0;
       _pip.turns.innerHTML = "";
       return { clearedUI: true };
+    },
+  });
+
+  registerSlash({
+    name: "connect",
+    description: "open the BLE chooser to pair a robot",
+    // Synthetic click on the scan button — keeps requestDevice's user-
+    // activation chain (Enter keypress → click event) intact across browsers
+    // without re-implementing the chooser flow here.
+    handler: () => {
+      const btn = document.getElementById("scan-btn");
+      if (!btn) return { reply: "Pairing button isn't on this page." };
+      btn.click();
+      return { reply: "Opened the BLE chooser." };
+    },
+  });
+
+  registerSlash({
+    name: "model",
+    description: "switch Pip's backend (github/bridge/anthropic/openai/local)",
+    complete: (partial) => PIP_BACKENDS.filter(b => b.startsWith(partial.toLowerCase())),
+    handler: (argsString) => {
+      const arg = argsString.trim().toLowerCase();
+      if (!arg) return { reply: `Current backend: \`${settings.pipBackend}\`` };
+      if (!PIP_BACKENDS.includes(arg)) {
+        return { reply: `Unknown backend \`${arg}\`. One of: ${PIP_BACKENDS.map(b => `\`${b}\``).join(", ")}` };
+      }
+      settings.pipBackend = arg;
+      saveSettings();
+      return { reply: `Switched backend to \`${arg}\`.` };
     },
   });
 }

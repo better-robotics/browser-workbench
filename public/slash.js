@@ -43,11 +43,14 @@ export function dispatchSlash(text) {
   }
 
   if (cmd === "help" || cmd === "?") {
-    const lines = ["**Commands:**"];
+    // No "Commands:" header — the leading `/` on each row carries that
+    // signal already, and dropping it lets the markdown render as one
+    // tight list instead of a heading paragraph above the list.
+    const lines = [];
     for (const s of _commands.values()) {
       lines.push(`- \`/${s.name}\` — ${s.description || ""}`);
     }
-    lines.push("- `/help` — this list");
+    lines.push("- `/help` — list commands");
     return { reply: lines.join("\n") };
   }
   return null;
