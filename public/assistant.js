@@ -270,8 +270,18 @@ function registerInitialSlashCommands() {
       if (!PIP_BACKENDS.includes(arg)) {
         return { reply: `Unknown backend \`${arg}\`. One of: ${PIP_BACKENDS.map(b => `\`${b}\``).join(", ")}` };
       }
-      settings.pipBackend = arg;
-      saveSettings();
+      // Route through the Settings dropdown's change handler so the
+      // dialog's own state (visible value, key-row visibility, hint
+      // copy) re-syncs alongside settings.pipBackend. Falling back to
+      // a direct write keeps /model working if the select is missing.
+      const sel = document.getElementById("setting-pip-backend");
+      if (sel) {
+        sel.value = arg;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        settings.pipBackend = arg;
+        saveSettings();
+      }
       return { reply: `Switched backend to \`${arg}\`.` };
     },
   });
