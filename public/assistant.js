@@ -270,17 +270,23 @@ function registerInitialSlashCommands() {
       if (!PIP_BACKENDS.includes(arg)) {
         return { reply: `Unknown backend \`${arg}\`. One of: ${PIP_BACKENDS.map(b => `\`${b}\``).join(", ")}` };
       }
-      // Route through the Settings dropdown's change handler so the
-      // dialog's own state (visible value, key-row visibility, hint
-      // copy) re-syncs alongside settings.pipBackend. Falling back to
-      // a direct write keeps /model working if the select is missing.
+      // Belt-and-suspenders: write settings + persist directly so the
+      // change is durable even if the Settings dropdown isn't in the DOM
+      // (or its change handler isn't bound). Then sync the dropdown's
+      // visible state so reopening Settings shows the new value.
+      const before = settings.pipBackend;
+      settings.pipBackend = arg;
+      saveSettings();
+      const persisted = JSON.parse(localStorage.getItem("better-robotics:settings") || "{}").pipBackend;
       const sel = document.getElementById("setting-pip-backend");
-      if (sel) {
+      if (sel && sel.value !== arg) {
         sel.value = arg;
         sel.dispatchEvent(new Event("change", { bubbles: true }));
-      } else {
-        settings.pipBackend = arg;
-        saveSettings();
+      }
+      console.log("[/model] before=%s → in-memory=%s, persisted=%s, dropdown=%s",
+        before, settings.pipBackend, persisted, sel?.value);
+      if (persisted !== arg) {
+        return { reply: `Tried to switch to \`${arg}\` but localStorage didn't update — check console.` };
       }
       return { reply: `Switched backend to \`${arg}\`.` };
     },
