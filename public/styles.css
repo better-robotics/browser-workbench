@@ -927,9 +927,9 @@ details.tray.has-alert > summary::after {
 .esp-serial-console {
   display: block;
   width: 100%;
-  height: 380px;
+  flex: 1;
+  min-height: 380px;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
   overflow: hidden;
 }
 
@@ -1643,16 +1643,21 @@ details.tray.has-alert > summary::after {
 .esp-key.sd-shared { background: #eab308; }
 .esp-key.reserved  { background: #6b7280; color: #e5e5e5; }
 
-/* Console (Pi USB-C + ESP32 USB serial unified) — widened to fit Pi's
-   80-col terminal at 13px, flex-column so the active section's term
-   container has a measurable size for FitAddon. The mode picker swaps
-   which section is visible (.console-section); both share the dialog
-   shell and lifecycle. */
+/* Console (Pi USB-C + ESP32 USB serial unified) — sized for ~110-col
+   terminal at 13px (iTerm2-shape), flex-column so the active section's
+   term container has a measurable size for FitAddon. The mode picker
+   swaps which section is visible (.console-section); both share the
+   dialog shell and lifecycle. resize: both lets power users grow the
+   window past defaults; recovery.js's ResizeObserver re-fits xterm. */
 #console-modal {
   display: flex;
   flex-direction: column;
-  width: min(820px, calc(100vw - 32px));
-  height: min(640px, calc(100vh - 64px));
+  width: min(960px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 64px));
+  min-width: 480px;
+  min-height: 360px;
+  resize: both;
+  overflow: hidden;
 }
 .console-mode-row {
   display: flex;
@@ -1675,6 +1680,18 @@ details.tray.has-alert > summary::after {
   min-height: 0;
 }
 .console-section[hidden] { display: none; }
+.console-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.console-statusbar .meta { font-size: 12px; }
+.console-statusbar-sep { opacity: 0.5; }
 /* Toolbar row: Connect + status grouped at the left, destructive Flash
    firmware isolated on the right. Apple HIG separates destructive
    actions from benign ones so the operator's eye lands on the safe
@@ -1683,8 +1700,6 @@ details.tray.has-alert > summary::after {
 .recovery-actions #recovery-flash { margin-left: auto; }
 .recovery-term {
   background: #1e1e1e;
-  border-radius: 8px;
-  padding: 8px;
   flex: 1;
   min-height: 0;  /* default `min-height: auto` on flex items prevents shrinking below content */
   overflow: hidden;

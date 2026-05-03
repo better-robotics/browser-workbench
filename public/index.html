@@ -340,10 +340,15 @@
   <div class="console-section" id="console-pi-section">
     <div class="row recovery-actions">
       <button class="secondary sm" id="recovery-connect">Connect</button>
-      <span class="status-row"><span class="dot" id="recovery-status-dot"></span><span class="meta" id="recovery-status"></span></span>
       <button class="secondary sm danger" id="recovery-flash">Flash firmware</button>
     </div>
     <div id="recovery-term" class="recovery-term"></div>
+    <div class="console-statusbar">
+      <span class="meta">USB-C ACM</span>
+      <span class="meta console-statusbar-sep">·</span>
+      <span class="dot" id="recovery-status-dot"></span>
+      <span class="meta" id="recovery-status"></span>
+    </div>
   </div>
   <!-- ESP32 mode (esp-serial.js operates on these IDs). The <ewt-console>
        element is created dynamically by esp-serial.js on Connect (its
@@ -351,9 +356,14 @@
   <div class="console-section" id="console-esp-section" hidden>
     <div class="row" style="margin: 0 0 12px;">
       <button class="secondary sm" id="esp-serial-connect">Connect</button>
-      <span class="status-row"><span class="dot" id="esp-serial-status-dot"></span><span class="meta" id="esp-serial-status"></span></span>
     </div>
     <div id="esp-serial-console-host" class="esp-serial-console"></div>
+    <div class="console-statusbar">
+      <span class="meta">USB UART</span>
+      <span class="meta console-statusbar-sep">·</span>
+      <span class="dot" id="esp-serial-status-dot"></span>
+      <span class="meta" id="esp-serial-status"></span>
+    </div>
   </div>
 </dialog>
 
