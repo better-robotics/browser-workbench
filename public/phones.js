@@ -112,9 +112,14 @@ export async function initPhones() {
   const pairBtn = $("pair-phone-btn");
   if (pairBtn) pairBtn.addEventListener("click", beginPairing);
   const closeBtn = $("pair-dialog-close");
-  if (closeBtn) closeBtn.addEventListener("click", closePairing);
+  if (closeBtn) closeBtn.addEventListener("click", dismissPairingDialog);
   const cancelBtn = $("pair-cancel-btn");
   if (cancelBtn) cancelBtn.addEventListener("click", closePairing);
+  const pairDialog = $("pair-dialog");
+  if (pairDialog) pairDialog.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    dismissPairingDialog();
+  });
   // Wire the request prompt buttons.
   $("pair-request-accept")?.addEventListener("click", () => _resolveRequestPrompt(true));
   $("pair-request-deny")?.addEventListener("click", () => _resolveRequestPrompt(false));
@@ -215,6 +220,8 @@ export function notifyRobotStreamChange(entry) {
 }
 
 function closePairing() {
+  // Explicit cancel: kill the session and close the UI. Wired to the
+  // Cancel button (user explicitly aborts).
   if (_pendingSession) {
     try { getLobby().remove("better-robotics-pair:" + _pendingSession.roomId); } catch {}
   }
@@ -224,20 +231,54 @@ function closePairing() {
   $("pair-dialog").close();
 }
 
+function dismissPairingDialog() {
+  // Close the UI but leave the session alive. If a phone connects
+  // before the natural 30s timeout, it registers normally and shows
+  // up in the helpers list. Wired to × and Esc — gestures that
+  // should mean "I'm done with this dialog," not "abort the operation."
+  $("pair-dialog").classList.remove("has-ready-phones");
+  $("pair-dialog").close();
+}
+
+// Latest phone-presence ads, cached so the pair dialog can render its
+// nearby-phones state on open without waiting for the next discovery tick.
+let _lastPhoneAds = [];
+
 // Passive presence: count badge in the helpers heading. Pair flow
 // is driven by phones sending requests, not by us deciding ahead.
 function renderPhonePresence(ads) {
-  const phones = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone");
+  _lastPhoneAds = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone");
   const btn = $("pair-phone-btn");
-  if (!btn) return;
-  const total = phones.length;
-  btn.classList.toggle("has-nearby", total > 0);
-  // Hover hint carries the specifics that the dot can't.
-  btn.title = total === 0
-    ? "Pair a phone"
-    : total === 1
-      ? `Pair a phone — ${phones[0].data.label || "1 phone"} nearby`
-      : `Pair a phone — ${total} phones nearby`;
+  if (btn) {
+    const total = _lastPhoneAds.length;
+    btn.classList.toggle("has-nearby", total > 0);
+    const label = total === 0
+      ? "Pair a phone"
+      : total === 1
+        ? `Pair a phone — ${_lastPhoneAds[0].data.label || "1 phone"} nearby`
+        : `Pair a phone — ${total} phones nearby`;
+    // Mirror the title to aria-label so screen-reader users hear the same
+    // presence info sighted users see in the tooltip + dot.
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+  }
+  _renderPairDialogNearby();
+}
+
+// If the pair dialog is open and phones are nearby, surface the same-wifi
+// shortcut inline so the user doesn't need to close + use the menu.
+// Hidden when no phones are detected — dialog falls back to QR-only.
+function _renderPairDialogNearby() {
+  const dialog = $("pair-dialog");
+  const hintEl = $("pair-nearby-hint");
+  if (!dialog || !hintEl || !dialog.open) return;
+  if (_lastPhoneAds.length === 0) {
+    hintEl.hidden = true;
+    return;
+  }
+  hintEl.hidden = false;
+  const count = _lastPhoneAds.length === 1 ? "Phone" : `${_lastPhoneAds.length} phones`;
+  hintEl.textContent = `${count} nearby — open phone.html and tap "${deviceLabel()}" instead of scanning.`;
 }
 
 // ── Incoming pair-requests ────────────────────────────────────────
@@ -409,10 +450,20 @@ async function beginPairing() {
   const statusEl = $("pair-status");
   const qrEl = $("pair-qr");
   const urlEl = $("pair-url");
+  // If a previous session was dismissed (× or Esc) and is still
+  // waiting in the background, retire it now — opening this dialog
+  // means the user wants a fresh QR.
+  if (_pendingSession) {
+    try { getLobby().remove("better-robotics-pair:" + _pendingSession.roomId); } catch {}
+    _pendingSession.cancel();
+    _pendingSession = null;
+  }
   qrEl.innerHTML = "";
   urlEl.textContent = "";
   statusEl.textContent = "Generating room…";
+  statusEl.classList.add("is-waiting");
   dialog.showModal();
+  _renderPairDialogNearby();
 
   // onStatus gives us live pair-progress to surface in the dialog — without
   // it, a stuck negotiation looks identical to a working one (just "Waiting
@@ -440,32 +491,56 @@ async function beginPairing() {
     qrEl.textContent = "(QR library not loaded)";
   }
   urlEl.textContent = urlText;
+  urlEl.title = `${urlText}\n\nClick to copy`;
+  const copyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(urlText);
+      const orig = urlEl.textContent;
+      urlEl.textContent = "Copied!";
+      setTimeout(() => { if (urlEl.textContent === "Copied!") urlEl.textContent = orig; }, 1200);
+    } catch {}
+  };
+  urlEl.onclick = copyUrl;
+  urlEl.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copyUrl(); }
+  };
   statusEl.textContent = "Waiting for phone…";
+  statusEl.classList.add("is-waiting");
 
   try {
     const peer = await session.waitForPeer();
     if (_pendingSession !== session) { peer.close(); return; }  // user cancelled
-    statusEl.textContent = "Connected";
     _registerPairedPhone(session.roomId, peer, "Phone");
     _pendingSession = null;
-    setTimeout(() => { if (dialog.open) dialog.close(); }, 800);
+    statusEl.classList.remove("is-waiting");
+    if (dialog.open) {
+      statusEl.textContent = "Connected";
+      setTimeout(() => { if (dialog.open) dialog.close(); }, 800);
+    }
+    // Dialog already dismissed: phone shows up in the helpers list — no
+    // popup; the operator chose to dismiss the UI, surfacing it now would
+    // surprise them.
   } catch (err) {
     if (_pendingSession === session) {
-      // Inline retry beats "close the dialog and click Pair again" — failure
-      // mode for pairing is almost always transient (ICE flakiness, captive
-      // portal mid-negotiation), so the right affordance is one click.
-      statusEl.innerHTML = "";
-      const msg = document.createElement("span");
-      msg.textContent = `${err.message || err} `;
-      const retry = document.createElement("button");
-      retry.type = "button";
-      retry.className = "secondary sm";
-      retry.textContent = "Try again";
-      retry.style.marginLeft = "8px";
-      retry.addEventListener("click", () => beginPairing());
-      statusEl.appendChild(msg);
-      statusEl.appendChild(retry);
+      try { getLobby().remove("better-robotics-pair:" + session.roomId); } catch {}
       _pendingSession = null;
+      statusEl.classList.remove("is-waiting");
+      if (dialog.open) {
+        // Inline retry beats "close the dialog and click Pair again" — failure
+        // mode for pairing is almost always transient (ICE flakiness, captive
+        // portal mid-negotiation), so the right affordance is one click.
+        statusEl.innerHTML = "";
+        const msg = document.createElement("span");
+        msg.textContent = `${err.message || err} `;
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "secondary sm";
+        retry.textContent = "Try again";
+        retry.style.marginLeft = "8px";
+        retry.addEventListener("click", () => beginPairing());
+        statusEl.appendChild(msg);
+        statusEl.appendChild(retry);
+      }
     }
   }
 }

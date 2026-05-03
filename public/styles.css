@@ -2073,6 +2073,15 @@ dialog[open]::backdrop { opacity: 1; }
 
 /* ── Pair-phone dialog ────────────────────────────────────────────────── */
 .pair-dialog { width: min(420px, calc(100vw - 32px)); }
+.pair-nearby-hint {
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-left: 2px solid var(--accent);
+  font-size: 13px;
+  line-height: 1.4;
+}
 .pair-qr {
   display: flex;
   justify-content: center;
@@ -2084,12 +2093,35 @@ dialog[open]::backdrop { opacity: 1; }
   aspect-ratio: 1;
 }
 .pair-qr svg { width: 100%; height: 100%; }
-.pair-meta { display: flex; flex-direction: column; gap: 4px; }
+.pair-meta { display: flex; flex-direction: column; gap: 6px; align-items: center; }
 .pair-meta .mono {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 11px;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: all;
+  max-width: min(292px, calc(70vw + 32px));
+  width: 100%;
+  text-align: center;
 }
+.pair-meta .mono:hover { opacity: 0.75; }
+.pair-meta .mono:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.pair-meta .hint { text-align: center; }
+.pair-meta .hint.is-waiting::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border: 1.5px solid var(--ink-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: pair-spin 0.8s linear infinite;
+  vertical-align: -1px;
+}
+@keyframes pair-spin { to { transform: rotate(360deg); } }
 
 /* ── Helpers list (paired phones + this laptop's webcam) ──────────────── */
 /* Helpers borrow the .robot card layout but read as supplementary, not
@@ -2121,6 +2153,8 @@ dialog[open]::backdrop { opacity: 1; }
    the title attr; the dot is the glance-level signal. */
 .pair-phone-btn { position: relative; }
 .pair-phone-btn.has-nearby::after {
+  /* HIG online-presence convention (FaceTime / iMessage online badge):
+     green dot says "ready," blue would read as "new / unread." */
   content: "";
   position: absolute;
   top: 4px;
@@ -2128,7 +2162,7 @@ dialog[open]::backdrop { opacity: 1; }
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: #34c759;
   box-shadow: 0 0 0 2px var(--bg);
 }
 .link-btn {
@@ -2389,9 +2423,28 @@ body.phone textarea {
    so the affordance is familiar; the trust checkbox makes the
    "remember this device" choice explicit and reversible. */
 .pair-request-dialog { max-width: 420px; }
-.pair-request-text {
+.pair-request-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
   margin: 6px 0 14px;
+}
+.pair-request-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+  color: var(--ink-muted);
+}
+.pair-request-text {
+  margin: 0 0 6px;
   font-size: 15px;
+  line-height: 1.4;
+}
+.pair-request-safety {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
   line-height: 1.4;
 }
 .pair-request-trust-row {

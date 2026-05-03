@@ -488,14 +488,14 @@
 
 <dialog id="pair-dialog" class="prepare-dialog pair-dialog">
   <div class="modal-header">
-    <div class="label">Pair a phone (cross-network)</div>
+    <div class="label">Pair a phone</div>
     <button class="icon" id="pair-dialog-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="hint" id="pair-hint">If your phone's on the same wifi, just open <strong>phone.html</strong> on it and tap this computer — no QR needed. Use the QR for cross-network pairing (different wifi, hotspot, captive portal).</p>
+  <p class="hint pair-nearby-hint" id="pair-nearby-hint" hidden></p>
   <div id="pair-qr" class="pair-qr"></div>
   <div class="pair-meta">
+    <div class="meta mono" id="pair-url" role="button" tabindex="0" aria-label="Copy pair URL to clipboard"></div>
     <div class="hint" id="pair-status">Generating room…</div>
-    <div class="meta mono" id="pair-url"></div>
   </div>
   <div class="modal-footer">
     <button class="secondary sm" id="pair-cancel-btn">Cancel</button>
@@ -511,9 +511,15 @@
   <div class="modal-header">
     <div class="label">Pair request</div>
   </div>
-  <p class="pair-request-text">
-    <strong id="pair-request-label">Phone</strong> wants to pair with this computer.
-  </p>
+  <div class="pair-request-body">
+    <svg class="pair-request-icon"><use href="icons.svg#icon-smartphone"/></svg>
+    <div>
+      <p class="pair-request-text">
+        <strong id="pair-request-label">Phone</strong> wants to pair with this computer.
+      </p>
+      <p class="pair-request-safety">If you don't recognize this device, deny.</p>
+    </div>
+  </div>
   <label class="pair-request-trust-row">
     <input type="checkbox" id="pair-request-trust">
     Trust this device — accept future requests automatically
