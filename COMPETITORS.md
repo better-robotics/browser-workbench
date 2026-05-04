@@ -22,6 +22,13 @@ External systems that compete for the same user decision as Better Robotics — 
 - **Better than us today:** polished UI, k-12 marketplace presence, iOS native fallback.
 - **Decision impact:** reinforces the "no account" moat — account-gating is exactly the friction this project refuses.
 
+### Makeblock (mBlock + mBot family)
+- **Competes for:** same K-12 classroom decision — at the largest scale claim of any vendor in this list (200k+ schools).
+- **Overlap:** mBlock 5 web at [ide.mblock.cc](https://ide.mblock.cc/) runs in Chrome/Edge, connects to mBot/CyberPi/Codey Rocky over Web Bluetooth + WebSerial without a helper app ([Makeblock support](https://support.makeblock.com/hc/en-us/articles/19412317319191-Introduction-to-Direct-Connection-of-mBlock-5-on-the-web)). Block + Python.
+- **Divergence:** account-required walled garden. Programs run on closed proprietary firmware. Hardware lock-in to Makeblock kits. No LLM, no replay, no recovery plane.
+- **Better than us today:** scale (200k schools), educator curriculum, hardware breadth (CyberPi has its own screen + sensors), Chinese-market depth, multi-platform (PC/mobile/web).
+- **Decision impact:** confirms Web-Bluetooth-from-browser is the dominant K-12 STEAM pattern, not contrarian. Reinforces the "no account, no proprietary kit" wedge: every major K-12 vendor (LEGO, Sphero, Makeblock) is account-gated and kit-locked. The combination "browser-paired AND user-owned hardware AND no account" remains unoccupied.
+
 ### MicroBlocks (microblocks.fun)
 - **Competes for:** browser IDE to program a BLE/serial-connected microcontroller with blocks.
 - **Overlap:** runs in Chrome/Edge via WebSerial + Web Bluetooth, no install; supports micro:bit, XRP, and others ([wiki.microblocks.fun](https://wiki.microblocks.fun/en/xrp_setup)). Live programming model.
@@ -78,11 +85,11 @@ External systems that compete for the same user decision as Better Robotics — 
 - **MakeCode micro:bit** — mature web IDE for micro:bit; overlaps MicroBlocks, adds little new signal.
 - **Particle Device OS** — BLE provisioning exists but mobile-SDK oriented, commercial product flow, account-anchored. Same shape as RainMaker.
 - **ROS 2 MoveIt, Dora-rs, industrial / arm stacks** — different buyer, different latency bracket, no browser pairing story. "Not real-time, not spatially aware" rules the lane out.
-- **VEX IQ/V5, Makeblock, ROBOTIS** — proprietary-kit + proprietary-app lane. Doubly unavailable to the "no accounts, no server" thesis.
+- **VEX IQ/V5, ROBOTIS** — proprietary-kit + proprietary-app lane. Doubly unavailable to the "no accounts, no server" thesis.
 
 ## Concluding read
 
-**Is there a clean head-on competitor for the actual shape — *write code for a robot in a browser tab, no install, AI assist optional, fork-and-run*?** No. The closest cousins split the problem: **MicroBlocks** and **XRPCode** own browser-IDE-to-hardware but deploy code *to* the device and have no in-browser AI layer; **LEGO SPIKE** and **Sphero EDU** own classroom-web-app experience but are walled gardens with accounts; **Viam** and **Freedom Robotics** are the closest framing rhymes (server-resident dev environments for robots) but anchor to industrial cloud, accounts, and fleet ops; **ESP RainMaker** and **Improv Wi-Fi** own the BLE-provisioning primitive but stop there; **LeRobot** owns the VLA/LLM orchestration layer but has no browser runtime or BLE story.
+**Is there a clean head-on competitor for the actual shape — *write code for a robot in a browser tab, no install, AI assist optional, fork-and-run*?** No. The closest cousins split the problem: **MicroBlocks** and **XRPCode** own browser-IDE-to-hardware but deploy code *to* the device and have no in-browser AI layer; **LEGO SPIKE**, **Sphero EDU**, and **Makeblock mBlock** own classroom-web-app experience but are walled gardens with accounts and proprietary kits; **Viam** and **Freedom Robotics** are the closest framing rhymes (server-resident dev environments for robots) but anchor to industrial cloud, accounts, and fleet ops; **ESP RainMaker** and **Improv Wi-Fi** own the BLE-provisioning primitive but stop there; **LeRobot** owns the VLA/LLM orchestration layer but has no browser runtime or BLE story.
 
 **Does anything here say change direction?** No. The nearest tactical move is to implement the **Improv Wi-Fi** BLE onboarding characteristic alongside ours so anything Improv-aware (ESPHome Dashboard, WLED config, Home Assistant tools) can provision our robots out of the box. Interop win, not a strategy shift.
 
@@ -99,6 +106,8 @@ Keep the scope lines loud in the README. The market reads "robotics platform" an
 - [Schematik.io homepage](https://schematik.io)
 - [LEGO Education SPIKE — Web Bluetooth + Web Serial (Chrome for Developers)](https://developer.chrome.com/blog/lego-education-spike-web-bluetooth-web-serial)
 - [Sphero EDU Web App — Connecting Robots](https://help.sphero.com/sphero-support/connecting-robots-in-the-sphero-edu-web-app)
+- [mBlock 5 web IDE](https://ide.mblock.cc/)
+- [Makeblock support — direct browser connection](https://support.makeblock.com/hc/en-us/articles/19412317319191-Introduction-to-Direct-Connection-of-mBlock-5-on-the-web)
 - [MicroBlocks XRP setup (Web Bluetooth)](https://wiki.microblocks.fun/en/xrp_setup)
 - [MicroBlocks in the browser](http://www.microblocks.fun/en/microblocks_in_browser)
 - [WPILib XRP Web UI](https://docs.wpilib.org/en/stable/docs/xrp-robot/web-ui.html)
