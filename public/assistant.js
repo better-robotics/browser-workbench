@@ -2,7 +2,7 @@ import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.10.0/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.10.1/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -275,7 +275,7 @@ async function actOnFailure(backend, turnEl) {
   if (backend === "github") {
     const choice = await _pip.askInChat({
       question: "GitHub Models needs sign-in (or token expired).",
-      options: ["Sign in", "Switch backend", "Dismiss"],
+      options: ["Sign in", "Switch backend"],
     }, turnEl);
     if (choice === "Sign in") {
       try {
@@ -289,8 +289,7 @@ async function actOnFailure(backend, turnEl) {
         return `Sign-in failed: ${err.message || err}`;
       }
     }
-    if (choice === "Switch backend") return "Run `/model` to pick a different backend.";
-    return "OK.";
+    return "Run `/model` to pick a different backend.";
   }
   if (backend === "anthropic" || backend === "openai") {
     const isAnthropic = backend === "anthropic";
@@ -302,7 +301,7 @@ async function actOnFailure(backend, turnEl) {
       : `${label} needs an API key.`;
     const choice = await _pip.askInChat({
       question,
-      options: [has ? "Re-enter key" : "Enter key", "Switch backend", "Dismiss"],
+      options: [has ? "Re-enter key" : "Enter key", "Switch backend"],
     }, turnEl);
     if (choice === "Enter key" || choice === "Re-enter key") {
       const key = await collectApiKey(label, format);
@@ -312,8 +311,7 @@ async function actOnFailure(backend, turnEl) {
       saveSettings();
       return "Key saved. Try sending again.";
     }
-    if (choice === "Switch backend") return "Run `/model` to pick a different backend.";
-    return "OK.";
+    return "Run `/model` to pick a different backend.";
   }
   return backendFailureHint(backend);
 }
