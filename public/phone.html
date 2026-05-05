@@ -13,6 +13,9 @@
   <meta name="apple-mobile-web-app-title" content="BetterRobotics">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="styles.css">
+  <!-- Error capture: synchronous, before any module — feeds report-issue
+       body so users can attach console errors when filing a bug. -->
+  <script src="error-capture.js"></script>
   <!-- jsQR for the QR-scan-to-reconnect flow. BarcodeDetector isn't on iOS
        Safari yet (2025), so we use the same pure-JS decoder catwatcher uses
        so the same code path covers iOS + Android + desktop browsers. -->

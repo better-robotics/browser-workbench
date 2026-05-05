@@ -1971,7 +1971,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initMotorsKeyboard();
   initAuthUI();
   initPasswordsUI();
-  initAssistant();
+  // Pip is additive; if it can't init (CDN failure, regression in pip-core,
+  // bad cached SW), the rest of the dashboard must keep working. Fence the
+  // call so a Pip throw doesn't take down BLE / phones / robot presence.
+  // assistant.js exports already early-return when _pip is undefined.
+  try { initAssistant(); } catch (err) { console.error("[pip] init failed:", err); }
   initPhones();
   initHelpers();
   initRobotPresence();

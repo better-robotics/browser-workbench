@@ -244,24 +244,66 @@ export function wireHardRefresh({
 
 // ── Report-issue diagnostic body ───────────────────────────────────────
 
-// Build a GitHub issue URL prefilled with version + UA + URL. Caller
-// passes version (from sw.js) and the anchor to update.
+// Build a GitHub issue URL prefilled with version + UA + URL + recent
+// console errors. Errors are read at click time (mousedown/pointerdown/
+// focus) so anything captured between page-load and the click lands in
+// the body. The body includes a review notice — GitHub issues are public,
+// so the user can edit before submitting.
 export function setReportIssueLink(anchor, version) {
   if (!anchor) return;
-  const body = [
-    "<!-- Describe what happened, what you expected, and how to reproduce. -->",
-    "",
-    "",
-    "---",
-    "<details><summary>Diagnostic info</summary>",
-    "",
-    `- Version: \`${version}\``,
-    `- URL: \`${window.location.href}\``,
-    `- User-Agent: \`${navigator.userAgent}\``,
-    "",
-    "</details>",
-  ].join("\n");
-  anchor.href = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(body)}`;
+  // ~4KB cap on the error block keeps the URL well under GitHub's ~8KB
+  // limit. Keep the most recent (likely related to the bug); drop older.
+  const ERROR_CHARS_MAX = 4000;
+  function buildErrorBlock() {
+    let entries = [];
+    try {
+      entries = (typeof window.__getCapturedErrors === "function" && window.__getCapturedErrors()) || [];
+    } catch { /* capture is best-effort */ }
+    if (!entries.length) return "";
+    let formatted = entries.map(e =>
+      `[${e.t}] ${e.level}${e.source ? ` (${e.source})` : ""}: ${e.message}`
+    ).join("\n\n");
+    if (formatted.length > ERROR_CHARS_MAX) {
+      formatted = "…(older entries truncated)…\n\n" + formatted.slice(formatted.length - ERROR_CHARS_MAX);
+    }
+    return [
+      "",
+      "#### Recent console errors",
+      "",
+      "```",
+      formatted,
+      "```",
+      "",
+    ].join("\n");
+  }
+  function buildBody() {
+    return [
+      "<!-- Describe what happened, what you expected, and how to reproduce. -->",
+      "",
+      "",
+      "---",
+      "> **Please review the diagnostic info below before submitting.** GitHub issues are public — remove any URLs, error messages, or browser details you don't want to share.",
+      "",
+      "<details><summary>Diagnostic info</summary>",
+      "",
+      `- Version: \`${version}\``,
+      `- URL: \`${window.location.href}\``,
+      `- User-Agent: \`${navigator.userAgent}\``,
+      buildErrorBlock(),
+      "</details>",
+    ].join("\n");
+  }
+  function refresh() {
+    anchor.href = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(buildBody())}`;
+  }
+  refresh();
+  // Refresh just-in-time so any errors that happened between page load
+  // and the click land in the body. pointerdown covers mouse + touch +
+  // pen; focus covers keyboard activation. Both fire before the actual
+  // navigation, so middle-click / right-click "open in new tab" still
+  // gets a fresh URL.
+  anchor.addEventListener("pointerdown", refresh);
+  anchor.addEventListener("focus", refresh);
 }
 
 // One capture combines a STUN probe, the last pair attempt's snapshot
