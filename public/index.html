@@ -232,48 +232,14 @@
       <label for="setting-name" class="settings-title">Your name</label>
       <input type="text" id="setting-name" placeholder="e.g. Jonas" maxlength="40" autocomplete="off">
       <div class="hint" id="setting-name-hint">Stored in this browser only. Used for robot labels and logs.</div>
-      <div class="settings-signin">
-        <button type="button" class="secondary sm" id="setting-signin-btn">Sign in with GitHub</button>
-      </div>
     </div>
   </section>
 
-  <!-- Order: most-touched first. Pip backend is what users adjust between
-       sessions; experimental flags are occasional; advanced (key + robot
-       passwords) is one-time setup, collapsed by default behind a tap. -->
-
-  <div class="settings-group-header">Pip</div>
-  <div class="settings-item pip-backend-row">
-    <!-- Backend selection lives in Pip itself via /model — Settings only
-         keeps the per-backend key/install rows that need form input the
-         slash surface can't carry. Each row appears only when its
-         backend is the active one (settings.pipBackend, set by /model). -->
-    <div id="setting-pip-anthropic-key-row" class="pip-key-row" hidden>
-      <label for="setting-pip-key" class="settings-title">Anthropic API key</label>
-      <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-key" autocomplete="off" placeholder="sk-ant-…" spellcheck="false"></form>
-    </div>
-    <div id="setting-pip-openai-key-row" class="pip-key-row" hidden>
-      <label for="setting-pip-openai-key" class="settings-title">OpenAI API key</label>
-      <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-openai-key" autocomplete="off" placeholder="sk-…" spellcheck="false"></form>
-    </div>
-    <div id="setting-pip-local-row" class="pip-local-row" hidden>
-      <div class="local-status-row">
-        <div class="local-status">
-          <span class="dot" id="setting-pip-local-dot"></span>
-          <span id="setting-pip-local-status">Not installed</span>
-        </div>
-        <button id="setting-pip-local-install">Install (1.2 GB)</button>
-      </div>
-      <progress id="setting-pip-local-progress" value="0" max="100" hidden></progress>
-    </div>
-  </div>
-  <div class="settings-item" id="setting-pip-vision-row" hidden>
-    <input type="checkbox" id="setting-pip-vision">
-    <label for="setting-pip-vision">
-      <div class="settings-title">Let Pip view camera frames directly</div>
-      <div class="hint">Frames leave the device when Pip needs visual nuance. Bridge / Anthropic backends only; off by default.</div>
-    </label>
-  </div>
+  <!-- Pip configuration — backend choice, API keys, GitHub auth, local
+       install, vision toggle — all live in Pip itself via slash commands
+       (/model, /key, /signin, /install, /vision). Settings keeps only
+       what slash can't carry: identity (name) + advanced one-time setup
+       (dashboard key, robot passwords). -->
 
   <!-- Advanced (was "Security"). One-time setup; collapsed by default to
        keep the daily-use Pip + Experimental rows scannable above. Each

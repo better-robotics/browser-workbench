@@ -25,7 +25,7 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, emitPipEvent } from "./assistant.js";
 import { initPhones, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
-import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel, reloadModel as reloadLocalModel } from "./local-llm.js";
+// (local-llm imports moved to assistant.js where the /install slash lives)
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
 import {
@@ -1838,114 +1838,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Pip backend selection lives in Pip itself (/model command). Settings
-  // only owns the per-backend key/install/vision rows that need form
-  // input the slash surface can't carry. Each row's visibility tracks
-  // settings.pipBackend; syncBackendUI runs on dialog open so changes
-  // made via /model in the same session are reflected when Settings
-  // is reopened.
-  const anthropicKeyRow = $("setting-pip-anthropic-key-row");
-  const openaiKeyRow    = $("setting-pip-openai-key-row");
-  const localRow        = $("setting-pip-local-row");
-  const anthropicKeyInput = $("setting-pip-key");
-  const openaiKeyInput    = $("setting-pip-openai-key");
-  const localStatusEl   = $("setting-pip-local-status");
-  const localProgressEl = $("setting-pip-local-progress");
-  const localInstallBtn = $("setting-pip-local-install");
-  const localDotEl      = $("setting-pip-local-dot");
-  const visionRow   = $("setting-pip-vision-row");
-  const visionInput = $("setting-pip-vision");
-  // Vision tool wires the Anthropic image-in-tool_result content shape; the
-  // OpenAI / GitHub Models / local backends would need a different content-
-  // block packing that isn't in place. Gate accordingly.
-  const VISION_BACKENDS = new Set(["bridge", "anthropic"]);
-  function syncBackendUI() {
-    const b = settings.pipBackend || "github";
-    anthropicKeyRow.hidden = b !== "anthropic";
-    openaiKeyRow.hidden    = b !== "openai";
-    localRow.hidden        = b !== "local";
-    visionRow.hidden       = !VISION_BACKENDS.has(b);
-    anthropicKeyInput.value = settings.pipApiKey || "";
-    openaiKeyInput.value    = settings.pipOpenaiKey || "";
-    visionInput.checked     = !!settings.pipVisionEnabled;
-  }
-  syncBackendUI();
-  // Re-sync each time Settings opens so /model changes from elsewhere in
-  // the session show up.
-  $("settings-modal")?.addEventListener("toggle", () => {
-    if ($("settings-modal").open) syncBackendUI();
-  });
-  // GitHub OAuth — connectGitHub from the shared neevs.io auth helper that
-  // robot-studio already uses. Lazy-loaded the first time the button is
-  // tapped so a user who never picks GitHub doesn't pay the import cost.
-  let _connectGitHubFn = null;
-  async function _loadConnectGitHub() {
-    if (_connectGitHubFn) return _connectGitHubFn;
-    const mod = await import("https://neevs.io/auth/connect.js");
-    _connectGitHubFn = mod.connectGitHub;
-    return _connectGitHubFn;
-  }
-  visionInput.addEventListener("change", () => {
-    settings.pipVisionEnabled = visionInput.checked;
-    saveSettings();
-  });
-  // Save keys on blur, not per-keystroke — avoids persisting partial pastes
-  // and keeps the storage write off the typing critical path.
-  anthropicKeyInput.addEventListener("blur", () => {
-    settings.pipApiKey = anthropicKeyInput.value.trim();
-    saveSettings();
-  });
-  openaiKeyInput.addEventListener("blur", () => {
-    settings.pipOpenaiKey = openaiKeyInput.value.trim();
-    saveSettings();
-  });
-
-  // Local-LLM install + load status. Wired even when the row is hidden so the
-  // status reflects loads kicked off from a previous session opening.
-  function refreshLocalUI(s) {
-    // Reset dot + button variant; set per-state below.
-    localDotEl.className = "dot";
-    localInstallBtn.className = "";
-    if (s.status === "loading") {
-      const file = s.file ? ` ${s.file}` : "";
-      localStatusEl.textContent = `Loading${file} (${s.progress || 0}%)`;
-      localDotEl.classList.add("connecting");
-      localProgressEl.hidden = false;
-      localProgressEl.value = s.progress || 0;
-      localInstallBtn.disabled = true;
-      localInstallBtn.textContent = "Loading…";
-    } else if (s.status === "ready") {
-      localStatusEl.textContent = "Ready";
-      localDotEl.classList.add("connected");
-      localProgressEl.hidden = true;
-      localInstallBtn.disabled = false;
-      localInstallBtn.className = "secondary";
-      localInstallBtn.textContent = "Reload";
-    } else if (s.status === "error") {
-      localStatusEl.textContent = `Error: ${s.error || "unknown"}`;
-      localDotEl.classList.add("error");
-      localProgressEl.hidden = true;
-      localInstallBtn.disabled = false;
-      localInstallBtn.textContent = "Retry";
-    } else {
-      localStatusEl.textContent = "Not installed";
-      localProgressEl.hidden = true;
-      localInstallBtn.disabled = false;
-      localInstallBtn.textContent = "Install (1.2 GB)";
-    }
-  }
-  onLocalLoadStateChange(refreshLocalUI);
-  refreshLocalUI(getLocalLoadState());
-  localInstallBtn.addEventListener("click", () => {
-    // When ready, the button reads "Reload" and triggers an in-memory
-    // dispose + re-init from the IndexedDB cache (no re-download). Other
-    // states (idle, error) just call loadModel for first install / retry.
-    const s = getLocalLoadState();
-    const action = s.status === "ready" ? reloadLocalModel : loadLocalModel;
-    action().catch((err) => {
-      console.warn("[local-llm] action failed", err);
-    });
-  });
+  // Pip backend, API keys, GitHub auth, vision, and local-LLM install all
+  // moved to slash commands (/model, /key, /signin, /vision, /install) —
+  // managed in assistant.js. Settings keeps only identity + advanced
+  // one-time setup.
 
   // Profile — classroom-local identity (no auth, browser-only). Seeded hue from name hash.
   const seedColor = (str) => {
@@ -1987,11 +1883,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const nameInput = $("setting-name");
   const nameHint = $("setting-name-hint");
-  const signInBtn = $("setting-signin-btn");
   function saveProfile() { localStorage.setItem("br-profile", JSON.stringify(profile)); }
   // Identity flows from settings.githubAuth — one OAuth grant powers both
-  // the username display AND the GitHub Models Pip backend. When signed in,
-  // the visible name is `@username` and the input is read-only.
+  // the username display AND the GitHub Models Pip backend. /signin slash
+  // command (in assistant.js) manages the OAuth dance.
   function displayName() {
     return settings.githubAuth?.username || profile.name;
   }
@@ -2000,45 +1895,19 @@ document.addEventListener("DOMContentLoaded", () => {
     nameInput.value = displayName();
     nameInput.disabled = signedIn;
     nameHint.textContent = signedIn
-      ? "Signed in with GitHub — name is from your account."
-      : "Stored in this browser only. Used for robot labels and logs.";
-    signInBtn.textContent = signedIn ? "Sign out" : "Sign in with GitHub";
+      ? "Signed in with GitHub — name is from your account. /signout to clear."
+      : "Stored in this browser only. /signin to use your GitHub identity.";
     renderAvatar(displayName());
-    syncBackendUI();  // GitHub backend hint reflects sign-in state
   }
+  // Exposed so the /signin and /signout slash handlers can refresh the UI
+  // after the auth state changes.
+  window.__syncIdentityUI = syncIdentityUI;
   syncIdentityUI();
   nameInput.addEventListener("input", () => {
     if (settings.githubAuth) return;  // disabled, but defensive
     profile.name = nameInput.value.trim();
     saveProfile();
     renderAvatar(displayName());
-  });
-  signInBtn.addEventListener("click", async () => {
-    if (settings.githubAuth) {
-      // Sign out → drop token + revert display to the random name. The
-      // GitHub Models Pip backend will hit the 401 path on next call and
-      // surface a "sign in" hint there.
-      settings.githubAuth = null;
-      saveSettings();
-      profile.name = randomName();
-      saveProfile();
-      syncIdentityUI();
-      return;
-    }
-    signInBtn.disabled = true;
-    signInBtn.textContent = "Connecting…";
-    try {
-      const connect = await _loadConnectGitHub();
-      const auth = await connect("read:user", "better-robotics");
-      settings.githubAuth = { username: auth.username, token: auth.token };
-      saveSettings();
-      syncIdentityUI();
-    } catch (err) {
-      log(`Sign-in failed: ${err.message || err}`);
-    } finally {
-      signInBtn.disabled = false;
-      if (!settings.githubAuth) signInBtn.textContent = "Sign in with GitHub";
-    }
   });
 
   // Avatar menu — popover="manual" matches robot-menu's pattern (no native outside-click/Escape).

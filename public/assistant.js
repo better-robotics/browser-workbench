@@ -2,7 +2,7 @@ import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.8.2/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.8.3/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -231,6 +231,28 @@ async function notifyDialog(dialogEl) {
   speakMessage(reply ?? fallback);
 }
 
+// Backend-specific recovery copy for null/empty replies. Each tells the
+// user *what* went wrong (auth, missing key, service down) and *how* to
+// fix (slash command or link). Generic "try again" wastes a retry; a
+// specific hint gets the user back to working in one action.
+function backendFailureHint(backend) {
+  const hints = {
+    github:
+      "GitHub Models call failed. [Sign in to GitHub](https://github.com/login) (token may have expired) or run `/model bridge` to switch backends.",
+    bridge:
+      "ai-bridge isn't responding. Check the local service is running, or run `/model anthropic` (with `/key`) / `/model github` to switch backends.",
+    anthropic: settings.pipApiKey
+      ? "Anthropic call failed — key may be invalid or out of quota. Re-set it with `/key sk-ant-…` or run `/model bridge`."
+      : "Anthropic needs an API key. Set it with `/key sk-ant-…` or run `/model bridge` to switch.",
+    openai: settings.pipOpenaiKey
+      ? "OpenAI call failed — key may be invalid or out of quota. Re-set it with `/key sk-…` or run `/model bridge`."
+      : "OpenAI needs an API key. Set it with `/key sk-…` or run `/model bridge` to switch.",
+    local:
+      "Local LFM2 isn't loaded. Open Settings → Pip and install the model (~1.2 GB, one time). Or run `/model bridge`.",
+  };
+  return hints[backend] || "Can't think right now — try again?";
+}
+
 // Host onSubmit — runs askWithTools with trace + stop + max-iter continue/stop.
 async function onSubmit(text, { turnEl }) {
   _activeTurnEl = turnEl;
@@ -263,6 +285,10 @@ async function onSubmit(text, { turnEl }) {
   hidePipStopButton();
   _activeTurnEl = null;
   _resumeTimer = setTimeout(scheduleAutoDismiss, IDLE_RESUME_MS);
+  // Backend returned nothing usable → surface a backend-specific hint
+  // instead of pip-core's generic "try again." The hint names the likely
+  // cause and the slash command that fixes it.
+  if (reply == null || reply === "") return backendFailureHint(settings.pipBackend);
   return reply;
 }
 
@@ -326,13 +352,106 @@ function registerInitialSlashCommands() {
         } catch {}
       }
 
-      // Update the model badge in pip's meta row. The Settings dialog
-      // doesn't expose backend selection anymore (the slash command is the
-      // canonical surface); conditional key/install rows there re-sync
-      // themselves when Settings is next opened.
+      // Update the model badge in pip's meta row. Settings UI no longer
+      // exposes Pip config — slash commands are the canonical surface.
       _pip.setModelLabel?.(arg);
 
-      return { reply: `Backend set to \`${arg}\`.` };
+      // If the chosen backend needs setup, hint at the slash command that
+      // does it inline. Avoids the user hitting a failure mid-conversation.
+      let extra = "";
+      if (arg === "anthropic" && !settings.pipApiKey) {
+        extra = " Set your API key with `/key sk-ant-…`.";
+      } else if (arg === "openai" && !settings.pipOpenaiKey) {
+        extra = " Set your API key with `/key sk-…`.";
+      } else if (arg === "github" && !settings.githubAuth) {
+        extra = " Run `/signin` to authenticate with GitHub.";
+      }
+      return { reply: `Backend set to \`${arg}\`.${extra}` };
+    },
+  });
+
+  // /key <value> — set the API key for the current backend (anthropic or
+  // openai). Avoids the round-trip through Settings; slash surface is the
+  // single configuration channel for Pip.
+  _pip.registerSlash({
+    name: "key",
+    description: "set the API key for the current backend",
+    handler: (argsString) => {
+      const value = argsString.trim();
+      const backend = settings.pipBackend;
+      if (!value) {
+        return { reply: `Usage: \`/key <api-key>\`. Sets the key for the current backend (\`${backend}\`).` };
+      }
+      if (backend === "anthropic") {
+        settings.pipApiKey = value;
+      } else if (backend === "openai") {
+        settings.pipOpenaiKey = value;
+      } else {
+        return { reply: `Backend \`${backend}\` doesn't take an API key. \`/model anthropic\` or \`/model openai\` first.` };
+      }
+      saveSettings();
+      return { reply: `API key saved for \`${backend}\`.` };
+    },
+  });
+
+  // /signin — GitHub OAuth via the shared neevs.io auth helper. Lazy-imported
+  // so users who never use the github backend don't pay the import cost.
+  let _connectGitHubFn = null;
+  async function _loadConnectGitHub() {
+    if (_connectGitHubFn) return _connectGitHubFn;
+    const mod = await import("https://neevs.io/auth/connect.js");
+    _connectGitHubFn = mod.connectGitHub;
+    return _connectGitHubFn;
+  }
+  _pip.registerSlash({
+    name: "signin",
+    description: "sign in with GitHub (powers the github backend + identity)",
+    handler: async () => {
+      if (settings.githubAuth?.username) {
+        return { reply: `Already signed in as \`@${settings.githubAuth.username}\`. Use \`/signout\` to clear.` };
+      }
+      try {
+        const connect = await _loadConnectGitHub();
+        const auth = await connect("read:user", "better-robotics");
+        settings.githubAuth = { username: auth.username, token: auth.token };
+        saveSettings();
+        window.__syncIdentityUI?.();
+        return { reply: `Signed in as \`@${auth.username}\`.` };
+      } catch (err) {
+        return { reply: `Sign-in failed: ${err.message || err}` };
+      }
+    },
+  });
+  _pip.registerSlash({
+    name: "signout",
+    description: "sign out of GitHub",
+    handler: () => {
+      if (!settings.githubAuth) return { reply: "Not signed in." };
+      settings.githubAuth = null;
+      saveSettings();
+      window.__syncIdentityUI?.();
+      return { reply: "Signed out." };
+    },
+  });
+
+  // /vision on|off — toggle whether Pip can see camera frames directly.
+  // Tool wires the Anthropic image-in-tool_result content shape; only the
+  // bridge + anthropic backends ship the right content-block packing.
+  _pip.registerSlash({
+    name: "vision",
+    description: "let Pip see camera frames directly (on/off)",
+    complete: (partial) => ["on", "off"].filter(s => s.startsWith(partial.toLowerCase())),
+    handler: (argsString) => {
+      const arg = argsString.trim().toLowerCase();
+      if (!arg) {
+        return { reply: `Vision is currently \`${settings.pipVisionEnabled ? "on" : "off"}\`. Use \`/vision on\` or \`/vision off\`.` };
+      }
+      if (arg !== "on" && arg !== "off") {
+        return { reply: "Usage: `/vision on` or `/vision off`." };
+      }
+      settings.pipVisionEnabled = arg === "on";
+      saveSettings();
+      return { reply: `Vision ${arg}.` };
     },
   });
 }
