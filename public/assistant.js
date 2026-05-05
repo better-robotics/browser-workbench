@@ -2,7 +2,7 @@ import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.8.3/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.8.5/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -236,19 +236,22 @@ async function notifyDialog(dialogEl) {
 // fix (slash command or link). Generic "try again" wastes a retry; a
 // specific hint gets the user back to working in one action.
 function backendFailureHint(backend) {
+  // Hints reference slash commands the user can run inline. /model alone
+  // (no arg) lists alternatives, so the user picks rather than us
+  // prescribing one.
   const hints = {
     github:
-      "GitHub Models call failed. [Sign in to GitHub](https://github.com/login) (token may have expired) or run `/model bridge` to switch backends.",
+      "GitHub Models needs sign-in (or token expired). Run `/signin` to authenticate, or `/model` to switch backends.",
     bridge:
-      "ai-bridge isn't responding. Check the local service is running, or run `/model anthropic` (with `/key`) / `/model github` to switch backends.",
+      "ai-bridge isn't responding. Check the local service is running, or `/model` to switch backends.",
     anthropic: settings.pipApiKey
-      ? "Anthropic call failed — key may be invalid or out of quota. Re-set it with `/key sk-ant-…` or run `/model bridge`."
-      : "Anthropic needs an API key. Set it with `/key sk-ant-…` or run `/model bridge` to switch.",
+      ? "Anthropic call failed — key may be invalid or out of quota. Re-set it with `/key sk-ant-…` or `/model` to switch."
+      : "Anthropic needs an API key. Set it with `/key sk-ant-…` or `/model` to switch backends.",
     openai: settings.pipOpenaiKey
-      ? "OpenAI call failed — key may be invalid or out of quota. Re-set it with `/key sk-…` or run `/model bridge`."
-      : "OpenAI needs an API key. Set it with `/key sk-…` or run `/model bridge` to switch.",
+      ? "OpenAI call failed — key may be invalid or out of quota. Re-set it with `/key sk-…` or `/model` to switch."
+      : "OpenAI needs an API key. Set it with `/key sk-…` or `/model` to switch backends.",
     local:
-      "Local LFM2 isn't loaded. Open Settings → Pip and install the model (~1.2 GB, one time). Or run `/model bridge`.",
+      "Local LFM2 isn't loaded. `/install local` to download the model (~1.2 GB, one time), or `/model` to switch.",
   };
   return hints[backend] || "Can't think right now — try again?";
 }
@@ -331,7 +334,12 @@ function registerInitialSlashCommands() {
     complete: (partial) => PIP_BACKENDS.filter(b => b.startsWith(partial.toLowerCase())),
     handler: (argsString) => {
       const arg = argsString.trim().toLowerCase();
-      if (!arg) return { reply: `Current backend: \`${settings.pipBackend}\`` };
+      if (!arg) {
+        const others = PIP_BACKENDS.filter(b => b !== settings.pipBackend);
+        return {
+          reply: `Current backend: \`${settings.pipBackend}\`. Switch with \`/model <name>\` — try ${others.map(b => `\`${b}\``).join(", ")}.`,
+        };
+      }
       if (!PIP_BACKENDS.includes(arg)) {
         return { reply: `Unknown backend \`${arg}\`. One of: ${PIP_BACKENDS.map(b => `\`${b}\``).join(", ")}` };
       }
@@ -488,7 +496,6 @@ export function initAssistant() {
     // the active backend; slash-key cap is a discoverable affordance for
     // the slash command surface.
     modelLabel: settings.pipBackend,
-    slashHint: true,
     showClose: false,
     onOpen: cancelAutoDismiss,
   });
