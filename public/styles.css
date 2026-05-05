@@ -1912,9 +1912,11 @@ dialog[open]::backdrop { opacity: 1; }
 /* Send/stop control mounted into pip's .pip-form. Single slot at the
    right edge of the input morphs between actions. Uses --pip-accent so
    the button reads as part of Pip's identity (matches the bubble icon
-   and the focus ring), not an isolated dashboard accent. min-height: 0
+   and the focus ring), not an isolated dashboard accent. Rounded-square
+   shape (Hatch / Claude.ai composer pattern) — a square reads as
+   "send a message", a circle reads as a generic action chip. min-height: 0
    overrides the project-wide `button { min-height: 44px }` rule that
-   would otherwise stretch the circle into an oval. */
+   would otherwise stretch the square vertical. */
 .pip-stop-btn,
 .pip-send-btn {
   position: absolute;
@@ -1929,7 +1931,7 @@ dialog[open]::backdrop { opacity: 1; }
   margin: 0;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 6px;
   background: var(--pip-accent, var(--accent));
   color: #fff;
   cursor: pointer;

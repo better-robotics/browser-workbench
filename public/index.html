@@ -237,9 +237,10 @@
 
   <!-- Pip configuration — backend choice, API keys, GitHub auth, local
        install, vision toggle — all live in Pip itself via slash commands
-       (/model, /key, /signin, /install, /vision). Settings keeps only
-       what slash can't carry: identity (name) + advanced one-time setup
-       (dashboard key, robot passwords). -->
+       (/model, /install, /vision). /model is contextual: it switches the
+       backend AND prompts for sign-in or key inline if the chosen one
+       needs them. Settings keeps only what slash can't carry: identity
+       (name) + advanced one-time setup (dashboard key, robot passwords). -->
 
   <!-- Advanced (was "Security"). One-time setup; collapsed by default to
        keep the daily-use Pip + Experimental rows scannable above. Each

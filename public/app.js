@@ -1839,8 +1839,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Pip backend, API keys, GitHub auth, vision, and local-LLM install all
-  // moved to slash commands (/model, /key, /signin, /vision, /install) —
-  // managed in assistant.js. Settings keeps only identity + advanced
+  // moved to slash commands (/model, /vision, /install) — managed in
+  // assistant.js. /model is contextual: picking a backend that needs
+  // auth or a key prompts inline. Settings keeps only identity + advanced
   // one-time setup.
 
   // Profile — classroom-local identity (no auth, browser-only). Seeded hue from name hash.
@@ -1885,8 +1886,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const nameHint = $("setting-name-hint");
   function saveProfile() { localStorage.setItem("br-profile", JSON.stringify(profile)); }
   // Identity flows from settings.githubAuth — one OAuth grant powers both
-  // the username display AND the GitHub Models Pip backend. /signin slash
-  // command (in assistant.js) manages the OAuth dance.
+  // the username display AND the GitHub Models Pip backend. /model github
+  // (in assistant.js) triggers the OAuth dance when not yet signed in.
   function displayName() {
     return settings.githubAuth?.username || profile.name;
   }
@@ -1895,12 +1896,11 @@ document.addEventListener("DOMContentLoaded", () => {
     nameInput.value = displayName();
     nameInput.disabled = signedIn;
     nameHint.textContent = signedIn
-      ? "Signed in with GitHub — name is from your account. /signout to clear."
-      : "Stored in this browser only. /signin to use your GitHub identity.";
+      ? "Signed in with GitHub — name is from your account."
+      : "Stored in this browser only. Run /model github to sign in.";
     renderAvatar(displayName());
   }
-  // Exposed so the /signin and /signout slash handlers can refresh the UI
-  // after the auth state changes.
+  // Exposed so the /model handler can refresh the UI after sign-in lands.
   window.__syncIdentityUI = syncIdentityUI;
   syncIdentityUI();
   nameInput.addEventListener("input", () => {
