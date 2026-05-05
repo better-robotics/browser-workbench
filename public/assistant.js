@@ -2,7 +2,7 @@ import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.9.1/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.10.0/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -231,28 +231,91 @@ async function notifyDialog(dialogEl) {
   speakMessage(reply ?? fallback);
 }
 
-// Backend-specific recovery copy for null/empty replies. Each tells the
-// user *what* went wrong (auth, missing key, service down) and *how* to
-// fix (slash command or link). Generic "try again" wastes a retry; a
-// specific hint gets the user back to working in one action.
+// Lazy GitHub OAuth helper — shared between /model handler and the
+// failure-recovery flow. Module-scope so both code paths reach it.
+let _connectGitHubFn = null;
+async function _loadConnectGitHub() {
+  if (_connectGitHubFn) return _connectGitHubFn;
+  const mod = await import("https://neevs.io/auth/connect.js");
+  _connectGitHubFn = mod.connectGitHub;
+  return _connectGitHubFn;
+}
+
+// Prompt the user for an API key inline by repurposing Pip's main input.
+// The placeholder becomes the format hint; type="password" masks the
+// paste. Returns the trimmed key, or null if cancelled (slash typed,
+// or empty submission).
+async function collectApiKey(label, format) {
+  const value = await _pip.collectInputValue({
+    placeholder: `Paste your ${label} API key (${format})`,
+    type: "password",
+  });
+  return value && value.trim() ? value.trim() : null;
+}
+
+// Bridge / local failure copy. github / anthropic / openai use the
+// inline-button + main-input recovery path in actOnFailure, so they
+// don't need text hints anymore.
 function backendFailureHint(backend) {
-  // Hints reference /model — re-running `/model <backend>` re-prompts for
-  // sign-in or key inline, so a single slash covers both setup and switch.
   const hints = {
-    github:
-      "GitHub Models needs sign-in (or token expired). Run `/model github` to re-auth, or `/model` to switch backends.",
     bridge:
       "ai-bridge isn't responding. Check the local service is running, or `/model` to switch backends.",
-    anthropic: settings.pipApiKey
-      ? "Anthropic call failed — key may be invalid or out of quota. Re-run `/model anthropic` to re-enter, or `/model` to switch."
-      : "Anthropic needs an API key. Run `/model anthropic` to enter one, or `/model` to switch backends.",
-    openai: settings.pipOpenaiKey
-      ? "OpenAI call failed — key may be invalid or out of quota. Re-run `/model openai` to re-enter, or `/model` to switch."
-      : "OpenAI needs an API key. Run `/model openai` to enter one, or `/model` to switch backends.",
     local:
       "Local LFM2 isn't loaded. `/install local` to download the model (~1.2 GB, one time), or `/model` to switch.",
   };
   return hints[backend] || "Can't think right now — try again?";
+}
+
+// When the backend returns null/empty, the failure copy already names a
+// likely cause and a specific action. Surface that action as an inline
+// button (sign-in) or repurpose the main input (key paste) rather than
+// asking the user to type a slash command. Same input the user's already
+// looking at — no browser modal, no fragmentation.
+async function actOnFailure(backend, turnEl) {
+  if (backend === "github") {
+    const choice = await _pip.askInChat({
+      question: "GitHub Models needs sign-in (or token expired).",
+      options: ["Sign in", "Switch backend", "Dismiss"],
+    }, turnEl);
+    if (choice === "Sign in") {
+      try {
+        const connect = await _loadConnectGitHub();
+        const auth = await connect("read:user", "better-robotics");
+        settings.githubAuth = { username: auth.username, token: auth.token };
+        saveSettings();
+        window.__syncIdentityUI?.();
+        return `Signed in as \`@${auth.username}\`. Try sending again.`;
+      } catch (err) {
+        return `Sign-in failed: ${err.message || err}`;
+      }
+    }
+    if (choice === "Switch backend") return "Run `/model` to pick a different backend.";
+    return "OK.";
+  }
+  if (backend === "anthropic" || backend === "openai") {
+    const isAnthropic = backend === "anthropic";
+    const label = isAnthropic ? "Anthropic" : "OpenAI";
+    const format = isAnthropic ? "sk-ant-…" : "sk-…";
+    const has = isAnthropic ? !!settings.pipApiKey : !!settings.pipOpenaiKey;
+    const question = has
+      ? `${label} call failed — key may be invalid or out of quota.`
+      : `${label} needs an API key.`;
+    const choice = await _pip.askInChat({
+      question,
+      options: [has ? "Re-enter key" : "Enter key", "Switch backend", "Dismiss"],
+    }, turnEl);
+    if (choice === "Enter key" || choice === "Re-enter key") {
+      const key = await collectApiKey(label, format);
+      if (!key) return "Cancelled.";
+      if (isAnthropic) settings.pipApiKey = key;
+      else settings.pipOpenaiKey = key;
+      saveSettings();
+      return "Key saved. Try sending again.";
+    }
+    if (choice === "Switch backend") return "Run `/model` to pick a different backend.";
+    return "OK.";
+  }
+  return backendFailureHint(backend);
 }
 
 // Host onSubmit — runs askWithTools with trace + stop + max-iter continue/stop.
@@ -287,10 +350,12 @@ async function onSubmit(text, { turnEl }) {
   hidePipStopButton();
   _activeTurnEl = null;
   _resumeTimer = setTimeout(scheduleAutoDismiss, IDLE_RESUME_MS);
-  // Backend returned nothing usable → surface a backend-specific hint
-  // instead of pip-core's generic "try again." The hint names the likely
-  // cause and the slash command that fixes it.
-  if (reply == null || reply === "") return backendFailureHint(settings.pipBackend);
+  // Backend returned nothing usable → surface an actionable recovery
+  // (button or repurposed main input) instead of pip-core's generic
+  // "try again." See actOnFailure: github → Sign in button; anthropic/
+  // openai → main input becomes the key-paste field; bridge/local fall
+  // back to text hints.
+  if (reply == null || reply === "") return actOnFailure(settings.pipBackend, turnEl);
   return reply;
 }
 
@@ -329,15 +394,8 @@ function registerInitialSlashCommands() {
 
   // /model handles both *switching* the backend and *setting it up* if the
   // chosen one needs auth or a key. One slash, one mental model: pick a
-  // backend, the rest happens inline. Lazy-loaded GitHub OAuth so users
-  // who never pick `github` don't pay the import cost.
-  let _connectGitHubFn = null;
-  async function _loadConnectGitHub() {
-    if (_connectGitHubFn) return _connectGitHubFn;
-    const mod = await import("https://neevs.io/auth/connect.js");
-    _connectGitHubFn = mod.connectGitHub;
-    return _connectGitHubFn;
-  }
+  // backend, the rest happens inline. Key entry repurposes Pip's main
+  // input via collectApiKey — same input the user's already looking at.
   _pip.registerSlash({
     name: "model",
     description: "switch Pip's backend (github/bridge/anthropic/openai/local)",
@@ -357,8 +415,8 @@ function registerInitialSlashCommands() {
       // Contextual setup: backends that need auth/keys get prompted inline
       // before we commit the switch. Cancellation leaves the existing
       // backend selection untouched. Re-running `/model <current>` is the
-      // documented re-auth / re-key path (used by the failure-hint copy),
-      // so we re-prompt even when the credential already exists.
+      // documented re-auth / re-key path, so we re-prompt even when the
+      // credential already exists.
       const isReSetup = arg === settings.pipBackend;
       if (arg === "github" && (!settings.githubAuth?.username || isReSetup)) {
         try {
@@ -371,16 +429,14 @@ function registerInitialSlashCommands() {
         }
       }
       if (arg === "anthropic" && (!settings.pipApiKey || isReSetup)) {
-        const key = window.prompt("Paste your Anthropic API key (sk-ant-…):", settings.pipApiKey || "");
-        if (key === null) return { reply: "Cancelled." };
-        if (!key.trim()) return { reply: "Cancelled — Anthropic needs an API key. Run `/model anthropic` to try again." };
-        settings.pipApiKey = key.trim();
+        const key = await collectApiKey("Anthropic", "sk-ant-…");
+        if (!key) return { reply: "Cancelled — Anthropic needs an API key. Run `/model anthropic` to try again." };
+        settings.pipApiKey = key;
       }
       if (arg === "openai" && (!settings.pipOpenaiKey || isReSetup)) {
-        const key = window.prompt("Paste your OpenAI API key (sk-…):", settings.pipOpenaiKey || "");
-        if (key === null) return { reply: "Cancelled." };
-        if (!key.trim()) return { reply: "Cancelled — OpenAI needs an API key. Run `/model openai` to try again." };
-        settings.pipOpenaiKey = key.trim();
+        const key = await collectApiKey("OpenAI", "sk-…");
+        if (!key) return { reply: "Cancelled — OpenAI needs an API key. Run `/model openai` to try again." };
+        settings.pipOpenaiKey = key;
       }
 
       const KEY = "better-robotics:settings";
