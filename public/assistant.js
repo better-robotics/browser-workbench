@@ -2,7 +2,7 @@ import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.7.2/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.8.0/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -334,6 +334,9 @@ function registerInitialSlashCommands() {
         sel.dispatchEvent(new Event("change", { bubbles: true }));
       }
 
+      // Update the model badge in pip's meta row.
+      _pip.setModelLabel?.(arg);
+
       return { reply: `Backend set to \`${arg}\`.` };
     },
   });
@@ -367,6 +370,11 @@ export function initAssistant() {
     introDismissMs: 7000,
     placeholder: "Ask Pip…",
     maxLength: 4000,
+    // pip 1.8.0+: meta row at the top of the panel. Model badge surfaces
+    // the active backend; slash-key cap is a discoverable affordance for
+    // the slash command surface.
+    modelLabel: settings.pipBackend,
+    slashHint: true,
     onOpen: cancelAutoDismiss,
   });
   registerInitialSlashCommands();
