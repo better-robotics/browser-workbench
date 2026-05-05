@@ -1919,9 +1919,12 @@ dialog[open]::backdrop { opacity: 1; }
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
+  /* Lock dimensions hard — the project-wide `button { min-height: 44px }`
+     rule above otherwise stretches this to ~26×44 oval. */
   width: 26px;
+  height: 26px;
   min-width: 26px;
-  aspect-ratio: 1;
+  min-height: 0;
   box-sizing: border-box;
   margin: 0;
   padding: 0;
