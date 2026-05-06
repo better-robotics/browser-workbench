@@ -36,6 +36,60 @@ let _loadingPromise = null;
 const _state = { status: "idle", progress: 0, file: "", error: undefined };
 const _listeners = new Set();
 
+// Loading progress UI (vendored from pip's providers/transformers.esm.js).
+// Renders into a turnEl when one is passed to loadModel/localAsk*. Visual
+// treatment matches pip-core; class names are .br-llm-* so this stays
+// self-contained and doesn't clash with anything pip ships.
+let _stylesInjected = false;
+function injectProgressStyles() {
+  if (_stylesInjected || typeof document === "undefined") return;
+  _stylesInjected = true;
+  const css = document.createElement("style");
+  css.textContent = `
+.br-llm-progress {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--pip-ink-muted, #8a8a8a);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.br-llm-progress-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--pip-border, color-mix(in srgb, currentColor 18%, transparent));
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.br-llm-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--pip-accent, #2b6cb0);
+  transition: width 0.3s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .br-llm-progress-fill { transition: none; }
+}
+`.trim();
+  document.head.appendChild(css);
+}
+function showProgress(turnEl, label, pct) {
+  if (!turnEl) return;
+  let el = turnEl.querySelector(".br-llm-progress");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "br-llm-progress";
+    el.innerHTML = '<span class="br-llm-progress-text"></span><div class="br-llm-progress-bar"><div class="br-llm-progress-fill"></div></div>';
+    const reply = turnEl.querySelector(".pip-reply");
+    turnEl.insertBefore(el, reply || null);
+  }
+  el.querySelector(".br-llm-progress-text").textContent = label;
+  el.querySelector(".br-llm-progress-fill").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+function hideProgress(turnEl) {
+  const el = turnEl?.querySelector?.(".br-llm-progress");
+  if (el) el.remove();
+}
+
 function setState(patch) {
   Object.assign(_state, patch);
   for (const cb of _listeners) {
@@ -51,19 +105,22 @@ export function onLoadStateChange(cb) {
   return () => _listeners.delete(cb);
 }
 
-export async function loadModel() {
+export async function loadModel(turnEl) {
   if (_model) return;
   if (_loadingPromise) return _loadingPromise;
   setState({ status: "loading", progress: 0, file: "", error: undefined });
+  if (turnEl) {
+    injectProgressStyles();
+    showProgress(turnEl, "loading runtime\u2026", 0);
+  }
   _loadingPromise = (async () => {
     _tf = await import(/* @vite-ignore */ TRANSFORMERS_URL);
     const onProgress = (p) => {
       if (p?.status === "progress") {
-        setState({
-          status: "loading",
-          file: (p.file || "").split("/").pop() || "",
-          progress: Math.round(p.progress || 0),
-        });
+        const file = (p.file || "").split("/").pop() || "";
+        const pct = Math.round(p.progress || 0);
+        setState({ status: "loading", file, progress: pct });
+        if (turnEl) showProgress(turnEl, `${file} ${pct}%`, pct);
       }
     };
     _tokenizer = await _tf.AutoTokenizer.from_pretrained(MODEL_ID, { progress_callback: onProgress });
@@ -73,6 +130,7 @@ export async function loadModel() {
       progress_callback: onProgress,
     });
     setState({ status: "ready", progress: 100, file: "" });
+    if (turnEl) hideProgress(turnEl);
     // Persist that weights are in IndexedDB now — enables silent fallback
     // from other backends on transport failure (claude.js ask/askWithTools).
     if (!settings.pipLocalInstalled) {
@@ -84,13 +142,14 @@ export async function loadModel() {
     _model = null;
     _tokenizer = null;
     setState({ status: "error", error: err?.message || String(err) });
+    if (turnEl) hideProgress(turnEl);
     throw err;
   });
   return _loadingPromise;
 }
 
-async function ensureLoaded() {
-  if (!_model) await loadModel();
+async function ensureLoaded(turnEl) {
+  if (!_model) await loadModel(turnEl);
 }
 
 // Dispose the in-memory runtime and re-init from the IndexedDB cache.
@@ -188,10 +247,10 @@ async function generate(convo) {
   return decoded[0] || "";
 }
 
-export async function localAsk(userText, { system, maxTokens } = {}) {
+export async function localAsk(userText, { system, maxTokens, turnEl } = {}) {
   void maxTokens;  // model uses fixed MAX_NEW_TOKENS; honoring caller's value is not supported by this ONNX export
   try {
-    await ensureLoaded();
+    await ensureLoaded(turnEl);
   } catch (err) {
     console.warn("[claude/local-llm] ask: load failed", err);
     return null;
@@ -210,10 +269,10 @@ export async function localAsk(userText, { system, maxTokens } = {}) {
   }
 }
 
-export async function localAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+export async function localAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens, onToolStart, onToolEnd, shouldAbort, onMaxIterations, turnEl } = {}) {
   void maxTokens;
   try {
-    await ensureLoaded();
+    await ensureLoaded(turnEl);
   } catch (err) {
     console.warn("[claude/local-llm] askWithTools: load failed", err);
     return null;

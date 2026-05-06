@@ -257,6 +257,7 @@ async function onSubmit(text, { turnEl }) {
     tools: getTools(),
     executor,
     maxTokens: 1024,
+    turnEl,                  // local-llm uses this to paint download progress on first load
     onToolStart: ({ name }) => { pendingTraceLi = appendTraceLine(turnEl, name); },
     onToolEnd: ({ name, input, result, error }) => {
       finishTraceLine(pendingTraceLi, summarizeTool(name, input, result, error), !!error);
