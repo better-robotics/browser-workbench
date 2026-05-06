@@ -1106,6 +1106,7 @@ function renderEntry(entryArg) {
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
               connecting ? "Connecting…"
               : entry.staleHandle ? "Re-pair"
+              : entry.device && (entry.consecutiveFailures || 0) >= AUTO_RECONNECT_MAX_FAILURES ? "Retry"
               : entry.device ? "Connect"
               : "Pair"
             }</button>`}
