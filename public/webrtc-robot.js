@@ -8,7 +8,8 @@
 //   0x03                  commit
 //   0xFF [utf8 msg]       error (notify-only)
 
-import { SIGNAL_WS_URL, fetchIceServers, makePeerId } from "./pairing.js";
+import { fetchIceServers, makePeerId } from "./pairing.js";
+import { SIGNAL_WS } from "./endpoints.js";
 
 // 90s. ESP32 + libpeer's ICE pairing is sequential — each candidate pair
 // tested with STUN connectivity checks + retries, no parallelism. With
@@ -294,7 +295,7 @@ async function openChannelViaWss(robotId, robotName, label, opts) {
   onStatus("Opening signal channel…");
   const iceServers = await fetchIceServers();
   const pc = new RTCPeerConnection({ iceServers });
-  const ws = new WebSocket(`${SIGNAL_WS_URL}/${roomId}/ws`);
+  const ws = new WebSocket(`${SIGNAL_WS}/${roomId}/ws`);
   const entry = { pc, ws, channels: new Map() };
   _peers.set(robotId, entry);
 

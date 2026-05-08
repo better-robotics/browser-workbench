@@ -2,6 +2,7 @@ import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
+import { AUTH_URL } from "./endpoints.js";
 import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.2.0/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
@@ -173,7 +174,7 @@ async function notifyDialog(dialogEl) {
 let _connectGitHubFn = null;
 async function _loadConnectGitHub() {
   if (_connectGitHubFn) return _connectGitHubFn;
-  const mod = await import("https://neevs.io/auth/connect.js");
+  const mod = await import(`${AUTH_URL}/connect.js`);
   _connectGitHubFn = mod.connectGitHub;
   return _connectGitHubFn;
 }

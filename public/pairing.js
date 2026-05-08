@@ -13,12 +13,10 @@
 // fixed role key. The server's `state` snapshot recovers signals sent
 // before late-joiners arrive; applied only when we're not already on a
 // healthy connection.
-const SIGNAL_WS_URL = "wss://signal.neevs.io";
-// proxy.neevs.io mints short-lived Cloudflare Realtime TURN creds. STUN
-// servers stay in-line as a zero-roundtrip fallback so a degraded proxy
-// (offline, rate-limited, mis-deployed) still gives us STUN-only pairing
-// instead of nothing.
-const TURN_ENDPOINT = "https://proxy.neevs.io/cloudflare/turn";
+import { SIGNAL_WS, TURN_URL } from "./endpoints.js";
+// TURN proxy mints short-lived Cloudflare Realtime creds. STUN stays in
+// line as a zero-roundtrip fallback so a degraded proxy (offline, rate-
+// limited, mis-deployed) still gives us STUN-only pairing instead of nothing.
 const STUN_FALLBACK = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
@@ -26,7 +24,7 @@ const STUN_FALLBACK = [
 
 async function fetchIceServers() {
   try {
-    const r = await fetch(TURN_ENDPOINT, { method: "POST" });
+    const r = await fetch(TURN_URL, { method: "POST" });
     if (!r.ok) throw new Error(`turn: ${r.status}`);
     const { iceServers } = await r.json();
     dbg("turn: fetched", iceServers.length, "server(s)");
@@ -115,7 +113,7 @@ function makePeerId(role) {
 
 // Used by callers that build their own room flow on the same signal.neevs.io
 // (e.g. webrtc-robot.js).
-export { SIGNAL_WS_URL, fetchIceServers, makePeerId };
+export { SIGNAL_WS, fetchIceServers, makePeerId };
 
 // State snapshots can carry stale entries from prior sessions. Apply only
 // semantic-describe (offer/answer); ICE candidates tied to a dead pc would
@@ -416,7 +414,7 @@ class Peer {
 }
 
 function openSignalWs(roomId) {
-  return new WebSocket(`${SIGNAL_WS_URL}/${roomId}/ws`);
+  return new WebSocket(`${SIGNAL_WS}/${roomId}/ws`);
 }
 
 function wireIceTrickle(pc, ws, myPeerId) {

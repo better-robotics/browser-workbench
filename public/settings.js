@@ -2,7 +2,7 @@
 const SETTINGS_KEY = "better-robotics:settings";
 
 export const settings = Object.assign(
-  // pipBackend: "github" (GitHub Models, default — OAuth via neevs.io)
+  // pipBackend: "github" (GitHub Models, default — OAuth via auth.neevs.io)
   //   | "bridge" (AI Bridge Chrome extension, Keychain-backed)
   //   | "anthropic" (direct, user's key) | "openai" (direct, user's key)
   //   | "local" (LFM2.5-1.2B-Thinking-ONNX in-browser).
