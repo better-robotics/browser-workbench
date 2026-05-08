@@ -16,6 +16,7 @@
   --border-default: rgba(0,0,0,0.10);
   --border-strong:  rgba(0,0,0,0.15);
   --line: var(--border-default);  /* legacy alias */
+  --bg-elev: rgba(0,0,0,0.05);  /* recessed track inside a --surface element */
   --accent: var(--duke-royal-blue);
   --accent-hover: var(--duke-navy);
   --accent-ink: #ffffff;
@@ -43,6 +44,7 @@
     --border-subtle:  rgba(255,255,255,0.06);
     --border-default: rgba(255,255,255,0.10);
     --border-strong:  rgba(255,255,255,0.15);
+    --bg-elev: rgba(255,255,255,0.05);
     --brand-heading: var(--duke-light-blue);  /* navy on near-black is unreadable; lift to light-blue */
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.5);
   }
@@ -1278,13 +1280,13 @@ details.tray.has-alert > summary::after {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Segmented control — pill-shaped toggle with one filled active button.
-   Apple HIG's recommendation for 2–4 mutually exclusive options where
-   surfacing both choices at once beats a click-to-reveal dropdown. */
+/* Segmented control — Apple HIG's recommendation for 2–4 mutually
+   exclusive options. Recessed track inside the surrounding --surface;
+   the active segment rises to --surface with a subtle ring. macOS-
+   style pop, not a loud accent fill — tabs aren't the primary action. */
 .segmented {
-  display: flex;
-  gap: 0;
-  border-radius: 999px;
+  display: inline-flex;
+  border-radius: 8px;
   background: var(--bg-elev);
   padding: 2px;
 }
@@ -1292,15 +1294,23 @@ details.tray.has-alert > summary::after {
   background: transparent;
   border: none;
   font: inherit;
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 999px;
+  font-weight: 500;
+  font-size: 13px;
+  min-height: 28px;
+  padding: 4px 14px;
+  border-radius: 6px;
   color: var(--ink-muted);
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 .segmented .mode-btn[aria-pressed="true"] {
-  background: var(--accent);
-  color: #fff;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 0 0 1px var(--border-default);
+}
+.segmented .mode-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 /* Drive-mode toggle inherits .segmented; just needs the right-anchor
    so it sits in the section header without pushing the driving
