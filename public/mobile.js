@@ -909,16 +909,29 @@ async function startNearbyDiscovery() {
   }, 10000);
   _lobby.onChange((ads) => {
     const macs = ads.filter(a => a.data && a.data.app === "better-robotics-mac" && a.data._pubkey);
+    // Multiple tabs in the same browser profile share an Ed25519 identity
+    // (one IndexedDB-backed key per origin), so they're the same trust peer.
+    // Collapse to one row per pubkey — distinct identities (incognito,
+    // other profiles, other browsers) keep their own row.
+    const byPubkey = new Map();
+    for (const ad of macs) if (!byPubkey.has(ad.data._pubkey)) byPubkey.set(ad.data._pubkey, ad);
+    const unique = [...byPubkey.values()];
     list.innerHTML = "";
-    if (!macs.length) { wrap.hidden = true; return; }
+    if (!unique.length) { wrap.hidden = true; return; }
     clearTimeout(hintTimer);
     if (emptyHint) emptyHint.hidden = true;
     wrap.hidden = false;
-    for (const ad of macs) {
+    // Fingerprint suffix only when multiple identities are visible — single-
+    // mac case stays clean. 4 chars of base64 ≈ 14M space, plenty to
+    // disambiguate the handful a phone would ever see at once.
+    const showFp = unique.length > 1;
+    for (const ad of unique) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "phone-nearby-btn";
-      btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
+      const label = ad.data.label || "this computer";
+      const fp = showFp ? ` · ${ad.data._pubkey.slice(0, 4)}` : "";
+      btn.textContent = `Pair with ${label}${fp}`;
       btn.addEventListener("click", () => _requestPairWith(ad));
       list.appendChild(btn);
     }
