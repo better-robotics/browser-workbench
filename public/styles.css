@@ -1865,6 +1865,14 @@ dialog[open]::backdrop { opacity: 1; }
    ~36px default, so vertical gap with the 24px button is ~3.5px instead
    of ~5.5px. Match horizontally so the inset stays symmetric. */
 .pip-form { --pip-btn-right: 4px; }
+/* Pip-core ships its own press treatment. The global `button:active`
+   scale(0.98) cascades on top of small chrome (slash trigger, send/stop,
+   in-chat options) and reads as a bouncy mis-click on rapid taps. Strip
+   the geometric press; brightness press from the global rule still applies. */
+.pip-send-btn:active,
+.pip-stop-btn:active,
+.pip-slash-key:active,
+.pip-ask-btn:active { transform: none; }
 /* Tool-trace row — one per tool_use call, appended as Pip dispatches them.
    .pending = in-flight (italic + dim), .error = tool returned/threw. */
 .pip-trace {
