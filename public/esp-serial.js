@@ -1,12 +1,8 @@
-// ESP32 serial monitor — same shape as recovery.js (Pi USB-CDC) so both
-// Console modes share xterm.js + Web Serial. We used to mount <ewt-console>
-// here, but that element is registered only as a side-effect of clicking
-// esp-web-tools' Flash button (it lives inside a content-hashed install-
-// dialog chunk that install-button.js lazy-imports). Until then it's an
-// HTMLUnknownElement: setting `port` is a no-op, nothing pumps, terminal
-// stays blank. The xterm path has no such ordering trap.
+// ESP32 USB serial console + flash. Companion to recovery.js (Pi USB-CDC);
+// shares xterm.js + Web Serial primitives via xterm-host.js.
 import { $ } from "./dom.js";
 import { log } from "./log.js";
+import { mountTerminal } from "./xterm-host.js";
 
 let _wired = false;
 let _port = null;
@@ -16,7 +12,8 @@ let _readPump = null;
 let _term = null;
 let _fit = null;
 let _resizeObs = null;
-let _xtermModule = null;
+
+const ENCODER = new TextEncoder();
 
 // state: "" (idle/disconnected) | "connected" | "connecting" | "error".
 // Drives the dot color; text only renders for non-default detail messages.
@@ -27,27 +24,6 @@ function setStatus(state, text = "") {
   if (el) el.textContent = text;
 }
 
-async function ensureXtermLoaded() {
-  if (_xtermModule) return _xtermModule;
-  if (!document.querySelector('link[data-xterm-css]')) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css";
-    link.dataset.xtermCss = "1";
-    document.head.appendChild(link);
-  }
-  const [core, fit] = await Promise.all([
-    import("https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm"),
-    import("https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/+esm"),
-  ]);
-  _xtermModule = { Terminal: core.Terminal, FitAddon: fit.FitAddon };
-  return _xtermModule;
-}
-
-// Last-used port hint persisted as VID:PID. SerialPort objects themselves
-// can't be stored, but Chrome's getPorts() returns the granted set on the
-// next visit, so we just need to identify which one to prefer when more
-// than one is granted (e.g. ESP32 + Pi both connected at different times).
 const LAST_PORT_KEY = "esp-serial-last-port";
 function rememberPort(port) {
   try {
@@ -71,15 +47,16 @@ function pickKnown(ports) {
   }
   return ports[0];
 }
+async function pickOrRequestPort() {
+  let known = [];
+  try { known = await navigator.serial.getPorts(); } catch {}
+  if (known.length >= 1) return pickKnown(known);
+  return await navigator.serial.requestPort();
+}
 // Two-attempt open: macOS occasionally fails the first open() right after
 // a previous disconnect because the kernel hasn't fully released the
 // /dev/cu.usbserial node; and a SerialPort that came back already-open
 // from a prior tab/page session needs an explicit close() before retry.
-//
-// Then deassert DTR/RTS immediately. ESP32-CAM (and most ESP32 dev boards)
-// wire DTR/RTS through transistors to EN + GPIO0 — Chrome's default
-// asserted state on open() pulses those, which resets the chip and kills
-// any active BLE session. Setting both low keeps the chip running.
 async function openWithRetry(port) {
   try { await port.open({ baudRate: 115200 }); }
   catch (err) {
@@ -89,7 +66,6 @@ async function openWithRetry(port) {
     await new Promise((r) => setTimeout(r, 200));
     await port.open({ baudRate: 115200 });
   }
-  try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
 }
 
 async function connect() {
@@ -99,28 +75,21 @@ async function connect() {
     log("Web Serial not supported — use Chrome or Edge on desktop");
     return;
   }
-  // Skip the picker when we already have permission for a port. Chrome
-  // persists the grant across dialog opens AND page reloads (per origin).
-  // When more than one port is granted, prefer the one matching the
-  // last-used VID:PID instead of prompting — typical case is the same
-  // chip on the same machine, and the picker noise was the #1 friction.
-  let known = [];
-  try { known = await navigator.serial.getPorts(); } catch {}
-  if (known.length >= 1) {
-    _port = pickKnown(known);
-    setStatus("connecting", "opening…");
-  } else {
-    setStatus("connecting", "requesting port…");
-    try {
-      _port = await navigator.serial.requestPort();
-    } catch (err) {
-      if (err.name !== "NotFoundError") setStatus("error", `pick cancelled: ${err.message}`);
-      else setStatus("");
-      return;
-    }
+  setStatus("connecting", "opening…");
+  try {
+    _port = await pickOrRequestPort();
+  } catch (err) {
+    if (err.name !== "NotFoundError") setStatus("error", `pick cancelled: ${err.message}`);
+    else setStatus("");
+    return;
   }
   try {
     await openWithRetry(_port);
+    // Deassert DTR/RTS — ESP32-CAM (and most ESP32 dev boards) wire those
+    // through transistors to EN + GPIO0. Chrome's default asserted state
+    // on open() pulses them, which resets the chip and kills any active
+    // BLE session.
+    try { await _port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
   } catch (err) {
     setStatus("error", `open failed: ${err.message}`);
     _port = null;
@@ -128,34 +97,12 @@ async function connect() {
   }
   rememberPort(_port);
 
-  const { Terminal, FitAddon } = await ensureXtermLoaded();
-  const container = $("esp-serial-console-host");
-  container.innerHTML = "";
-  _term = new Terminal({
-    fontSize: 13,
-    fontFamily: '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace',
-    cursorBlink: true,
-    convertEol: false,
-    theme: { background: "#1e1e1e", foreground: "#e4e4e4", cursor: "#e4e4e4" },
-  });
-  _fit = new FitAddon();
-  _term.loadAddon(_fit);
-  _term.open(container);
-  // Defer fit one frame so the dialog's open-animation layout has resolved
-  // (same FitAddon early-measure trap as recovery.js — see comment there).
-  await new Promise(r => requestAnimationFrame(r));
-  try { _fit.fit(); } catch {}
-  _resizeObs = new ResizeObserver(() => {
-    const r = container.getBoundingClientRect();
-    if (r.width < 10 || r.height < 10) return;
-    try { _fit?.fit(); } catch {}
-  });
-  _resizeObs.observe(container);
+  ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("esp-serial-console-host")));
   _term.focus();
 
   _term.onData(async (data) => {
     if (!_writer) return;
-    try { await _writer.write(new TextEncoder().encode(data)); }
+    try { await _writer.write(ENCODER.encode(data)); }
     catch (err) { _term?.writeln(`\r\n[write error: ${err.message}]`); }
   });
 
@@ -207,10 +154,6 @@ async function disconnect() {
   setStatus("");
 }
 
-// Browser-side firmware flash. Detaches the live console session
-// (esptool-js needs exclusive access to the port), streams the four
-// CI-published bins to the chip, then re-opens the console so the
-// operator can watch boot.
 async function flashFlow() {
   if (!("serial" in navigator)) {
     setStatus("error", "unsupported browser");
@@ -226,18 +169,8 @@ async function flashFlow() {
 
   let port;
   try {
-    port = await navigator.serial.requestPort();
-    try { await port.open({ baudRate: 115200 }); }
-    catch (err) {
-      // Same SerialPort instance can come back from requestPort() in an
-      // already-open state when a prior session (this tab or another) didn't
-      // fully release it. Close + retry recovers it without a page reload.
-      if (err.name === "InvalidStateError") {
-        try { await port.close(); } catch {}
-        await new Promise((r) => setTimeout(r, 200));
-        await port.open({ baudRate: 115200 });
-      } else throw err;
-    }
+    port = await pickOrRequestPort();
+    await openWithRetry(port);
   } catch (err) {
     if (err.name !== "NotFoundError") log(`ESP flash port: ${err.message}`);
     setStatus("");
@@ -246,18 +179,10 @@ async function flashFlow() {
   setStatus("connected", "flashing…");
   $("esp-serial-flash").disabled = true;
 
-  // Render esptool-js's progress output in the same xterm pane the live
-  // console uses. Pulls in xterm if not already loaded.
-  const { Terminal } = await ensureXtermLoaded();
-  const container = $("esp-serial-console-host");
-  container.innerHTML = "";
-  const term = new Terminal({
-    fontSize: 13,
-    fontFamily: '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace',
-    convertEol: true,
-    theme: { background: "#1e1e1e", foreground: "#e4e4e4", cursor: "#e4e4e4" },
-  });
-  term.open(container);
+  // Throwaway terminal for esptool-js progress output. No FitAddon — the
+  // term is short-lived and disposed in the finally block; if we reconnect
+  // after flash, connect() builds the live xterm fresh.
+  const { term } = await mountTerminal($("esp-serial-console-host"), { fit: false, convertEol: true });
 
   try {
     const { flashFirmware } = await import("./flasher.js");
@@ -275,9 +200,8 @@ async function flashFlow() {
     $("esp-serial-flash").disabled = false;
   }
 
-  // Re-open the live console so the operator can watch boot. esptool-js's
-  // hardReset auto-resets the chip after flash, so the boot sequence lands
-  // in the freshly-cleared term.
+  // esptool-js's hardReset auto-resets the chip after flash, so re-opening
+  // the live console catches the boot sequence in a freshly-cleared term.
   if (reconnectAfter) await connect();
 }
 

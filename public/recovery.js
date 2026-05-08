@@ -1,8 +1,8 @@
 // Works even when BLE is dead: the USB gadget runs under its own systemd unit
-// (usb-gadget.service) independently of pi-robot. xterm.js is dynamic-imported
-// on first Connect so the ~250KB library only downloads when actually used.
+// (usb-gadget.service) independently of pi-robot.
 import { $ } from "./dom.js";
 import { log } from "./log.js";
+import { mountTerminal } from "./xterm-host.js";
 
 let _port = null;
 let _reader = null;
@@ -11,7 +11,8 @@ let _readPump = null;
 let _term = null;
 let _fit = null;
 let _resizeObs = null;
-let _xtermModule = null;
+
+const ENCODER = new TextEncoder();
 
 // state: "" (idle) | "connected" | "error" — drives dot color. text shown
 // only when it carries info beyond the dot (e.g. error detail).
@@ -20,25 +21,6 @@ function setStatus(state, text = "") {
   $("recovery-status").textContent = text;
 }
 
-async function ensureXtermLoaded() {
-  if (_xtermModule) return _xtermModule;
-  if (!document.querySelector('link[data-xterm-css]')) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css";
-    link.dataset.xtermCss = "1";
-    document.head.appendChild(link);
-  }
-  const [core, fit] = await Promise.all([
-    import("https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm"),
-    import("https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/+esm"),
-  ]);
-  _xtermModule = { Terminal: core.Terminal, FitAddon: fit.FitAddon };
-  return _xtermModule;
-}
-
-// Last-used port persisted as VID:PID. Same shape as esp-serial.js;
-// inlined rather than shared (~15 lines that don't leak between the two).
 const LAST_PORT_KEY = "recovery-last-port";
 function rememberPort(port) {
   try {
@@ -98,36 +80,10 @@ async function connect() {
     setStatus("");
     return;
   }
-  setStatus("connected");  // dot-only; no text
+  setStatus("connected");
   $("recovery-connect").textContent = "Disconnect";
 
-  const { Terminal, FitAddon } = await ensureXtermLoaded();
-  const container = $("recovery-term");
-  container.innerHTML = "";
-  _term = new Terminal({
-    fontSize: 13,
-    fontFamily: '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace',
-    cursorBlink: true,
-    convertEol: false,
-    theme: { background: "#1e1e1e", foreground: "#e4e4e4", cursor: "#e4e4e4" },
-  });
-  _fit = new FitAddon();
-  _term.loadAddon(_fit);
-  _term.open(container);
-  // Defer fit one frame so the dialog's open-animation layout has resolved.
-  // Without this, FitAddon measures a mid-transition container and picks too
-  // few rows; when the container later reaches full size, xterm pads by
-  // inserting rows at the TOP of the main buffer, which shoves all previous
-  // content (getty banner, login prompt) to the bottom of the viewport —
-  // that's the "cut / empty top" rendering we were seeing.
-  await new Promise(r => requestAnimationFrame(r));
-  try { _fit.fit(); } catch {}
-  _resizeObs = new ResizeObserver(() => {
-    const r = container.getBoundingClientRect();
-    if (r.width < 10 || r.height < 10) return;  // ignore closing-dialog zero boxes
-    try { _fit?.fit(); } catch {}
-  });
-  _resizeObs.observe(container);
+  ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("recovery-term")));
   _term.focus();
   // Clear before any serial buffer flush — belt + suspenders alongside the
   // raf-deferred fit. Getty buffers from a prior session can flush into
@@ -136,7 +92,7 @@ async function connect() {
 
   _term.onData(async (data) => {
     if (!_writer) return;
-    try { await _writer.write(new TextEncoder().encode(data)); }
+    try { await _writer.write(ENCODER.encode(data)); }
     catch (err) { _term?.writeln(`\r\n[write error: ${err.message}]`); }
   });
 
@@ -177,8 +133,8 @@ async function disconnect() {
   _fit = null;
   _term?.dispose();
   _term = null;
-  setStatus("disconnected");
-  $("recovery-connect").textContent = "Connect via USB serial";
+  setStatus("");
+  $("recovery-connect").textContent = "Connect";
 }
 
 // Lazy-loaded from app.js on first "Recovery" menu click; one-time setup
@@ -199,4 +155,3 @@ export function init() {
 // call when nothing's open. Used by the global pre-flash cleanup so
 // esp-web-tools' install button doesn't trip "port is already open".
 export async function releasePort() { if (_port) await disconnect(); }
-

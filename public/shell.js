@@ -15,6 +15,7 @@ import { $ } from "./dom.js";
 import { state } from "./state.js";
 import { log } from "./log.js";
 import { openChannel, closePeer } from "./webrtc-robot.js";
+import { mountTerminal } from "./xterm-host.js";
 
 let _wired = false;
 let _activeRobotId = null;
@@ -22,30 +23,12 @@ let _channel = null;
 let _term = null;
 let _fit = null;
 let _resizeObs = null;
-let _xtermModule = null;
 
 // state: "" (idle) | "connecting" | "connected" | "error". Same shape
 // as recovery.js / esp-serial.js — keeps the patterns parallel.
 function setStatus(s, text = "") {
   $("shell-status-dot").className = `dot${s ? ` ${s}` : ""}`;
   $("shell-status").textContent = text;
-}
-
-async function ensureXtermLoaded() {
-  if (_xtermModule) return _xtermModule;
-  if (!document.querySelector('link[data-xterm-css]')) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css";
-    link.dataset.xtermCss = "1";
-    document.head.appendChild(link);
-  }
-  const [core, fit] = await Promise.all([
-    import("https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm"),
-    import("https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/+esm"),
-  ]);
-  _xtermModule = { Terminal: core.Terminal, FitAddon: fit.FitAddon };
-  return _xtermModule;
 }
 
 async function connect() {
@@ -68,29 +51,7 @@ async function connect() {
   setStatus("connected");
   $("shell-connect").textContent = "Disconnect";
 
-  const { Terminal, FitAddon } = await ensureXtermLoaded();
-  const container = $("shell-term");
-  container.innerHTML = "";
-  _term = new Terminal({
-    fontSize: 13,
-    fontFamily: '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace',
-    cursorBlink: true,
-    convertEol: false,
-    theme: { background: "#1e1e1e", foreground: "#e4e4e4", cursor: "#e4e4e4" },
-  });
-  _fit = new FitAddon();
-  _term.loadAddon(_fit);
-  _term.open(container);
-  // Same raf-deferred fit dance as recovery.js — pre-fit measures a mid-
-  // animation container and picks too few rows.
-  await new Promise(r => requestAnimationFrame(r));
-  try { _fit.fit(); } catch {}
-  _resizeObs = new ResizeObserver(() => {
-    const r = container.getBoundingClientRect();
-    if (r.width < 10 || r.height < 10) return;
-    try { _fit?.fit(); } catch {}
-  });
-  _resizeObs.observe(container);
+  ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("shell-term")));
   _term.focus();
   _term.write("\x1b[2J\x1b[H");
 
