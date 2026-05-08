@@ -21,37 +21,43 @@ function setStatus(state, text = "") {
   $("recovery-status").textContent = text;
 }
 
-// Pi USB-CDC gadget — fixed VID:PID set by usb-gadget-setup.sh on the
-// Pi side (Linux Foundation / Multifunction Composite). Filtering on
-// these makes sure that when both an ESP USB-UART and the Pi gadget
-// are authorized in the same browser session, Pi mode auto-picks the
-// Pi port and the picker only shows Pi devices.
-const PI_GADGET_FILTERS = [{ usbVendorId: 0x1d6b, usbProductId: 0x0104 }];
+// Pi USB-CDC gadget — Linux Foundation VID. usb-gadget-setup.sh sets
+// PID 0x0104 (Multifunction Composite) but older firmware variants
+// use other PIDs under the same VID; matching VID-only catches all
+// of them while still keeping ESP USB-UART chips out.
+const PI_VID = 0x1d6b;
+const PI_GADGET_FILTERS = [{ usbVendorId: PI_VID }];
 function isPiGadget(port) {
-  try {
-    const { usbVendorId, usbProductId } = port.getInfo();
-    return PI_GADGET_FILTERS.some(f =>
-      f.usbVendorId === usbVendorId && f.usbProductId === usbProductId);
-  } catch { return false; }
+  try { return port.getInfo().usbVendorId === PI_VID; }
+  catch { return false; }
 }
 function pickKnownPi(ports) {
   return ports.find(isPiGadget) || null;
 }
 
-async function connect() {
+async function connect({ unfiltered = false } = {}) {
   if (!("serial" in navigator)) {
     log("Web Serial not supported — use Chrome or Edge on desktop");
     setStatus("error", "unsupported browser");
     return;
   }
-  // Skip picker when permission already granted (Chrome persists across
-  // reloads) — but ONLY accept a port matching the Pi gadget's VID:PID,
-  // otherwise an ESP USB-UART that was authorized for ESP mode would
-  // silently steal Pi mode's connect.
   let known = [];
   try { known = await navigator.serial.getPorts(); } catch {}
   try {
-    _port = pickKnownPi(known) || await navigator.serial.requestPort({ filters: PI_GADGET_FILTERS });
+    if (unfiltered) {
+      // Escape hatch: the user clicked "Show all serial ports" because
+      // the filtered picker came back empty. Honour their pick, but
+      // warn if VID doesn't look like a Pi gadget — the original bug
+      // we fixed (Pi mode silently using an ESP port) is contained by
+      // this post-pick check rather than a pre-pick filter.
+      _port = await navigator.serial.requestPort();
+      const info = (() => { try { return _port.getInfo(); } catch { return {}; } })();
+      if (info.usbVendorId !== PI_VID) {
+        log(`Recovery: picked port vid=0x${(info.usbVendorId||0).toString(16)} pid=0x${(info.usbProductId||0).toString(16)} — not a Pi gadget VID, connecting anyway`);
+      }
+    } else {
+      _port = pickKnownPi(known) || await navigator.serial.requestPort({ filters: PI_GADGET_FILTERS });
+    }
     // Two-attempt open: macOS sometimes fails the first open() right
     // after a prior disconnect (kernel /dev/cu.* not fully released);
     // and a SerialPort that came back already-open from a prior tab/page
@@ -68,8 +74,15 @@ async function connect() {
   } catch (err) {
     if (err.name !== "NotFoundError") log(`Recovery connect error: ${err.message}`);
     setStatus("");
+    // Empty/cancelled filtered picker — surface the escape hatch so
+    // the user isn't stranded when their Pi's gadget VID drifts from
+    // the default (older firmware, third-party config, etc).
+    if (err.name === "NotFoundError" && !unfiltered) {
+      $("recovery-show-all").hidden = false;
+    }
     return;
   }
+  $("recovery-show-all").hidden = true;
   setStatus("connected");
   $("recovery-connect").textContent = "Disconnect";
 
@@ -125,6 +138,7 @@ async function disconnect() {
   _term = null;
   setStatus("");
   $("recovery-connect").textContent = "Connect";
+  $("recovery-show-all").hidden = true;
 }
 
 // Lazy-loaded from app.js on first "Recovery" menu click; one-time setup
@@ -135,6 +149,7 @@ export function init() {
   _initialized = true;
   $("console-close").addEventListener("click", () => $("console-modal").close());
   $("recovery-connect").addEventListener("click", () => _port ? disconnect() : connect());
+  $("recovery-show-all")?.addEventListener("click", () => connect({ unfiltered: true }));
   // No outside-click dismiss — terminal session is real work; accidental
   // clicks outside the modal used to kill the connection and scrollback.
   // Explicit × button is the only way out.

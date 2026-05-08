@@ -1650,6 +1650,21 @@ details.tray.has-alert > summary::after {
    action by default. */
 .recovery-actions { margin: 0 0 12px; align-items: center; }
 .recovery-actions #esp-serial-flash { margin-left: auto; }
+/* Inline text-link affordance for the post-empty-picker escape hatch.
+   Quiet by default (yielding lens) — only earns ink when the user
+   has hit the dead-end the filtered picker leaves. */
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+  min-height: auto;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--ink); }
 .recovery-term {
   background: #1e1e1e;
   flex: 1;

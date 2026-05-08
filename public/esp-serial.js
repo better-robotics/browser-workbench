@@ -46,7 +46,19 @@ function isEspPort(port) {
 function pickKnownEsp(ports) {
   return ports.find(isEspPort) || null;
 }
-async function pickOrRequestPort() {
+async function pickOrRequestPort({ unfiltered = false } = {}) {
+  if (unfiltered) {
+    // Escape hatch: filtered picker came back empty. Honour the user's
+    // choice but warn if VID isn't in our known-ESP list — keeps the
+    // "Pi gadget got picked in ESP mode" footgun contained as a
+    // post-pick warning instead of a pre-pick block.
+    const port = await navigator.serial.requestPort();
+    const info = (() => { try { return port.getInfo(); } catch { return {}; } })();
+    if (!ESP_FILTERS.some(f => f.usbVendorId === info.usbVendorId)) {
+      log(`ESP: picked port vid=0x${(info.usbVendorId||0).toString(16)} pid=0x${(info.usbProductId||0).toString(16)} — not a known ESP USB-UART VID, connecting anyway`);
+    }
+    return port;
+  }
   let known = [];
   try { known = await navigator.serial.getPorts(); } catch {}
   return pickKnownEsp(known) || await navigator.serial.requestPort({ filters: ESP_FILTERS });
@@ -66,7 +78,7 @@ async function openWithRetry(port) {
   }
 }
 
-async function connect() {
+async function connect({ unfiltered = false } = {}) {
   if (_port) return;
   if (!("serial" in navigator)) {
     setStatus("error", "unsupported browser");
@@ -75,12 +87,16 @@ async function connect() {
   }
   setStatus("connecting", "opening…");
   try {
-    _port = await pickOrRequestPort();
+    _port = await pickOrRequestPort({ unfiltered });
   } catch (err) {
     if (err.name !== "NotFoundError") setStatus("error", `pick cancelled: ${err.message}`);
     else setStatus("");
+    if (err.name === "NotFoundError" && !unfiltered) {
+      $("esp-serial-show-all").hidden = false;
+    }
     return;
   }
+  $("esp-serial-show-all").hidden = true;
   try {
     await openWithRetry(_port);
     // Deassert DTR/RTS — ESP32-CAM (and most ESP32 dev boards) wire those
@@ -148,6 +164,7 @@ async function disconnect() {
   _term = null;
   $("esp-serial-console-host").innerHTML = "";
   $("esp-serial-connect").textContent = "Connect";
+  $("esp-serial-show-all").hidden = true;
   setStatus("");
 }
 
@@ -210,6 +227,7 @@ export function init() {
   _wired = true;
   $("console-close").addEventListener("click", () => $("console-modal").close());
   $("esp-serial-connect").addEventListener("click", () => _port ? disconnect() : connect());
+  $("esp-serial-show-all")?.addEventListener("click", () => connect({ unfiltered: true }));
   $("esp-serial-flash").addEventListener("click", flashFlow);
   // Auto-disconnect when the dialog closes — leaving the port open across
   // dialog hides would block other tools (Flash button) from reusing it.
