@@ -24,34 +24,32 @@ function setStatus(state, text = "") {
   if (el) el.textContent = text;
 }
 
-const LAST_PORT_KEY = "esp-serial-last-port";
-function rememberPort(port) {
+// ESP32 USB-UART bridges + native USB. Filtering on these keeps an
+// authorized Pi gadget from being silently picked when the user clicks
+// Connect in ESP mode, and narrows the picker to ESP-class chips.
+//   - 0x10c4 Silicon Labs CP210x  (ESP32-CAM, most ESP32-DevKit)
+//   - 0x1a86 WCH CH340/CH341       (cheap ESP32-WROOM clones)
+//   - 0x0403 FTDI FT232            (older boards)
+//   - 0x303a Espressif native USB  (ESP32-S3 / -C3)
+const ESP_FILTERS = [
+  { usbVendorId: 0x10c4 },
+  { usbVendorId: 0x1a86 },
+  { usbVendorId: 0x0403 },
+  { usbVendorId: 0x303a },
+];
+function isEspPort(port) {
   try {
-    const i = port.getInfo();
-    if (i.usbVendorId && i.usbProductId) {
-      localStorage.setItem(LAST_PORT_KEY, `${i.usbVendorId}:${i.usbProductId}`);
-    }
-  } catch {}
+    const { usbVendorId } = port.getInfo();
+    return ESP_FILTERS.some(f => f.usbVendorId === usbVendorId);
+  } catch { return false; }
 }
-function pickKnown(ports) {
-  if (ports.length <= 1) return ports[0] || null;
-  let last = "";
-  try { last = localStorage.getItem(LAST_PORT_KEY) || ""; } catch {}
-  if (last) {
-    for (const p of ports) {
-      try {
-        const i = p.getInfo();
-        if (`${i.usbVendorId}:${i.usbProductId}` === last) return p;
-      } catch {}
-    }
-  }
-  return ports[0];
+function pickKnownEsp(ports) {
+  return ports.find(isEspPort) || null;
 }
 async function pickOrRequestPort() {
   let known = [];
   try { known = await navigator.serial.getPorts(); } catch {}
-  if (known.length >= 1) return pickKnown(known);
-  return await navigator.serial.requestPort();
+  return pickKnownEsp(known) || await navigator.serial.requestPort({ filters: ESP_FILTERS });
 }
 // Two-attempt open: macOS occasionally fails the first open() right after
 // a previous disconnect because the kernel hasn't fully released the
@@ -95,7 +93,6 @@ async function connect() {
     _port = null;
     return;
   }
-  rememberPort(_port);
 
   ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("esp-serial-console-host")));
   _term.focus();

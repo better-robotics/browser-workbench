@@ -21,28 +21,21 @@ function setStatus(state, text = "") {
   $("recovery-status").textContent = text;
 }
 
-const LAST_PORT_KEY = "recovery-last-port";
-function rememberPort(port) {
+// Pi USB-CDC gadget — fixed VID:PID set by usb-gadget-setup.sh on the
+// Pi side (Linux Foundation / Multifunction Composite). Filtering on
+// these makes sure that when both an ESP USB-UART and the Pi gadget
+// are authorized in the same browser session, Pi mode auto-picks the
+// Pi port and the picker only shows Pi devices.
+const PI_GADGET_FILTERS = [{ usbVendorId: 0x1d6b, usbProductId: 0x0104 }];
+function isPiGadget(port) {
   try {
-    const i = port.getInfo();
-    if (i.usbVendorId && i.usbProductId) {
-      localStorage.setItem(LAST_PORT_KEY, `${i.usbVendorId}:${i.usbProductId}`);
-    }
-  } catch {}
+    const { usbVendorId, usbProductId } = port.getInfo();
+    return PI_GADGET_FILTERS.some(f =>
+      f.usbVendorId === usbVendorId && f.usbProductId === usbProductId);
+  } catch { return false; }
 }
-function pickKnown(ports) {
-  if (ports.length <= 1) return ports[0] || null;
-  let last = "";
-  try { last = localStorage.getItem(LAST_PORT_KEY) || ""; } catch {}
-  if (last) {
-    for (const p of ports) {
-      try {
-        const i = p.getInfo();
-        if (`${i.usbVendorId}:${i.usbProductId}` === last) return p;
-      } catch {}
-    }
-  }
-  return ports[0];
+function pickKnownPi(ports) {
+  return ports.find(isPiGadget) || null;
 }
 
 async function connect() {
@@ -51,12 +44,14 @@ async function connect() {
     setStatus("error", "unsupported browser");
     return;
   }
-  // Skip picker when permission is already granted (Chrome persists
-  // across reloads). Pick last-used VID:PID when multiple, else first.
+  // Skip picker when permission already granted (Chrome persists across
+  // reloads) — but ONLY accept a port matching the Pi gadget's VID:PID,
+  // otherwise an ESP USB-UART that was authorized for ESP mode would
+  // silently steal Pi mode's connect.
   let known = [];
   try { known = await navigator.serial.getPorts(); } catch {}
   try {
-    _port = known.length >= 1 ? pickKnown(known) : await navigator.serial.requestPort();
+    _port = pickKnownPi(known) || await navigator.serial.requestPort({ filters: PI_GADGET_FILTERS });
     // Two-attempt open: macOS sometimes fails the first open() right
     // after a prior disconnect (kernel /dev/cu.* not fully released);
     // and a SerialPort that came back already-open from a prior tab/page
@@ -69,12 +64,7 @@ async function connect() {
       await new Promise((r) => setTimeout(r, 200));
       await _port.open({ baudRate: 115200 });
     }
-    // Deassert DTR/RTS — harmless for Pi USB-CDC, critical when the
-    // user accidentally points this at an ESP32 (DTR/RTS map to EN/GPIO0
-    // on most ESP32 boards; default asserted state would reset it and
-    // kill an active BLE session).
     try { await _port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
-    rememberPort(_port);
   } catch (err) {
     if (err.name !== "NotFoundError") log(`Recovery connect error: ${err.message}`);
     setStatus("");

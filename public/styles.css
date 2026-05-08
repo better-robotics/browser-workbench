@@ -1278,18 +1278,17 @@ details.tray.has-alert > summary::after {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Drive-mode toggle (joypad ⇄ tilt) — segmented control. Two buttons,
-   the active one filled, the other ghost. Sits in the section header
-   so it doesn't push the actual driving controls down. */
-.phone-drive-mode {
+/* Segmented control — pill-shaped toggle with one filled active button.
+   Apple HIG's recommendation for 2–4 mutually exclusive options where
+   surfacing both choices at once beats a click-to-reveal dropdown. */
+.segmented {
   display: flex;
   gap: 0;
-  margin-left: auto;
   border-radius: 999px;
   background: var(--bg-elev);
   padding: 2px;
 }
-.phone-drive-mode .mode-btn {
+.segmented .mode-btn {
   background: transparent;
   border: none;
   font: inherit;
@@ -1299,10 +1298,14 @@ details.tray.has-alert > summary::after {
   color: var(--ink-muted);
   cursor: pointer;
 }
-.phone-drive-mode .mode-btn[aria-pressed="true"] {
+.segmented .mode-btn[aria-pressed="true"] {
   background: var(--accent);
   color: #fff;
 }
+/* Drive-mode toggle inherits .segmented; just needs the right-anchor
+   so it sits in the section header without pushing the driving
+   controls down. */
+.phone-drive-mode { margin-left: auto; }
 
 /* Tilt-drive: phone-as-steering-wheel. Visual indicator across the top
    shows real-time gamma (left-right roll); pedals stack vertically below
@@ -1610,16 +1613,7 @@ details.tray.has-alert > summary::after {
 .console-mode-row {
   display: flex;
   align-items: center;
-  gap: 8px;
   margin: 0 0 12px;
-}
-.console-mode-row select {
-  font: inherit;
-  padding: 4px 8px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--ink);
 }
 .console-section {
   display: flex;

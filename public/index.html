@@ -338,11 +338,10 @@
     <button class="icon" id="console-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <div class="console-mode-row">
-    <label for="console-mode" class="meta">Connect to</label>
-    <select id="console-mode">
-      <option value="pi">Raspberry Pi (USB-C)</option>
-      <option value="esp">ESP32 (USB serial)</option>
-    </select>
+    <div class="segmented" role="tablist" aria-label="Connect to">
+      <button class="mode-btn" id="console-mode-pi" data-mode="pi" aria-pressed="true">Raspberry Pi</button>
+      <button class="mode-btn" id="console-mode-esp" data-mode="esp" aria-pressed="false">ESP32</button>
+    </div>
   </div>
   <!-- Pi mode (recovery.js operates on these IDs). -->
   <div class="console-section" id="console-pi-section">
