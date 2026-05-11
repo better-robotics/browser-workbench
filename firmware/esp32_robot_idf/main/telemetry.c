@@ -52,12 +52,20 @@ static void on_tick(void *arg) {
             snprintf(ip, sizeof(ip), IPSTR, IP2STR(&info.ip));
         }
     }
+    // free_heap_internal / min_free_heap_internal split out internal SRAM
+    // from the SPIRAM-augmented total. WebRTC esp_peer_open and DTLS/SCTP
+    // buffers allocate from internal heap only; if the chip shows 4 MB free
+    // overall but internal-min has hit ~20 KB, esp_peer_open returns
+    // ESP_PEER_ERR_NO_MEM and the total number is misleading.
     int o = snprintf(s_buf, TELEMETRY_BUF_SIZE,
         "{\"uptime_ms\":%llu,\"free_heap\":%u,\"min_free_heap\":%u,"
+        "\"free_heap_internal\":%u,\"min_free_heap_internal\":%u,"
         "\"free_psram\":%u,\"reset_reason\":\"%s\",\"sha\":\"%s\"",
         esp_timer_get_time() / 1000ULL,
         (unsigned)esp_get_free_heap_size(),
         (unsigned)esp_get_minimum_free_heap_size(),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
         reset_reason_label(esp_reset_reason()),
         esp_app_get_description()->version);
