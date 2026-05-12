@@ -90,6 +90,7 @@ Commit + push when ready. CI rebuilds firmware artifacts on every `firmware/**` 
 
 - `firmware/esp32_robot_idf/` — ESP32 firmware (ESP-IDF; LED, WiFi onboarding, OTA, motors, camera, WebRTC peer).
 - `firmware/pi_robot/` — Raspberry Pi firmware (Python + `bless`). Same service UUID and characteristic UUIDs as ESP32. [Details](firmware/pi_robot/README.md).
+- `packages/` — reusable ESP-IDF components. `pid/` (generic discrete PID), `sensors/` (MPU6050 driver). Added to `EXTRA_COMPONENT_DIRS` in the ESP32 firmware build.
 - `public/` — the dashboard (static ES modules, no build step). `docs/` is a symlink for GitHub Pages.
 - `tests/` — pure-function unit tests; `make smoke`. Manual checklist in [SMOKE.md](SMOKE.md).
 - `.claude/` — agent + project context (wedge, model discipline, control-loop architecture).
