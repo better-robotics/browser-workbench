@@ -4,11 +4,13 @@
 // which matches the DICT_4X4_50 PDFs from the object-tracking project.
 // Separate detector instance — no conflict with the per-robot ARUCO tracker.
 //
-// Phase 1: pixel-space position + heading only. Metric pose (cm/mm via
-// known marker size + camera calibration) is Phase 2.
+// Metric pose is computed via POS.Posit using the known printed marker size.
+// Focal length is estimated from the image dimensions (assumes a typical
+// 60-70° FOV webcam). No calibration file needed — accuracy is ~5-15%,
+// which is sufficient for robot position correction.
 
 const CDN = "https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src";
-const SCRIPTS = ["cv.js", "aruco.js"];
+const SCRIPTS = ["cv.js", "aruco.js", "posit1.js"];
 const DICTIONARY = "ARUCO_4X4_50";
 
 let _detector = null;
@@ -48,6 +50,33 @@ async function enumerateCameras() {
     .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
 }
 
+// Estimate focal length in pixels from image dimensions. Assumes a ~70° FOV
+// lens, which covers most consumer webcams. The estimate is good enough for
+// approximate pose when a calibration file isn't available.
+function estimateFocalLength(w, h) {
+  return Math.max(w, h) * 0.85;
+}
+
+// Returns approximate {x, y, z, headingDeg} in the same units as markerSizeMm.
+// x/y are the floor position relative to the camera center; z is distance from
+// the camera lens. headingDeg uses the corner-edge convention (corner 0→1).
+function estimatePose(corners, w, h, markerSizeMm) {
+  if (!window.POS?.Posit) return null;
+  const cx = w / 2;
+  const cy = h / 2;
+  // POS.Posit expects corners relative to image center, Y pointing up.
+  const centered = corners.map(c => ({ x: c.x - cx, y: -(c.y - cy) }));
+  const focalLength = estimateFocalLength(w, h);
+  try {
+    const posit = new window.POS.Posit(markerSizeMm, focalLength);
+    const pose = posit.pose(centered);
+    const [x, y, z] = pose.bestTranslation;
+    return { x: Math.round(x), y: Math.round(y), z: Math.round(z) };
+  } catch {
+    return null;
+  }
+}
+
 function drawOverlay(canvasEl, markers) {
   const ctx = canvasEl.getContext("2d");
   const minDim = Math.min(canvasEl.width, canvasEl.height);
@@ -79,18 +108,19 @@ function drawOverlay(canvasEl, markers) {
 }
 
 export async function initCvLocalize() {
-  const panel    = document.getElementById("cv-localize-panel");
+  const panel = document.getElementById("cv-localize-panel");
   if (!panel) return;
 
-  const videoEl   = document.getElementById("cv-video");
-  const canvasEl  = document.getElementById("cv-canvas");
-  const selectEl  = document.getElementById("cv-camera-select");
+  const videoEl    = document.getElementById("cv-video");
+  const canvasEl   = document.getElementById("cv-canvas");
+  const selectEl   = document.getElementById("cv-camera-select");
+  const sizeEl     = document.getElementById("cv-marker-size");
   const refreshBtn = document.getElementById("cv-refresh-btn");
-  const startBtn  = document.getElementById("cv-start-btn");
-  const stopBtn   = document.getElementById("cv-stop-btn");
-  const scanBtn   = document.getElementById("cv-scan-btn");
-  const statusEl  = document.getElementById("cv-status");
-  const resultsEl = document.getElementById("cv-results");
+  const startBtn   = document.getElementById("cv-start-btn");
+  const stopBtn    = document.getElementById("cv-stop-btn");
+  const scanBtn    = document.getElementById("cv-scan-btn");
+  const statusEl   = document.getElementById("cv-status");
+  const resultsEl  = document.getElementById("cv-results");
 
   function setStatus(msg) { statusEl.textContent = msg; }
 
@@ -162,6 +192,8 @@ export async function initCvLocalize() {
       const h = videoEl.videoHeight;
       if (!w || !h) throw new Error("no video frame — camera not ready");
 
+      const markerSizeMm = Math.max(1, parseFloat(sizeEl.value) || 100);
+
       canvasEl.width = w;
       canvasEl.height = h;
       const ctx = canvasEl.getContext("2d");
@@ -174,7 +206,8 @@ export async function initCvLocalize() {
         const cx = (c[0].x + c[1].x + c[2].x + c[3].x) / 4;
         const cy = (c[0].y + c[1].y + c[2].y + c[3].y) / 4;
         const headingRad = Math.atan2(c[1].y - c[0].y, c[1].x - c[0].x);
-        return { id: m.id, cx, cy, headingRad, corners: c };
+        const pose = estimatePose(c, w, h, markerSizeMm);
+        return { id: m.id, cx, cy, headingRad, corners: c, pose };
       });
 
       drawOverlay(canvasEl, markers);
@@ -185,9 +218,12 @@ export async function initCvLocalize() {
       } else {
         resultsEl.innerHTML = markers.map(m => {
           const deg = Math.round(m.headingRad * 180 / Math.PI);
+          const poseStr = m.pose
+            ? `<span class="meta">${m.pose.x}, ${m.pose.y} mm</span>`
+            : `<span class="meta">(${Math.round(m.cx)}, ${Math.round(m.cy)}) px</span>`;
           return `<div class="cv-result-row">
             <span class="cv-marker-id">id ${m.id}</span>
-            <span class="meta">(${Math.round(m.cx)}, ${Math.round(m.cy)}) px</span>
+            ${poseStr}
             <span class="meta">${deg >= 0 ? "+" : ""}${deg}°</span>
           </div>`;
         }).join("");

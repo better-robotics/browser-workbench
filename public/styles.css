@@ -2785,6 +2785,23 @@ body.phone textarea {
   font-size: 13px;
   max-width: 160px;
 }
+.cv-size-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.cv-size-input {
+  width: 52px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+  text-align: right;
+}
 #cv-video {
   width: 100%;
   max-height: 200px;
