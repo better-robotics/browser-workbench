@@ -12,6 +12,16 @@ import { capSection } from "./cap-section.js";
 import { renderEntry } from "./render-bus.js";
 
 const LS_PREFIX = "better-robotics:motion";
+const CV_STALE_MS = 10_000;  // don't apply a fix older than this
+
+function cvFixLine(entry) {
+  const p = entry.cvPosition;
+  if (!p) return `<div class="hint motion-cv-fix">CV fix: none — overhead camera not running</div>`;
+  const age = Math.round((Date.now() - p.updatedAt) / 1000);
+  const stale = (Date.now() - p.updatedAt) > CV_STALE_MS;
+  const detail = `(${p.x}, ${p.y} mm · ${p.headingDeg}°) · ${age}s ago`;
+  return `<div class="hint motion-cv-fix ${stale ? "motion-cv-stale" : ""}">CV fix: ${stale ? "stale — " : ""}${detail}</div>`;
+}
 
 function lsGet(entry, k, def = "") {
   try {
@@ -123,6 +133,7 @@ export function makeMotionCap(schema) {
           <button class="secondary sm" data-action="motion-cancel" type="button">Cancel</button>
           <span class="motion-status-pill" data-motion-status>${st}</span>
         </div>
+        ${cvFixLine(entry)}
         <details class="motion-wheel-config">
           <summary>Wheel config</summary>
           <div class="motion-wheel-fields">
@@ -222,6 +233,25 @@ export function makeMotionCap(schema) {
           if (sep > 0) msg.wheel_sep = sep;
           if (rad > 0) msg.wheel_r   = rad;
           if (spd > 0) msg.max_spd   = spd;
+
+          // Apply CV ground-truth fix before sending the goal so the robot's
+          // odometry starts from the camera-measured position rather than its
+          // dead-reckoned estimate. Skip if no fix or fix is stale (> 10s).
+          const p = entry.cvPosition;
+          if (p && entry.motionPoseChar && (Date.now() - p.updatedAt) < CV_STALE_MS) {
+            try {
+              const fix = {
+                x:     p.x / 1000,                      // mm → m
+                y:     p.y / 1000,
+                theta: p.headingDeg * (Math.PI / 180),  // deg → rad
+              };
+              await entry.motionPoseChar.writeValueWithResponse(encodeJson(fix));
+              logFor(entry, `motion cv fix: (${p.x}, ${p.y} mm, ${p.headingDeg}°)`);
+            } catch (err) {
+              logFor(entry, `motion cv fix failed: ${err.message}`);
+            }
+          }
+
           try {
             await entry.motionGoalChar.writeValueWithResponse(encodeJson(msg));
             logFor(entry, `motion go (${xVal}, ${yVal}, ${tDeg}°) ${ctrl}`);

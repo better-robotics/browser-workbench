@@ -1329,6 +1329,8 @@ details.tray.has-alert > summary::after {
   background: var(--bg-elev);
   color: var(--ink);
 }
+.motion-cv-fix { margin-top: 8px; }
+.motion-cv-stale { opacity: 0.5; }
 
 /* Level slider — single-axis brightness control (flash LED today). Sits
    in the cap-section action slot, where toggle/signed-pair would put a
