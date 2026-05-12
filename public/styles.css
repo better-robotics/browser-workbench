@@ -1019,6 +1019,44 @@ details.tray.has-alert > summary::after {
 .pinout-warn-line.has-hard { background: #ffe1d9; color: #7a2400; }
 .pinout-warn-line .warn-hard { font-weight: 600; }
 
+/* Motor calibration wizard — three-step flow living inside the pinout
+   dialog body. Stepper across the top, choice buttons stack on small
+   screens. Uses existing button classes for visual continuity. */
+.cal-wizard { padding: 4px 2px; }
+.cal-wizard h3 { font-size: 16px; }
+.cal-wizard p { font-size: 14px; margin: 8px 0; }
+.cal-progress {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+.cal-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 13px;
+  background: var(--line);
+  color: var(--ink-muted);
+  font: 600 12px ui-monospace, "SF Mono", Menlo, monospace;
+}
+.cal-step.active { background: var(--accent, #2563eb); color: #fff; }
+.cal-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.cal-choices button { text-align: left; }
+.cal-summary { margin: 8px 0; padding-left: 20px; font-size: 14px; }
+.cal-warn {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #fff4e0;
+  color: #7a4a00;
+  font-size: 13px;
+}
+
 .log-dialog { width: min(820px, calc(100vw - 32px)); max-width: 820px; }
 .log-dialog-body {
   margin: 0;

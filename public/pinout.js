@@ -4,6 +4,7 @@ import { getConfig } from "./capabilities/runtime/command.js";
 import { onOpsResponse } from "./ops-response.js";
 import { uploadFile } from "./capabilities/ota.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
+import { beginMotorsCalibration } from "./motors-calibrate.js";
 
 // BCM GPIO is what config + firmware use; physical pin is what the header
 // silkscreen shows. Users wire against physical, so lead with those.
@@ -529,6 +530,10 @@ function renderEdit(entry) {
       <!-- One-click preset: pins set to safe, non-reserved, conflict-free
            values that work on any Pi 4 with stock raspi-config. -->
       <button class="secondary sm" id="pinout-safe-defaults-btn">Use safe defaults</button>
+      <!-- Pulses each motor in turn, asks what wheel turned + which way,
+           writes the derived orientation flips. Eliminates the recurring
+           swap/polarity wiring guesswork. -->
+      <button class="secondary sm" id="pinout-calibrate-btn">Calibrate motors</button>
       <button class="sm" id="pinout-save-btn" ${hard.length ? "disabled" : ""}>Save &amp; restart</button>
     </div>
   `;
@@ -590,6 +595,26 @@ function renderEdit(entry) {
     editConfig.led_pin = PI_DEFAULTS.led_pin;
     editConfig.motors_pins = structuredClone(PI_DEFAULTS.motors_pins);
     renderEdit(entry);
+  });
+  $("pinout-calibrate-btn")?.addEventListener("click", () => {
+    beginMotorsCalibration({
+      entry,
+      editConfig,
+      onCancel: () => renderEdit(entry),
+      onDone: (ok) => {
+        if (ok) {
+          // Service restart drops BLE briefly; close the dialog so the user
+          // sees the disconnect+reconnect on the card. Mirrors saveEdit.
+          editMode = false;
+          editConfig = null;
+          $("pinout-modal").close();
+        } else {
+          // Save failed — drop back to the editor; the orientation we
+          // derived is still in the user's head, they can retry.
+          renderEdit(entry);
+        }
+      },
+    });
   });
 
   // Restore focus to whatever input was active before the re-render so the
