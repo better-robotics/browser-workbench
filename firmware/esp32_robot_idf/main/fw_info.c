@@ -51,7 +51,7 @@ void fw_info_init(const pin_config_t *pins) {
             pins->motor_l_fwd, pins->motor_l_bwd,
             pins->motor_r_fwd, pins->motor_r_bwd);
     }
-    if (camera_ready()) {
+    if (camera_present()) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",{\"name\":\"camera\",\"type\":\"mjpeg-stream\"}");
         // Snapshot is BLE-only and works without WiFi — distinct cap so the
@@ -60,7 +60,7 @@ void fw_info_init(const pin_config_t *pins) {
             ",{\"name\":\"snapshot\",\"type\":\"ble-snapshot\"}");
     }
     o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, "]");
-    if (!camera_ready() && camera_init_error() != 0) {
+    if (!camera_present() && camera_init_error() != 0) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",\"camera_err\":%d", camera_init_error());
     }

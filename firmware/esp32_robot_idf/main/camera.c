@@ -3,6 +3,8 @@
 #include "esp_camera.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "camera";
 
@@ -31,13 +33,18 @@ static const char *TAG = "camera";
 #define CAM_LEDC_CHANNEL  LEDC_CHANNEL_5
 #define CAM_LEDC_TIMER    LEDC_TIMER_1
 
-static bool s_ready = false;
+static bool s_present = false;
 static int  s_init_error = 0;
+static int  s_refcount = 0;
+static SemaphoreHandle_t s_mutex = NULL;
 
-bool camera_ready(void)      { return s_ready; }
+bool camera_present(void)    { return s_present; }
 int  camera_init_error(void) { return s_init_error; }
 
-bool camera_init(void) {
+// One-shot hardware bring-up. Used by probe (boot detection) and by
+// acquire on the 0→1 transition. Reapplies sensor settings every time
+// since deinit/reinit cycles reset them.
+static bool do_init(void) {
     bool psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
 
     camera_config_t cfg = {
@@ -74,7 +81,7 @@ bool camera_init(void) {
         ESP_LOGE(TAG, "init failed: 0x%x (psram=%d)", err, psram);
         return false;
     }
-    ESP_LOGI(TAG, "ok, psram=%d, qvga@q=18 fb=%d", psram, cfg.fb_count);
+    s_init_error = 0;
 
     // vflip handles the AI-Thinker mounting quirk (camera connector exits
     // the module so the image is upside-down for a forward-facing robot).
@@ -92,6 +99,48 @@ bool camera_init(void) {
         s->set_sharpness(s, 1);
         s->set_awb_gain(s, 0);
     }
-    s_ready = true;
     return true;
+}
+
+bool camera_probe(void) {
+    if (!s_mutex) s_mutex = xSemaphoreCreateMutex();
+    if (!do_init()) {
+        s_present = false;
+        return false;
+    }
+    s_present = true;
+    ESP_LOGI(TAG, "probe ok (qvga@q=18) — deinit until acquired");
+    esp_camera_deinit();
+    return true;
+}
+
+bool camera_acquire(void) {
+    if (!s_present) return false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (s_refcount == 0) {
+        if (!do_init()) {
+            xSemaphoreGive(s_mutex);
+            return false;
+        }
+    }
+    s_refcount++;
+    int rc = s_refcount;
+    xSemaphoreGive(s_mutex);
+    ESP_LOGI(TAG, "acquired (refcount=%d)", rc);
+    return true;
+}
+
+void camera_release(void) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (s_refcount > 0) {
+        s_refcount--;
+        int rc = s_refcount;
+        if (s_refcount == 0) {
+            esp_camera_deinit();
+            ESP_LOGI(TAG, "released (refcount=0) — deinit, ~32 KB internal freed");
+        } else {
+            ESP_LOGI(TAG, "released (refcount=%d)", rc);
+        }
+    }
+    xSemaphoreGive(s_mutex);
 }

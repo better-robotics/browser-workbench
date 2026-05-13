@@ -56,7 +56,7 @@ void app_main(void) {
     snprintf(hostname, sizeof(hostname), "br-%02x%02x", mac[4], mac[5]);
     ESP_LOGI(TAG, "robot id: ble=%s host=%s", ble_name, hostname);
 
-    camera_init();
+    camera_probe();
 
     led_init(pins.led);
     flash_init(pins.flash);

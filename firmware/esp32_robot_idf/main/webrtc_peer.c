@@ -21,7 +21,6 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
-#include "wifi_sta.h"
 
 static const char *TAG = "rtc";
 
@@ -260,7 +259,9 @@ static uint16_t s_video_frame_id = 0;
 static int     s_video_frame_count = 0;
 
 static void video_pump_tick(void) {
-    if (!s_video_active || !camera_ready() || !s_peer || !s_video_sid_known) return;
+    // s_video_active is set true by start_video_streaming AFTER a
+    // successful camera_acquire, so the camera is guaranteed live here.
+    if (!s_video_active || !s_peer || !s_video_sid_known) return;
     int64_t now = esp_timer_get_time();
     int64_t period_us = (int64_t)1000000 / (s_video_fps > 0 ? s_video_fps : 10);
     if (now - s_video_last_frame_us < period_us) return;
@@ -317,6 +318,11 @@ static void video_pump_tick(void) {
 bool webrtc_peer_video_active(void) { return s_video_active; }
 
 static void start_video_streaming(int fps) {
+    if (s_video_active) return;  // already streaming; ignore duplicate start
+    if (!camera_acquire()) {
+        ESP_LOGW(TAG, "video stream start: camera_acquire failed");
+        return;
+    }
     s_video_fps = (fps > 0 && fps <= 30) ? fps : 10;
     s_video_active = true;
     s_video_last_frame_us = 0;
@@ -324,8 +330,10 @@ static void start_video_streaming(int fps) {
 }
 
 static void stop_video_streaming(void) {
-    if (s_video_active) ESP_LOGI(TAG, "video stream stopped");
+    if (!s_video_active) return;
     s_video_active = false;
+    camera_release();
+    ESP_LOGI(TAG, "video stream stopped");
 }
 
 // Set in handle_video_dc when the dashboard says "stop". The loop task
@@ -636,47 +644,26 @@ static void handle_offer(const char *sdp) {
         .on_channel_close    = on_peer_channel_close,
     };
 
-    // libpeer needs ~50-80 KB of CONTIGUOUS internal RAM for DTLS + agent
-    // + SRTP/SCTP allocations. The classic ESP32's ~280 KB internal heap
-    // is shared with WiFi STA (~50 KB), BLE NimBLE, and camera reservations,
-    // and fragments enough that esp_peer_open returns ESP_PEER_ERR_NO_MEM
-    // (-2) even with multi-MB PSRAM free. Mirror the OTA pattern:
-    // pause WiFi for the open call, resume after — same intervention used
-    // for BLE OTA's NimBLE-ATT-drop pattern (see ota.c). After resume we
-    // wait briefly for the STA to reassociate + DHCP so ICE gathering in
-    // esp_peer_new_connection can collect host candidates; missing them
-    // forces fallback to TURN-relay which adds 100-300 ms.
-    size_t pre_internal = esp_get_free_internal_heap_size();
-    size_t pre_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    // libpeer needs ~50-80 KB of contiguous internal RAM for DTLS + agent
+    // + SRTP/SCTP allocations; PSRAM is irrelevant (crypto can't run from
+    // it). The camera DMA buffer (~32 KB, internal-only on classic ESP32)
+    // used to be the bottleneck — it was kept allocated at boot regardless
+    // of consumer activity, leaving ~21 KB contiguous and tripping
+    // esp_peer_open with NO_MEM (-2). Now camera_probe()/acquire()/release()
+    // bound the camera lifecycle to consumers (this file's video pump,
+    // http_stream, snapshot), so by the time we get here the camera is
+    // off and contiguous heap is plentiful. Heap log kept as a diagnostic
+    // anchor for future regressions.
     ESP_LOGI(TAG, "pre-open heap: internal_free=%u largest=%u",
-             (unsigned)pre_internal, (unsigned)pre_largest);
-    wifi_sta_pause();
-    size_t paused_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-    ESP_LOGI(TAG, "wifi paused: internal_free=%u largest=%u",
-             (unsigned)esp_get_free_internal_heap_size(), (unsigned)paused_largest);
+             (unsigned)esp_get_free_internal_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
     int rc = esp_peer_open(&cfg, esp_peer_get_default_impl(), &s_peer);
 
-    wifi_sta_resume();
-    // Block briefly for IP — without it, esp_peer_new_connection below
-    // gathers no host candidates and ICE only succeeds via the TURN
-    // relay. 3 s is generous on a previously-joined AP; falls through
-    // if the AP is slow so we still attempt the connection.
-    int ip_wait_ms = 0;
-    while (!wifi_sta_has_ip() && ip_wait_ms < 3000) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        ip_wait_ms += 100;
-    }
-    ESP_LOGI(TAG, "wifi resumed: has_ip=%d after %d ms",
-             (int)wifi_sta_has_ip(), ip_wait_ms);
-
     if (rc != ESP_PEER_ERR_NONE || !s_peer) {
-        ESP_LOGE(TAG, "esp_peer_open failed: %d (largest internal block before/paused: %u/%u)",
-                 rc, (unsigned)pre_largest, (unsigned)paused_largest);
-        // Surface rc to the dashboard — heap-pressure failures look the
-        // same as configuration errors without it. Error codes from
-        // esp_peer_types.h: -1 INVALID_ARG, -2 NO_MEM, -3 WRONG_STATE,
-        // -4 NOT_SUPPORT, -6 FAIL.
+        ESP_LOGE(TAG, "esp_peer_open failed: %d", rc);
+        // Surface rc to the dashboard. esp_peer_types.h: -1 INVALID_ARG,
+        // -2 NO_MEM, -3 WRONG_STATE, -4 NOT_SUPPORT, -6 FAIL.
         char err_buf[48];
         snprintf(err_buf, sizeof(err_buf), "esp_peer_open failed: %d", rc);
         send_ble_signal_error(err_buf);
