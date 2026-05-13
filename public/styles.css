@@ -2269,10 +2269,6 @@ dialog[open]::backdrop { opacity: 1; }
   border-radius: 4px;
 }
 .link-btn:not(:disabled):hover { color: var(--ink); background: var(--border-subtle); }
-#helpers-list {
-  display: block;
-  margin-bottom: 0;
-}
 #helpers-list > .card {
   margin-bottom: 0;
   max-width: none;
