@@ -5,3 +5,15 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESP32_SPIRAM_SUPPORT=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# Push allocations to PSRAM by default. mbedTLS contexts, libpeer SCTP/SRTP
+# buffers, NimBLE non-critical state — none of these need internal-only RAM.
+# Default threshold (16 KB) keeps everything <16 KB internal, which fragments
+# the heap and starves the camera DMA's 32 KB contiguous request.
+# - ALWAYSINTERNAL=256 — only allocations <256 B forced internal (small,
+#   high-frequency stuff like task control blocks).
+# - RESERVE_INTERNAL=32768 — keep 32 KB internal headroom unused by PSRAM-
+#   capable callers, so the camera's MALLOC_CAP_INTERNAL+CAP_DMA call
+#   always finds its block.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=256
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768

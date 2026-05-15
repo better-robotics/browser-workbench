@@ -38,9 +38,12 @@ CONFIG_LWIP_TCP_WND_DEFAULT=16384
 # path room to drain JPEG bursts without ENOMEM cascades. The video
 # pump also chunks at ~900 B with a 2ms delay between chunks so the
 # producer paces the consumer; this just adds headroom.
-CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=64
-CONFIG_LWIP_UDP_RECVMBOX_SIZE=16
-CONFIG_LWIP_PBUF_POOL_SIZE=32
+# Trimmed from 64/16/32 to free internal heap for the camera's 32 KB DMA
+# buffer. Original tuning was for libpeer's video-as-server burst sends;
+# now that we're DTLS client and sending small SCTP records, less is needed.
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=8
+CONFIG_LWIP_PBUF_POOL_SIZE=16
 
 # IPv6. On apartment-WiFi-as-a-service the IPv4 path goes through a
 # centralized gateway that adds 100-300 ms to lateral traffic between
@@ -61,6 +64,43 @@ CONFIG_LWIP_IPV6_DHCP6=y
 CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
 CONFIG_MBEDTLS_HARDWARE_AES=y
 CONFIG_MBEDTLS_HARDWARE_SHA=y
+
+# WebRTC DTLS-SRTP needs ECDHE-ECDSA + AEAD ciphers. mbedTLS returns
+# -0x7080 (FEATURE_UNAVAILABLE) at handshake without these enabled —
+# IDF defaults are tuned for HTTPS-client and don't include the
+# WebRTC-required ECDSA cert + GCM cipher + DTLS-SRTP extension combo.
+CONFIG_MBEDTLS_SSL_DTLS_SRTP=y
+# X.509 cert CREATION (vs parsing). Our self-signed ECDSA cert relies
+# on mbedtls_x509write_crt_* which are gated by this flag. Espressif's
+# own peer_demo example lists this as a required minimum.
+CONFIG_MBEDTLS_X509_CREATE_C=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA=y
+CONFIG_MBEDTLS_ECDH_C=y
+CONFIG_MBEDTLS_ECDSA_C=y
+CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED=y
+CONFIG_MBEDTLS_GCM_C=y
+# DTLS-SRTP profiles esp_peer requests use AES-CTR + HMAC-SHA1.
+# Modern mbedTLS disables SHA1 by default; without these, the SRTP
+# extension has no usable profile and the handshake fails with
+# FEATURE_UNAVAILABLE before key exchange even runs.
+CONFIG_MBEDTLS_SHA1_C=y
+CONFIG_MBEDTLS_CIPHER_MODE_CTR=y
+CONFIG_MBEDTLS_HKDF_C=y
+
+# Once DTLS-as-client is working, no longer need mbedTLS internal debug
+# spew or error-string tables. Each saves a few KB of internal heap that
+# the camera's 32KB DMA buffer competes for.
+# CONFIG_MBEDTLS_ERROR_STRINGS=n  (default)
+# CONFIG_MBEDTLS_DEBUG=n          (default)
+
+# As DTLS client the chip *sends* the ClientHello (small) and only
+# *receives* server-side handshake messages, which are individually
+# smaller than ServerHello+Cert+ServerKeyExchange combined (~1.5-2 KiB).
+# 2 KiB IN buffer is enough; OUT can shrink to 1500 since chip's TLS
+# records are all tiny.
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=2048
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1500
 
 # Camera framebuffer in PSRAM
 CONFIG_CAMERA_TASK_STACK_SIZE=4096

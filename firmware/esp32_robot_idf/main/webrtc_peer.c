@@ -21,6 +21,7 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
+#include "wifi_sta.h"
 
 static const char *TAG = "rtc";
 
@@ -320,7 +321,8 @@ bool webrtc_peer_video_active(void) { return s_video_active; }
 static void start_video_streaming(int fps) {
     if (s_video_active) return;  // already streaming; ignore duplicate start
     if (!camera_acquire()) {
-        ESP_LOGW(TAG, "video stream start: camera_acquire failed");
+        ESP_LOGW(TAG, "video stream start: camera_acquire failed (largest internal=%u)",
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         return;
     }
     s_video_fps = (fps > 0 && fps <= 30) ? fps : 10;
@@ -465,14 +467,13 @@ static int on_peer_data(esp_peer_data_frame_t *frame, void *ctx) {
 
 // ── peer connection lifecycle ────────────────────────────────────────────
 
-// Strip TCP candidates from the offer SDP — esp_peer's ICE agent is UDP-only
-// and TCP candidates trip its parser (LoadProhibited crash observed pre-3228975).
-// IPv6 and srflx pass through unchanged. The Pi running aiortc on the same
-// hotspot just did 12+ MB of DTLS-protected video over T-Mobile cellular
-// IPv6 host-host, so the v6/srflx "trap" attribution from 658eb90 was wrong:
-// the failure was libpeer-on-ESP32 specific, not network-shaped. Restoring
-// the pre-misanalysis filter so we can actually observe what libpeer does
-// when offered every candidate type on the same network the Pi succeeds on.
+// Strip TCP candidates from the offer SDP — libpeer's ICE agent is UDP-only
+// and TCP candidates trip its parser (LoadProhibited crash observed
+// pre-3228975). Setup attribute is left alone because libpeer's binary
+// blob doesn't parse it (always passes ROLE_SERVER to dtls_srtp_init);
+// the actual role flip happens in our patched dtls_srtp.c (forced CLIENT)
+// + the answer-side rewrite_answer_mid which also flips setup:passive →
+// setup:active so Chrome sees the role we actually run on the wire.
 static char *filter_sdp_for_chip(const char *sdp) {
     size_t in_len = strlen(sdp);
     char *out = malloc(in_len + 1);
@@ -526,8 +527,14 @@ static void capture_offer_mid(const char *sdp) {
     ESP_LOGI(TAG, "captured offer MID: %s", s_offer_mid);
 }
 
-// Rewrite "a=group:BUNDLE 0" and "a=mid:0" in esp_peer's answer to use
-// the offer's MID. Returns malloc'd buffer; caller frees. NULL on OOM.
+// Rewrite esp_peer's answer SDP for two reasons:
+//   1. "a=group:BUNDLE 0" and "a=mid:0" → use the offer's MID (Chrome rejects
+//      mismatched MIDs).
+//   2. "a=setup:passive" → "a=setup:active". libpeer's binary blob always
+//      emits passive (it doesn't parse the offer's setup attr), but we
+//      force CLIENT internally in our patched dtls_srtp_init. Chrome
+//      needs the SDP to match what we actually do on the wire.
+// Returns malloc'd buffer; caller frees. NULL on OOM.
 static char *rewrite_answer_mid(const char *answer, const char *target_mid) {
     size_t old_len = strlen(answer);
     size_t target_len = strlen(target_mid);
@@ -547,6 +554,13 @@ static char *rewrite_answer_mid(const char *answer, const char *target_mid) {
             memcpy(out + o, target_mid, target_len); o += target_len;
             if (eol && eol > p && *(eol - 1) == '\r') out[o++] = '\r';
             out[o++] = '\n';
+        } else if (strncmp(p, "a=setup:passive", 15) == 0) {
+            // setup:passive (server) → setup:active (client). Both 6 chars
+            // after "a=setup:". 6→6 — same total length.
+            memcpy(out + o, "a=setup:active", 14); o += 14;
+            // Copy whatever trails "passive" (CR/LF).
+            memcpy(out + o, p + 15, line_len - 15);
+            o += line_len - 15;
         } else {
             memcpy(out + o, p, line_len);
             o += line_len;
@@ -747,7 +761,9 @@ void webrtc_peer_init(const char *robot_name) {
     // session is up. DTLS spams ERROR-level mbedtls_ssl_read=-26752 (which
     // is just "no UDP data right now," not a real failure). SCTP logs every
     // chunk receive. Keep PEER_DEF and AGENT (state transitions are useful).
-    esp_log_level_set("DTLS", ESP_LOG_NONE);
+    // TEMP: DTLS at ERROR (was NONE) so handshake error codes are visible
+    // while diagnosing why DTLS times out even with patched ECDSA cert.
+    esp_log_level_set("DTLS", ESP_LOG_ERROR);
     esp_log_level_set("SCTP", ESP_LOG_WARN);
     // "wifi:m f null" floods at WARN whenever radio coex drops a management
     // frame — happens continuously during WebRTC video on classic ESP32
