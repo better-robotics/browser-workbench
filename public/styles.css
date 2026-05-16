@@ -1105,84 +1105,6 @@ details.tray.has-alert > summary::after {
 /* Enroll prompt — appears on a connected robot whose authorized list
    doesn't contain this dashboard's fingerprint. Empty list = TOFU invite. */
 
-/* VLM "Live scene" toggle under the camera stream. Checkbox sits flush
-   with the stream; the last observed scene text lays out beneath, muted. */
-.camera-watch-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 10px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.camera-watch-row input[type="checkbox"] { cursor: pointer; }
-/* Scene text can vary a lot in length (VLM sometimes returns one short
-   sentence, sometimes a paragraph). Cap at 3 lines with an ellipsis so a
-   long observation doesn't shove the rest of the card down on every
-   frame. iOS/macOS Notifications + Siri results use the same pattern. */
-.camera-scene {
-  flex-basis: 100%;
-  padding-left: 26px;
-  line-height: 1.4;
-  color: var(--ink-muted);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.camera-watch-hint { margin-top: 10px; font-size: 12px; }
-.camera-watch-load { margin-top: 6px; padding-left: 26px; }
-.camera-watch-load .camera-scene { padding-left: 0; margin-bottom: 4px; }
-
-/* Editable perception prompt — always visible under the camera. Flat form
-   shape (label / field / hint) matches standard form patterns; explicit
-   sans-serif so the label + hint don't inherit the monospace from the
-   surrounding robot card styles. */
-.camera-prompt { margin-top: 12px; }
-.camera-prompt-label {
-  display: block;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  margin-bottom: 4px;
-}
-.camera-prompt-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 13px;
-  line-height: 1.4;
-  resize: vertical;
-  min-height: 58px;
-}
-.camera-prompt-input::placeholder {
-  color: var(--ink-muted);
-  opacity: 0.7;
-}
-.camera-prompt-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
-}
-.camera-prompt-hint {
-  margin-top: 6px;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 12px;
-  color: var(--ink-muted);
-  line-height: 1.4;
-}
-
 /* OTA progress bar — thin inline indicator styled to match the dashboard
    rather than the browser's chunky native bar. */
 .ota-progress {
@@ -2761,38 +2683,6 @@ body.phone textarea {
 }
 #phone-scanner-cancel { position: absolute; right: 8px; top: 8px; }
 .phone-scanner-fallback { padding: 4px; }
-/* Scene push from desktop's VLM — shown under the chat as a live caption. */
-.phone-scene {
-  padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-}
-.phone-scene-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--ink-muted);
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-.phone-scene-label .icon-svg { width: 12px; height: 12px; }
-.phone-scene-text {
-  font-size: 14px;
-  line-height: 1.35;
-  color: var(--ink);
-  word-break: break-word;
-  /* Same clamp-with-ellipsis as the desktop .camera-scene, a touch taller
-     since the phone has more vertical real estate than the card row. */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Panic button — panic-red always, because its purpose is to be found fast
    when the robot is doing the wrong thing. Status line auto-hides after ~3s. */
 .phone-command { display: flex; flex-direction: column; gap: 6px; }

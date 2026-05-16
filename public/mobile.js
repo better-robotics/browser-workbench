@@ -201,18 +201,7 @@ function onPeerMessage(msg) {
     pending.resolve({ ok: !!msg.ok, data: msg.data, error: msg.error });
     return;
   }
-  if (msg.type === "scene") {
-    // Raw VLM observation pushed from desktop, no Pip commentary.
-    const section = $("phone-scene");
-    const text = (msg.text || "").trim();
-    if (text) {
-      $("phone-scene-source").textContent = msg.source || "Camera";
-      $("phone-scene-text").textContent = text;
-      section.hidden = false;
-    } else {
-      section.hidden = true;
-    }
-  } else if (msg.type === "target-info") {
+  if (msg.type === "target-info") {
     // Hide drive surface + panic stop when there's no robot to control.
     const driveSection = $("phone-drive");
     const cmdSection = $("phone-command");

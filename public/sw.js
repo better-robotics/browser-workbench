@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "f22a88d9";
+const VERSION = "638adfd0";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -49,8 +49,8 @@ const BOOTSTRAP = [
 // Cross-origin URLs we DO cache. Default is pass-through (host owns
 // freshness), but HuggingFace model files (50-200 MB, one-time) get
 // evicted under browser storage pressure. SW cache is durable. Caching
-// turns "Watch with Pip" / grounding from "needs network per session"
-// into "needs network for first model download, ever."
+// turns grounding / local LFM2 from "needs network per session" into
+// "needs network for first model download, ever."
 function isCacheableCrossOrigin(url) {
   // HF model files (.onnx, .safetensors, tokenizer.json) from
   // from_pretrained() in transformers.js.

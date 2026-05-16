@@ -20,9 +20,8 @@ const log = await robot.op("get-log", { lines: 50, unit: "pi-robot" });
 // Fire-and-forget for ops where the robot drops BLE mid-call.
 await robot.op("reboot", {}, { await: false });
 
-// Vision in the loop — same in-browser VLM Pip uses (perception.js).
-// Camera must be streaming on this robot first.
-const scene = await robot.scene("Is the path ahead clear?");
+// Capture a current camera frame as a data URL (camera card must be running).
+const dataUrl = robot.frame(320);
 
 // Phone in the loop — paired phone via the WebRTC pair layer.
 const dir = await phones[0].ask({

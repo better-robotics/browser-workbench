@@ -13,7 +13,7 @@ import { showLoading, hideLoading } from "https://cdn.jsdelivr.net/npm/@jonasnev
 // replies WILL truncate. No chunking; downstream prompts that need more
 // must split the request themselves.
 
-// Keep in sync if perception.js bumps the URL — avoids loading two copies
+// Keep in sync if grounding.js bumps the URL — avoids loading two copies
 // of the transformers runtime when both backends are active.
 const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
 const MODEL_ID = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX";

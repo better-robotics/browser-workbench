@@ -43,7 +43,7 @@ setHelpersRobotRenderer((entry) => renderEntry(entry));
 setExpectingReconnectHandler((id) => markExpectingReconnect(id));
 
 // A phone helper's camera mounted on this robot (phone-as-eye). The video
-// element is discoverable by perception.js's findCameraElement enumerator
+// element is discoverable by camera-frame.js's findCameraElement enumerator
 // via [data-attached-camera-id]. srcObject is bound by renderEntry after
 // innerHTML rebuild.
 function attachedCameraHtml(entry) {
@@ -827,8 +827,8 @@ function renderEntry(entry) {
   if (!entry.node) { render(); return; }
   // Preserve focus + value across the innerHTML rebuild for any data-action
   // input/textarea inside this card. Telemetry/ops/motor notifies fire
-  // renderEntry frequently; without this, typing in an inline editor (e.g.
-  // the perception prompt field) is interrupted on every tick.
+  // renderEntry frequently; without this, typing in an inline editor would
+  // be interrupted on every tick.
   const active = document.activeElement;
   const savedAction = active && entry.node.contains(active) ? active.dataset?.action : null;
   const savedValue = savedAction && "value" in active ? active.value : null;
@@ -1123,7 +1123,7 @@ function renderEntry(entry) {
 
   // Restore focus + selection to the data-action element that had focus
   // before the rebuild, if any. Preserves the user's typing in inline
-  // editors (perception prompt textarea, etc.) across telemetry ticks.
+  // editors across telemetry ticks.
   if (savedAction) {
     const restored = entry.node.querySelector(`[data-action="${savedAction}"]`);
     if (restored) {

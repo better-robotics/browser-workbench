@@ -60,15 +60,6 @@ export function listPhones() {
   }));
 }
 
-// Push a VLM scene description to every paired phone. Separate channel from
-// notices/chat-replies so phones can render the stream of observations under
-// the camera label rather than clobbering Pip's last reply.
-export function broadcastSceneToPhones({ source, text }) {
-  for (const p of _phones.values()) {
-    p.peer.send({ type: "scene", source, text });
-  }
-}
-
 // Wire (must match showAsk in mobile.js):
 //   desktop→phone  { type:"ask",       askId, question, options, imageDataUrl }
 //   phone→desktop  { type:"ask-reply", askId, answer }

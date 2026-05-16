@@ -20,12 +20,10 @@ for (const r of robots) {
   await r.led(false);
 }
 
-// Vision in the loop — uses the in-browser VLM.
-const scene = await robot.scene("Is the path ahead clear?");
 ```
 
 - **Browser is the IDE.** Scripts panel + capability cards. localStorage is the file system; BLE is the runtime link.
-- **Models run in the browser too.** VLM and open-vocab detector run client-side. No GPU server, no cloud inference bill.
+- **Models run in the browser too.** Open-vocab detector + local LFM2 planner fallback run client-side. No GPU server, no cloud inference bill.
 - **Two authorable surfaces, co-equal:** user code (you write JS) and Pip (a tool-using LLM with replay and ask-human, currently Claude). Both bound by the same firmware safety floor.
 - **Fork the repo, push to your GitHub Pages, you have a robotics platform.** No backend, no accounts, no data leaving the browser.
 

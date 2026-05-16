@@ -11,13 +11,6 @@ import { fetchIceServers } from "../../pairing.js";
 import { registerExternalPc, unregisterExternalPc } from "../../webrtc-robot.js";
 import { installPackage } from "./command.js";
 import { capSection } from "./cap-section.js";
-import {
-  stopWatching as visionStop,
-  renderPerceptionRow,
-  wirePerceptionToggle,
-  renderPerceptionPromptField,
-  wirePerceptionPrompt,
-} from "../../perception.js";
 import { notifyRobotStreamChange } from "../../phones.js";
 
 const OP_BEGIN   = 0x01;
@@ -37,12 +30,9 @@ export function makeWebrtcInstallableCap(schema) {
   const streamField = `${name}Stream`;
   const bufField    = `${name}RecvBuf`;
   const statusState = `${name}Status`;
-  const watchingField = `${name}Watching`;
   const actionStart   = `${name}-start`;
   const actionStop    = `${name}-stop`;
   const actionInstall = `${name}-install`;
-  const actionWatch   = `${name}-watch`;
-  const actionPrompt  = `${name}-prompt`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   async function sendSignal(entry, msg) {
@@ -152,9 +142,6 @@ export function makeWebrtcInstallableCap(schema) {
   }
 
   async function stop(entry) {
-    // Perception rides on the stream; kill it before tearing down so the
-    // next frame grab doesn't trip on null srcObject.
-    if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
     try { await entry[signalField]?.writeValueWithResponse(new Uint8Array([OP_STOP])); } catch {}
     if (entry[pcField]) {
       unregisterExternalPc(entry.id, name);
@@ -231,18 +218,10 @@ export function makeWebrtcInstallableCap(schema) {
       } else {
         action = `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
       }
-      const running = !!entry[pcField];
-      const watching = !!entry[watchingField];
-      const watchRow = renderPerceptionRow(entry, {
-        running, watching, watchingAction: actionWatch,
-      });
-      const promptField = running ? renderPerceptionPromptField(entry, { editAction: actionPrompt }) : "";
       const body = `
         ${installHint}
         ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
         ${entry[pcField] ? `<video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted></video>` : ""}
-        ${watchRow}
-        ${promptField}
       `;
       return capSection({ name, label, state: meta, action, body, transport: "wifi" });
     },
@@ -251,10 +230,6 @@ export function makeWebrtcInstallableCap(schema) {
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click",   () => start(entry));
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click",    () => stop(entry));
       node.querySelector(`[data-action="${actionInstall}"]`)?.addEventListener("click", () => install(entry));
-      wirePerceptionToggle(entry, node, {
-        watchingAction: actionWatch, watchingField, onRender: renderEntry,
-      });
-      wirePerceptionPrompt(entry, node, { editAction: actionPrompt, onRender: renderEntry });
     },
 
     // Rebind the live <video> to its MediaStream after innerHTML rebuild.

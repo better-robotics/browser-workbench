@@ -28,7 +28,7 @@ This project is the **browser-native robotics dev environment** — vibe-code ro
 # Subsystem map
 
 - **Pair layer** — `pairing.js`, `phones.js` (paired-phones management on desktop), `mobile.js` + `phone.html` (phone-side UI). Desktop ↔ phone WebRTC.
-- **Perception + detection** — `perception.js` (VLM), `grounding.js` (open-vocab detector), `aruco.js` (overhead ArUco localization → `entry.arucoPosition`). Camera-frame capture, scene prompts, structured outputs. Overhead aruco is wired but unproven against real hardware — see "Wired but unproven" in `.claude/notes.md`.
+- **Perception + detection** — `camera-frame.js` (pixel capture helpers), `grounding.js` (open-vocab detector), `aruco.js` (overhead ArUco localization → `entry.arucoPosition`). Overhead aruco is wired but unproven against real hardware — see "Wired but unproven" in `.claude/notes.md`.
 - **Pip / assistant** — `assistant.js`, `claude.js`, `local-llm.js`, `pip-tools.js`, `replay.js`. Tool-using LLM integration (Claude or local fallback), tool schemas, executor, replay logging.
 - **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`. BLE protocol, ops channel, per-cap cards + runtime.
 - **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`. SD prep, USB recovery, pinout editor.
@@ -76,8 +76,7 @@ Different model shapes are good at different jobs — distinct primitives, not i
 
 **Detectors and perception (present-tense backends):**
 
-- **Open-vocab detector** (`grounding.js`, Grounding DINO tiny): "find the red cup" works on a text prompt, no retraining. ~150–300 ms on CPU. Default detector today.
-- **VLM** (`perception.js`, LFM2.5-VL-450M): semantic + open-vocab spatial. Caption + structured-JSON bbox prompting. ~1.5 s — planner-tier, not reactive. Single-pulse motion based on VLM text is fine for a toy; chaining without a deterministic primitive re-asserting between pulses drifts.
+- **Open-vocab detector** (`grounding.js`, Grounding DINO tiny): "find the red cup" works on a text prompt, no retraining. ~150–300 ms on CPU. Default detector today. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 
 **Unproven / experimental:** Overhead ArUco localization (`aruco.js`, wired but unvalidated end-to-end) and YOLO26n closed-vocab detector (not built). Full record + validation criteria in `.claude/notes.md` under "Wired but unproven." Keep both out of user docs until validated.
 

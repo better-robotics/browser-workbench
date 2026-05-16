@@ -3,13 +3,6 @@
 // MJPEG fallback on :81/stream (transport toggle below). Pi path also
 // uses BLE-signaled WebRTC, via pi_robot_rtc.py over a local Unix socket.
 import { logFor } from "../../log.js";
-import {
-  stopWatching as visionStop,
-  renderPerceptionRow,
-  wirePerceptionToggle,
-  renderPerceptionPromptField,
-  wirePerceptionPrompt,
-} from "../../perception.js";
 import { capSection } from "./cap-section.js";
 import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
 
@@ -91,11 +84,8 @@ async function startEsp32WebRTCVideo(entry, img) {
 export function makeMjpegStreamCap(schema) {
   const { name } = schema;
   const runningField = `${name}Running`;
-  const watchingField = `${name}Watching`;
   const actionStart = `${name}-start`;
   const actionStop  = `${name}-stop`;
-  const actionWatch = `${name}-watch`;
-  const actionPrompt = `${name}-prompt`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   const transportField = `${name}Transport`;
@@ -103,10 +93,9 @@ export function makeMjpegStreamCap(schema) {
   return {
     name,
     schema,
-    initEntry: () => ({ [runningField]: false, [watchingField]: false, [transportField]: "webrtc" }),
+    initEntry: () => ({ [runningField]: false, [transportField]: "webrtc" }),
     cleanup(entry)  {
       entry[runningField] = false;
-      if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
       stopMjpegForward(entry);
     },
 
@@ -114,13 +103,12 @@ export function makeMjpegStreamCap(schema) {
       if (entry.status !== "connected") return "";
       const wifi = hasWifi(entry);
       const running = entry[runningField];
-      const watching = entry[watchingField];
       const transport = entry[transportField] || "webrtc";
       let body = "";
       if (!wifi) {
         body = `<div class="meta">Waiting for the robot to join WiFi — video needs a LAN IP.</div>`;
       } else if (running) {
-        // crossOrigin lets perception.js's canvas read the pixels.
+        // crossOrigin lets camera-frame.js's canvas read the pixels.
         // For WebRTC: no src at render time — click handler attaches
         // frames via blob URLs. For HTTP: the click handler sets src
         // to http://<ip>:81/stream directly.
@@ -134,10 +122,6 @@ export function makeMjpegStreamCap(schema) {
         : running
           ? `<button class="secondary sm" data-action="${actionStop}">Stop</button>`
           : `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
-      const watchRow = renderPerceptionRow(entry, {
-        running, watching, watchingAction: actionWatch,
-      });
-      const promptField = running ? renderPerceptionPromptField(entry, { editAction: actionPrompt }) : "";
       // State string only when it adds info beyond the action verb. Action
       // says Start/Stop already; "ready"/"streaming" would just echo it.
       // "Waiting for WiFi" earns its place — the button is disabled and the
@@ -178,7 +162,7 @@ export function makeMjpegStreamCap(schema) {
         // Child caps (Flash, Snapshot — schema-flat, conceptually camera
         // sub-controls) render here so the operator sees one Camera section
         // hosting everything camera-shaped instead of three peers in a flat list.
-        body: `${body}${watchRow}${promptField}${transportRow}${childHtml}`,
+        body: `${body}${transportRow}${childHtml}`,
         transport: "wifi",
       });
     },
@@ -226,7 +210,6 @@ export function makeMjpegStreamCap(schema) {
         startMjpegForward(entry, img);
       });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click", () => {
-        if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
         if (entry._webrtcVideo) { entry._webrtcVideo.dispose(); entry._webrtcVideo = null; }
         stopMjpegForward(entry);
         entry[runningField] = false;
@@ -246,10 +229,6 @@ export function makeMjpegStreamCap(schema) {
         entry[transportField] = transportSel.value;
         logFor(entry, `video transport → ${transportSel.value}`);
       });
-      wirePerceptionToggle(entry, node, {
-        watchingAction: actionWatch, watchingField, onRender: renderEntry,
-      });
-      wirePerceptionPrompt(entry, node, { editAction: actionPrompt, onRender: renderEntry });
     },
   };
 }

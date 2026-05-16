@@ -39,7 +39,7 @@ External systems that compete for the same user decision as Better Robotics — 
 ### MicroBlocks (microblocks.fun)
 - **Competes for:** browser IDE to program a BLE/serial-connected microcontroller with blocks.
 - **Overlap:** runs in Chrome/Edge via WebSerial + Web Bluetooth, no install; supports micro:bit, XRP, and others ([wiki.microblocks.fun](https://wiki.microblocks.fun/en/xrp_setup)). Live programming model.
-- **Divergence:** pushes a VM to the device; programs run on-board. No LLM/VLM, no phone-human handoff, no replay. Single-device focus.
+- **Divergence:** pushes a VM to the device; programs run on-board. No LLM, no phone-human handoff, no replay. Single-device focus.
 - **Better than us today:** live autocomplete / block editing against running firmware; a real educational community.
 - **Decision impact:** closest architectural cousin. Validates "browser-first, no-account, BLE-capable" as a shipped pattern. Has no opinion on browser-as-brain for runtime.
 
@@ -102,7 +102,7 @@ External systems that compete for the same user decision as Better Robotics — 
 
 **What's the moat, given the landscape?** Ranked by erosion runway (slowest first):
 - **Browser-native dev surface.** Write code in a tab, no install, no SDK download. Every "robotics platform" worth naming requires *some* install — `viam-server`, ESP-IDF, gpiozero on Pi, the Arduino IDE. The fork-and-run static-site distribution model is structurally hard to copy without restructuring a whole company's product surface.
-- **Browser-resident model serving.** VLM, open-vocab detector, ArUco fiducial pose all client-side. No GPU server, no inference bill, no cloud-API dependency. Viam, Freedom Robotics, and LeRobot all assume server-side or per-device GPU. The combination "browser IDE + browser ML inference" is the shape no one is shipping.
+- **Browser-resident model serving.** Open-vocab detector, ArUco fiducial pose, local LFM2 planner fallback — all client-side. No GPU server, no inference bill, no cloud-API dependency. Viam, Freedom Robotics, and LeRobot all assume server-side or per-device GPU. The combination "browser IDE + browser ML inference" is the shape no one is shipping.
 - **Layered safety.** Firmware-bounded motors that the IDE-level planner (user code or Pip) can't bypass. Ask-human as the terminal cascade rung. Standard practice in driving (openpilot-panda) but rare in hobby/classroom robotics.
 - **Fork-and-run.** GitHub-Pages deployable, no backend, no accounts, no data leaving the browser. MIT-licensed. Sphero, Viam, Particle, RainMaker, Freedom — all account-anchor.
 

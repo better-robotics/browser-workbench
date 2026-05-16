@@ -44,12 +44,6 @@ test("summarizeTool: move_motor picks applied over input", () => {
   assert.match(out, /L40 R40 · 2000ms/);
 });
 
-test("summarizeTool: scene truncates", () => {
-  const long = "a".repeat(200);
-  const out = summarizeTool("get_robot_scene", {}, { scene: long }, null);
-  assert.ok(out.length < 120, `expected truncation, got ${out.length} chars`);
-});
-
 test("summarizeTool: ask_human surfaces transport", () => {
   const out = summarizeTool("ask_human", {}, { answer: "Forward", via: "chat" }, null);
   assert.match(out, /\(via chat\)/);

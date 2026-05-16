@@ -32,15 +32,9 @@ export function summarizeTool(name, input, result, error, durationMs) {
     const a = r.applied || input || {};
     return `${lbl} · L${a.l ?? a.left ?? "?"} R${a.r ?? a.right ?? "?"} · ${a.duration_ms ?? "?"}ms${dur}`;
   }
-  if (name === "get_robot_scene" || name === "ask_robot_scene") {
-    return `${lbl} · "${shorten(r.scene || r.text || "", 80)}"${dur}`;
-  }
   if (name === "ask_human") {
     const via = r.via ? ` (via ${r.via})` : "";
     return `${lbl}${via} · "${shorten(r.answer || "(no answer)", 60)}"${dur}`;
-  }
-  if (name === "start_live_scene" || name === "stop_live_scene") {
-    return `${lbl} · ${input?.id || "?"}${r.already_watching ? " (already on)" : ""}${dur}`;
   }
   if (name === "list_robots") {
     return `${lbl} · ${(r.robots || []).map(x => x.name).join(", ") || "(none)"}${dur}`;

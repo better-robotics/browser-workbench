@@ -7,7 +7,7 @@ import { setToggleValue } from "./capabilities/runtime/toggle.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
 import { waitOpsResponse } from "./ops-response.js";
-import { observeOnce, captureFrameDataUrl } from "./perception.js";
+import { captureFrameDataUrl } from "./camera-frame.js";
 import { listPhones, askHuman } from "./phones.js";
 import { ask as claudeAsk } from "./claude.js";
 
@@ -97,38 +97,6 @@ log("done — adjust durations if it doesn't close up");
 `,
   },
   {
-    id: "watch-and-wander",
-    name: "Watch & wander — Pip-grade vision in the loop",
-    body: `// Perception in the loop: ask the in-browser VLM what's in front of the
-// camera, decide whether to step forward. Same VLM Pip uses
-// (public/perception.js). Requires camera streaming on this robot —
-// start it from the robot card first.
-
-if (!robot) { log("Pair a robot first."); return; }
-
-for (let i = 0; i < 5; i++) {
-  log(\`look \${i + 1}…\`);
-  let scene;
-  try {
-    scene = await robot.scene("In one short sentence: is the path ahead clear, or is something blocking it?");
-  } catch (err) {
-    log(\`scene failed: \${err.message}\`);
-    log("Hint: open the camera card and start streaming first.");
-    return;
-  }
-  log(\`saw: \${scene}\`);
-  if (/block|wall|obstacle|chair|leg|hand|person|cat|dog/i.test(scene)) {
-    log("blocked → stopping");
-    speak("blocked, stopping");
-    return;
-  }
-  await robot.move({ left: 25, right: 25, durationMs: 400 });
-  await sleep(400);
-}
-log("five steps clear");
-`,
-  },
-  {
     id: "phone-joystick",
     name: "Phone joystick — paired phone drives the robot",
     body: `// Phone in the loop: pop a question on the paired phone, drive based
@@ -156,44 +124,6 @@ for (let step = 0; step < 6; step++) {
   log(\`phone said: \${dir ?? "(no answer)"}\`);
   if (!dir || dir === "Stop") break;
   if (CMDS[dir]) await robot.move({ ...CMDS[dir], durationMs: 400 });
-}
-log("done");
-`,
-  },
-  {
-    id: "pip-in-the-loop",
-    name: "Pip in the loop — VLM sees, Claude decides, robot acts",
-    body: `// The architecture's defining shape: vision feeds an LLM, the LLM picks
-// a typed action, firmware enforces the safety floor. Same primitives Pip
-// uses — the script is just driving the loop directly. Six steps, then stop.
-//
-// Requires: camera streaming on this robot + a connected Pip backend
-// (pip.ask hits the user's Claude API key, same as Pip).
-
-if (!robot) { log("Pair a robot first."); return; }
-
-const SYSTEM = "You drive a small ground robot via short pulses. Given a one-sentence scene, reply with EXACTLY ONE token from: forward, left, right, stop. No punctuation, no explanation.";
-
-for (let step = 0; step < 6; step++) {
-  let scene;
-  try { scene = await robot.scene("Describe what's directly in front of the robot in one short sentence."); }
-  catch (err) { log(\`scene failed: \${err.message} — start the camera stream first.\`); return; }
-  log(\`saw: \${scene}\`);
-
-  let move;
-  try { move = (await pip.ask(\`Scene: \${scene}\`, { system: SYSTEM, maxTokens: 8 })).trim().toLowerCase(); }
-  catch (err) { log(err.message); return; }
-  log(\`pip: \${move}\`);
-
-  if (move === "stop") { speak("stopping"); break; }
-  const cmd = {
-    forward: { left: 25,  right: 25 },
-    left:    { left: -22, right: 22 },
-    right:   { left: 22,  right: -22 },
-  }[move];
-  if (!cmd) { log(\`unrecognized move: "\${move}"\`); break; }
-  await robot.move({ ...cmd, durationMs: 350 });
-  await sleep(400);
 }
 log("done");
 `,
@@ -298,11 +228,6 @@ function makeRobotApi(entry) {
       return waitOpsResponse(name, entry.id, opts.timeoutMs ?? 10000);
     },
 
-    // Vision: same in-browser VLM Pip uses (perception.js). Requires the
-    // robot's camera stream to be live — start it from the camera card first.
-    async scene(prompt = "Describe what the robot sees in one short sentence.") {
-      return observeOnce(entry, prompt);
-    },
     frame(maxDim = 320) { return captureFrameDataUrl(entry, maxDim); },
   };
 }

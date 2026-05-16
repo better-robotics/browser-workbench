@@ -1,0 +1,59 @@
+// Camera-frame helpers — pixel capture from <img class="robot-camera">
+// (ESP32 MJPEG with firmware CORS) or <video data-camera-id> (Pi WebRTC),
+// plus the attached-phone variant (data-attached-camera-id).
+
+function findPrimaryCameraElement(entry) {
+  const node = entry.node;
+  if (!node) return null;
+  return node.querySelector("img.robot-camera:not([data-attached-camera-id])")
+      || node.querySelector("video[data-camera-id]:not([data-attached-camera-id])")
+      || node.querySelector("video:not([data-attached-camera-id])");
+}
+
+function findAttachedCameraElement(entry) {
+  const node = entry.node;
+  if (!node) return null;
+  return node.querySelector(`video[data-attached-camera-id="${entry.id}"]`);
+}
+
+export function listCameraSources(entry) {
+  const out = [];
+  const primary = findPrimaryCameraElement(entry);
+  if (primary) out.push({ label: "primary", element: primary });
+  const attached = findAttachedCameraElement(entry);
+  if (attached) out.push({ label: "phone", element: attached });
+  return out;
+}
+
+// Frame as data URL — used by ask_human to send the robot's view to a
+// paired phone. Smaller default maxDim keeps JPEG under typical WebRTC
+// data-channel budgets (~60KB).
+export function captureFrameDataUrl(entry, maxDim = 320, quality = 0.75) {
+  const canvas = drawFrameToCanvas(entry, maxDim);
+  if (!canvas) return null;
+  try { return canvas.toDataURL("image/jpeg", quality); }
+  catch { return null; }
+}
+
+export function drawFrameToCanvas(entry, maxDim, source = null) {
+  const el = source || findPrimaryCameraElement(entry);
+  if (!el) return null;
+  let w = el.naturalWidth || el.videoWidth;
+  let h = el.naturalHeight || el.videoHeight;
+  if (!w || !h) return null;
+  if (Math.max(w, h) > maxDim) {
+    const s = maxDim / Math.max(w, h);
+    w = Math.round(w * s);
+    h = Math.round(h * s);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  try {
+    canvas.getContext("2d").drawImage(el, 0, 0, w, h);
+    return canvas;
+  } catch {
+    // Tainted canvas → firmware didn't serve CORS + the <img> is missing
+    // crossOrigin="anonymous". Surface null; caller logs once.
+    return null;
+  }
+}
