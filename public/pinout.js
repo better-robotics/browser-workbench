@@ -42,12 +42,12 @@ const GPIO_TO_PHYS = new Map(
 // to camera, µSD, or PSRAM. Status: "free" | "sd-shared" | "reserved"
 // (bootstrap, UART program, camera XCLK). Notes surface on hover.
 const ESP32_PINS_TOP = [
-  { label: "IO4",  kind: "gpio", status: "sd-shared", note: "SD DATA1 + onboard flash LED on most AI-Thinker boards — free only if SD unmounted and LED unused" },
-  { label: "IO2",  kind: "gpio", status: "sd-shared", note: "SD DATA0; also a bootstrap pin (must float high at boot)" },
-  { label: "IO14", kind: "gpio", status: "sd-shared", note: "SD CLK — free only if µSD is unused" },
-  { label: "IO15", kind: "gpio", status: "sd-shared", note: "SD CMD; also bootstrap — free only if µSD is unused" },
-  { label: "IO13", kind: "gpio", status: "sd-shared", note: "SD DATA3 — free only if µSD is unused" },
-  { label: "IO12", kind: "gpio", status: "sd-shared", note: "SD DATA2; bootstrap pin (must be LOW at boot or flash voltage mis-detects) — use only with pull-down" },
+  { label: "IO4",  gpio: 4,  kind: "gpio", status: "sd-shared", note: "SD DATA1 + onboard flash LED on most AI-Thinker boards — free only if SD unmounted and LED unused" },
+  { label: "IO2",  gpio: 2,  kind: "gpio", status: "sd-shared", note: "SD DATA0; also a bootstrap pin (must float high at boot)" },
+  { label: "IO14", gpio: 14, kind: "gpio", status: "sd-shared", note: "SD CLK — free only if µSD is unused" },
+  { label: "IO15", gpio: 15, kind: "gpio", status: "sd-shared", note: "SD CMD; also bootstrap — free only if µSD is unused" },
+  { label: "IO13", gpio: 13, kind: "gpio", status: "sd-shared", note: "SD DATA3 — free only if µSD is unused" },
+  { label: "IO12", gpio: 12, kind: "gpio", status: "sd-shared", note: "SD DATA2; bootstrap pin (must be LOW at boot or flash voltage mis-detects) — use only with pull-down" },
   { label: "GND",  kind: "gnd" },
   { label: "5V",   kind: "5v" },
 ];
@@ -56,14 +56,49 @@ const ESP32_PINS_TOP = [
 // in header-order matches what the user sees on the board.
 const ESP32_PINS_BOT = [
   { label: "GND",  kind: "gnd" },
-  { label: "U0T",  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX, used for USB-serial programming. Usable as GPIO only if you give up serial." },
-  { label: "U0R",  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX, used for USB-serial programming. Usable as GPIO only if you give up serial." },
+  { label: "U0T",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX, used for USB-serial programming. Usable as GPIO only if you give up serial." },
+  { label: "U0R",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX, used for USB-serial programming. Usable as GPIO only if you give up serial." },
   { label: "VCC",  kind: "5v",  note: "Jumper-selectable 3V3 or 5V on some boards" },
   { label: "GND",  kind: "gnd" },
-  { label: "IO0",  kind: "gpio", status: "reserved", note: "Camera XCLK + boot-mode strap (hold LOW to enter flash mode). Do not reassign." },
-  { label: "IO16", kind: "gpio", status: "free",     note: "Free on ESP32 modules without PSRAM. WROVER modules with PSRAM use IO16 internally — check your module first." },
+  { label: "IO0",  gpio: 0,  kind: "gpio", status: "reserved", note: "Camera XCLK + boot-mode strap (hold LOW to enter flash mode). Do not reassign." },
+  { label: "IO16", gpio: 16, kind: "gpio", status: "free",     note: "Free on ESP32 modules without PSRAM. WROVER modules with PSRAM use IO16 internally — check your module first." },
   { label: "3V3",  kind: "3v3" },
 ];
+
+// GPIO → (cx, cy) lookup for routing wires to ESP32 pins. Only labeled
+// GPIO pins make it in; power/ground pins are looked up separately by
+// kind when an encoder needs a 3V3 / GND destination.
+const ESP_GPIO_TO_POS = new Map();
+const ESP_FIRST_PIN_X_LATE = 50;          // mirrors ESP_FIRST_PIN_X (declared further down)
+const ESP_PIN_SPACING_LATE = 56;
+const ESP_TOP_ROW_Y_LATE = 50;
+const ESP_BOT_ROW_Y_LATE = 210;
+ESP32_PINS_TOP.forEach((p, i) => {
+  if (p.gpio != null) ESP_GPIO_TO_POS.set(p.gpio, {
+    cx: ESP_FIRST_PIN_X_LATE + i * ESP_PIN_SPACING_LATE,
+    cy: ESP_TOP_ROW_Y_LATE,
+    row: "top",
+  });
+});
+ESP32_PINS_BOT.forEach((p, i) => {
+  if (p.gpio != null) ESP_GPIO_TO_POS.set(p.gpio, {
+    cx: ESP_FIRST_PIN_X_LATE + i * ESP_PIN_SPACING_LATE,
+    cy: ESP_BOT_ROW_Y_LATE,
+    row: "bot",
+  });
+});
+
+// Power/ground destinations for encoder VCC + GND fan-in on ESP32.
+// First 3V3 pin on the bottom row (only one); pick the closest GND to
+// the centroid of the user-assignable pins.
+function espPinPosByKind(rowArr, rowY, kind) {
+  for (let i = 0; i < rowArr.length; i++) {
+    if (rowArr[i].kind === kind) {
+      return { cx: ESP_FIRST_PIN_X_LATE + i * ESP_PIN_SPACING_LATE, cy: rowY };
+    }
+  }
+  return null;
+}
 
 // Firmware defaults — MUST match pi_robot.py's LED_PIN and MOTORS_PINS.
 // Used as input fallbacks AND as claimsFromConfig fallbacks so the SVG
@@ -529,6 +564,194 @@ function renderEsp32Board() {
   `;
 }
 
+// Augmented ESP32 view — same physical-board map as renderEsp32Board,
+// plus the L298N driver below and encoder breakouts beneath that.
+// Motor wires fan from ESP32 GPIO pins (top or bottom row) down to the
+// driver terminals; encoder OUT wires fan from ESP32 free GPIOs to
+// encoder OUT pins; encoder VCC/GND wires terminate on the ESP32's
+// 3V3 and nearest GND. Visualization-only for now — editing still
+// happens in the form below the SVG.
+const ESP_DRIVER_GAP = 60;
+const ESP_DRIVER_Y   = ESP_H + ESP_DRIVER_GAP;          // 320
+const ESP_DRIVER_H   = 175;
+const ESP_TERM_R     = 7;
+// 6 terminals centered across ESP_W (520) — pad 50 each side, gap 84.
+const ESP_TERMINAL_XS = [50, 134, 218, 302, 386, 470];
+const ESP_TERM_CY    = ESP_DRIVER_Y + 85;                // 405
+const ESP_ENC_GAP    = 50;
+const ESP_ENC_PCB_W  = 130;
+const ESP_ENC_PCB_H  = 80;
+const ESP_ENC_DOT_R  = 6;
+const ESP_ENC_PIN_DX = 32;
+const ESP_ENC_Y      = ESP_DRIVER_Y + ESP_DRIVER_H + ESP_ENC_GAP;   // 545
+const ESP_ENC_DOT_Y  = ESP_ENC_Y + 45;                              // 590
+const ESP_ENC_LEFT_CX  = 130;
+const ESP_ENC_RIGHT_CX = 390;
+const ESP_TOTAL_H    = ESP_ENC_Y + ESP_ENC_PCB_H + 50;              // 675
+
+// ESP32-side encoder VCC + GND destinations. The ESP32-CAM exposes one
+// 3V3 (bottom row, last pin) and three GNDs (top row last, bottom row
+// first + middle). Pick the nearest GND for each encoder side.
+const ESP_VCC_POS = espPinPosByKind(ESP32_PINS_BOT, ESP_BOT_ROW_Y_LATE, "3v3");  // bottom-right 3V3
+const ESP_GND_LEFT_POS  = espPinPosByKind(ESP32_PINS_BOT, ESP_BOT_ROW_Y_LATE, "gnd");                    // first GND (left side of bottom row)
+const ESP_GND_RIGHT_POS = { cx: ESP_FIRST_PIN_X_LATE + 6 * ESP_PIN_SPACING_LATE, cy: ESP_TOP_ROW_Y_LATE }; // top row GND (right-ish)
+
+// Maps the motors_pins.* paths the fw advertises into L298N terminal
+// roles. Same mapping as the Pi side because the schema is shared.
+const ESP_ROLE_TO_TERMINAL = {
+  "left forward":  "in1",
+  "left backward": "in2",
+  "right forward": "in3",
+  "right backward":"in4",
+};
+
+function esp32ClaimsFromEntry(entry) {
+  // Mirror of claimsFromEntry, but ESP32 claims are keyed by GPIO
+  // number directly (there's no separate "physical pin number"
+  // identifier — the silkscreen label is the GPIO).
+  const claims = {};
+  for (const cap of entry?.capSchema || []) {
+    if (cap.pin != null) {
+      claims[cap.pin] = { cap: cap.name, role: cap.pin_mode || cap.type };
+    }
+    for (const [role, gpio] of flattenPins(cap.pins)) {
+      claims[gpio] = { cap: cap.name, role };
+    }
+  }
+  return claims;
+}
+
+function espMotorWiresFragment(claims) {
+  const wires = [];
+  for (const [gpioStr, info] of Object.entries(claims)) {
+    if (info?.cap !== "motors") continue;
+    const term = ESP_ROLE_TO_TERMINAL[info.role];
+    if (!term) continue;
+    const pos = ESP_GPIO_TO_POS.get(parseInt(gpioStr, 10));
+    if (!pos) continue;
+    const termIdx = ["ena", "in1", "in2", "in3", "in4", "enb"].indexOf(term);
+    const termCx = ESP_TERMINAL_XS[termIdx];
+    // Top-row pins emerge from BOTTOM of the dot; bottom-row pins also
+    // emerge from bottom (since the L298N sits below the whole board).
+    const startY = pos.cy + ESP_PIN_R;
+    const endY = ESP_TERM_CY - ESP_TERM_R;
+    const midY = (startY + endY) / 2;
+    wires.push(`<path class="motor-wire wire-input" d="M${pos.cx},${startY} C${pos.cx},${midY} ${termCx},${midY} ${termCx},${endY}" data-wire="${escapeHtml(info.role)}"/>`);
+  }
+  return wires.join("");
+}
+
+function espEncoderModuleFragment(side, cx) {
+  const pcbX = cx - ESP_ENC_PCB_W / 2;
+  const vccDx = side === "left" ? +ESP_ENC_PIN_DX : -ESP_ENC_PIN_DX;
+  const gndDx = -vccDx;
+  const vccX  = cx + vccDx;
+  const outX  = cx;
+  const gndX  = cx + gndDx;
+  const pcbTopY = ESP_ENC_Y;
+  return `
+    <rect class="enc-pcb" x="${pcbX}" y="${pcbTopY}" width="${ESP_ENC_PCB_W}" height="${ESP_ENC_PCB_H}" rx="6"/>
+    <text class="enc-title" x="${cx}" y="${pcbTopY + 16}" text-anchor="middle">encoder · ${side}</text>
+    <text class="enc-pin-label" x="${vccX}" y="${ESP_ENC_DOT_Y - 11}" text-anchor="middle">VCC</text>
+    <circle class="pin-dot enc-pin kind-3v3" cx="${vccX}" cy="${ESP_ENC_DOT_Y}" r="${ESP_ENC_DOT_R}"/>
+    <text class="enc-pin-label" x="${outX}" y="${ESP_ENC_DOT_Y - 11}" text-anchor="middle">OUT</text>
+    <circle class="pin-dot enc-pin kind-gpio" cx="${outX}" cy="${ESP_ENC_DOT_Y}" r="${ESP_ENC_DOT_R}" data-wire="${escapeHtml(`encoders.${side}`)}"/>
+    <text class="enc-pin-label" x="${gndX}" y="${ESP_ENC_DOT_Y - 11}" text-anchor="middle">GND</text>
+    <circle class="pin-dot enc-pin kind-gnd" cx="${gndX}" cy="${ESP_ENC_DOT_Y}" r="${ESP_ENC_DOT_R}"/>
+  `;
+}
+
+function espEncoderWiresFragment(side, claims) {
+  const cx   = side === "left" ? ESP_ENC_LEFT_CX : ESP_ENC_RIGHT_CX;
+  const vccX = side === "left" ? cx + ESP_ENC_PIN_DX : cx - ESP_ENC_PIN_DX;
+  const outX = cx;
+  const gndX = side === "left" ? cx - ESP_ENC_PIN_DX : cx + ESP_ENC_PIN_DX;
+  const gndPos = side === "left" ? ESP_GND_LEFT_POS : ESP_GND_RIGHT_POS;
+  const out = [];
+
+  // Encoder pin TOPS face up toward the ESP32. Bezier control points
+  // at midY produce a vertical-dominant S-curve.
+  const path = (sx, sy, ex, ey, cls, role) => {
+    const midY = (sy + ey) / 2;
+    const dataAttr = role ? ` data-wire="${escapeHtml(role)}"` : "";
+    return `<path class="enc-wire ${cls}" d="M${sx},${sy} C${sx},${midY} ${ex},${midY} ${ex},${ey}"${dataAttr}/>`;
+  };
+
+  if (ESP_VCC_POS) out.push(path(vccX, ESP_ENC_DOT_Y - ESP_ENC_DOT_R, ESP_VCC_POS.cx, ESP_VCC_POS.cy + ESP_PIN_R, "wire-vcc"));
+  if (gndPos)      out.push(path(gndX, ESP_ENC_DOT_Y - ESP_ENC_DOT_R, gndPos.cx,      gndPos.cy + ESP_PIN_R, "wire-gnd"));
+
+  let outGpio = null;
+  for (const [g, info] of Object.entries(claims)) {
+    if (info?.cap === "encoders" && info?.role === side) { outGpio = parseInt(g, 10); break; }
+  }
+  if (outGpio != null) {
+    const pos = ESP_GPIO_TO_POS.get(outGpio);
+    if (pos) out.push(path(outX, ESP_ENC_DOT_Y - ESP_ENC_DOT_R, pos.cx, pos.cy + ESP_PIN_R, "wire-out", `encoders.${side}`));
+  }
+  return out.join("");
+}
+
+function renderEsp32BoardWithDriver(entry) {
+  const claims = esp32ClaimsFromEntry(entry);
+  const topPins = ESP32_PINS_TOP.map((p, i) =>
+    espPinFragment(p, ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, ESP_TOP_ROW_Y, true),
+  ).join("");
+  const botPins = ESP32_PINS_BOT.map((p, i) =>
+    espPinFragment(p, ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, ESP_BOT_ROW_Y, false),
+  ).join("");
+  const pcbY = ESP_TOP_ROW_Y + 18;
+  const pcbH = ESP_BOT_ROW_Y - ESP_TOP_ROW_Y - 36;
+
+  const driverPcb = `
+    <rect class="driver-pcb" x="15" y="${ESP_DRIVER_Y}" width="${ESP_W - 30}" height="${ESP_DRIVER_H}" rx="6"/>
+    <text class="driver-title" x="${ESP_W / 2}" y="${ESP_DRIVER_Y + 22}" text-anchor="middle">H-bridge driver inputs</text>
+  `;
+  const terminals = ["ena", "in1", "in2", "in3", "in4", "enb"].map((role, i) => {
+    const cx = ESP_TERMINAL_XS[i];
+    const kind = role.startsWith("en") ? "enable" : "input";
+    const label = { ena: "ENA", in1: "IN1", in2: "IN2", in3: "IN3", in4: "IN4", enb: "ENB" }[role];
+    return `
+      <text class="driver-label" x="${cx}" y="${ESP_TERM_CY - 14}" text-anchor="middle">${label}</text>
+      <circle class="driver-pin ${kind}" cx="${cx}" cy="${ESP_TERM_CY}" r="${ESP_TERM_R}" data-role="${role}"/>
+    `;
+  }).join("");
+
+  const encoderModules = `
+    ${espEncoderModuleFragment("left",  ESP_ENC_LEFT_CX)}
+    ${espEncoderModuleFragment("right", ESP_ENC_RIGHT_CX)}
+  `;
+  const encoderWires = `
+    ${espEncoderWiresFragment("left",  claims)}
+    ${espEncoderWiresFragment("right", claims)}
+  `;
+  const motorWires = espMotorWiresFragment(claims);
+
+  const supplyNote = `
+    <text class="driver-supply" x="${ESP_W / 2}" y="${ESP_TOTAL_H - 18}" text-anchor="middle">
+      Also connect (not shown): common GND between ESP32 + L298N · motor supply 7–12V to VS
+    </text>
+  `;
+
+  return `
+    <div class="pinout-svg-wrap esp32">
+      <svg class="pinout-svg esp32" viewBox="0 0 ${ESP_W} ${ESP_TOTAL_H}" preserveAspectRatio="xMidYMid meet"
+           xmlns="http://www.w3.org/2000/svg" role="img"
+           aria-label="ESP32-CAM header with encoder modules and H-bridge driver wiring">
+        <rect class="esp-pcb" x="20" y="${pcbY}" width="${ESP_W - 40}" height="${pcbH}" rx="6"/>
+        <text class="esp-chip-label" x="${ESP_W / 2}" y="${(ESP_TOP_ROW_Y + ESP_BOT_ROW_Y) / 2}" text-anchor="middle" dominant-baseline="middle">ESP32 · camera · µSD</text>
+        ${topPins}
+        ${botPins}
+        ${encoderModules}
+        ${driverPcb}
+        ${terminals}
+        ${encoderWires}
+        ${motorWires}
+        ${supplyNote}
+      </svg>
+    </div>
+  `;
+}
+
 // State for edit mode. Scoped per-open-dialog; cleared on close.
 let currentId = null;
 let editMode = false;
@@ -966,9 +1189,10 @@ export function openPinoutDialog(id) {
 
 function esp32PinsFromFwInfo(entry) {
   const caps = entry?.fwInfo?.caps || [];
-  const led    = caps.find(c => c.name === "led")?.pin;
-  const flash  = caps.find(c => c.name === "flash")?.pin;
-  const motors = caps.find(c => c.name === "motors")?.pins;
+  const led      = caps.find(c => c.name === "led")?.pin;
+  const flash    = caps.find(c => c.name === "flash")?.pin;
+  const motors   = caps.find(c => c.name === "motors")?.pins;
+  const encoders = caps.find(c => c.name === "encoders")?.pins;
   return {
     led:     led    ?? 33,
     flash:   flash  ?? 4,
@@ -976,6 +1200,10 @@ function esp32PinsFromFwInfo(entry) {
     m_l_bwd: motors?.left?.backward  ?? 15,
     m_r_fwd: motors?.right?.forward  ?? 13,
     m_r_bwd: motors?.right?.backward ?? 12,
+    // Encoders default disabled on ESP32 (firmware ships -1) — pin
+    // pressure on ESP32-CAM makes a sensible default infeasible.
+    enc_l:   encoders?.left  ?? -1,
+    enc_r:   encoders?.right ?? -1,
   };
 }
 
@@ -998,10 +1226,11 @@ function esp32PinNote(pin) {
 function renderEsp32View(entry) {
   const pins = esp32PinsFromFwInfo(entry);
   const row = (label, key) => {
-    const note = esp32PinNote(pins[key]);
+    const v = pins[key];
+    const note = v < 0 ? "(disabled)" : esp32PinNote(v);
     return `<div class="pinout-edit-row">
       <span class="pinout-edit-label">${label}</span>
-      <code>GPIO ${pins[key]}</code>
+      <code>${v < 0 ? "—" : "GPIO " + v}</code>
       ${note ? `<span class="meta">· ${escapeHtml(note)}</span>` : ""}
     </div>`;
   };
@@ -1010,7 +1239,7 @@ function renderEsp32View(entry) {
     ? `<button class="secondary sm" id="pinout-edit-btn">Edit pins</button>`
     : "";
   $("pinout-body").innerHTML = `
-    ${renderEsp32Board()}
+    ${renderEsp32BoardWithDriver(entry)}
     <div class="pinout-edit">
       <div class="pinout-edit-section">
         ${row("LED",            "led")}
@@ -1019,6 +1248,8 @@ function renderEsp32View(entry) {
         ${row("Left backward",  "m_l_bwd")}
         ${row("Right forward",  "m_r_fwd")}
         ${row("Right backward", "m_r_bwd")}
+        ${row("Encoder left",   "enc_l")}
+        ${row("Encoder right",  "enc_r")}
       </div>
     </div>
     <div class="row" style="margin-top: 12px;">
@@ -1027,6 +1258,7 @@ function renderEsp32View(entry) {
     </div>
   `;
   $("pinout-edit-btn")?.addEventListener("click", () => beginEsp32Edit(entry));
+  wireUpMotorChains($("pinout-body"));
 }
 
 function beginEsp32Edit(entry) {
@@ -1037,13 +1269,17 @@ function beginEsp32Edit(entry) {
 
 function renderEsp32Edit(entry) {
   const c = editConfig;
+  const ALL_KEYS = ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r"];
   const usedBy = {};
-  for (const k of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd"]) {
+  for (const k of ALL_KEYS) {
     if (c[k] < 0) continue;  // -1 = disabled, multiple disables don't conflict
     (usedBy[c[k]] ||= []).push(k);
   }
   const dup = Object.entries(usedBy).filter(([, v]) => v.length > 1);
-  const cameraHits = Object.entries(c).filter(([, p]) => p >= 0 && ESP32_CAMERA_RESERVED.has(p));
+  const cameraHits = ALL_KEYS.flatMap(k => {
+    const p = c[k];
+    return (p >= 0 && ESP32_CAMERA_RESERVED.has(p)) ? [[k, p]] : [];
+  });
 
   // Blank field = -1 (cap disabled). The note explains it inline so the
   // operator doesn't have to guess at the convention.
@@ -1069,8 +1305,26 @@ function renderEsp32Edit(entry) {
   ].filter(Boolean).join("");
 
   const blocked = dup.length > 0 || cameraHits.length > 0;
+  // Synthesize a transient entry-shaped object so renderEsp32BoardWithDriver
+  // can derive claims from the in-progress edit (mirrors the Pi side's
+  // editConfig flow, which feeds claimsFromConfig).
+  const previewEntry = {
+    capSchema: [
+      ...(c.motors_enabled !== false && c.m_l_fwd >= 0 ? [{
+        name: "motors",
+        pins: {
+          left:  { forward: c.m_l_fwd, backward: c.m_l_bwd },
+          right: { forward: c.m_r_fwd, backward: c.m_r_bwd },
+        },
+      }] : []),
+      ...(c.enc_l >= 0 || c.enc_r >= 0 ? [{
+        name: "encoders",
+        pins: { left: c.enc_l >= 0 ? c.enc_l : -1, right: c.enc_r >= 0 ? c.enc_r : -1 },
+      }] : []),
+    ],
+  };
   $("pinout-body").innerHTML = `
-    ${renderEsp32Board()}
+    ${renderEsp32BoardWithDriver(previewEntry)}
     <div class="pinout-edit">
       <div class="pinout-edit-section">
         ${input("LED",            "led")}
@@ -1079,6 +1333,8 @@ function renderEsp32Edit(entry) {
         ${input("Left backward",  "m_l_bwd")}
         ${input("Right forward",  "m_r_fwd")}
         ${input("Right backward", "m_r_bwd")}
+        ${input("Encoder left",   "enc_l")}
+        ${input("Encoder right",  "enc_r")}
       </div>
       ${warn}
     </div>
@@ -1111,7 +1367,7 @@ async function saveEsp32Edit(entry) {
   // Range check (firmware also validates, but reject early so the user
   // gets a focused error instead of a silent ignore over BLE). -1 means
   // "cap disabled" — accepted; only out-of-range positives reject.
-  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd"]) {
+  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r"]) {
     const v = editConfig[key];
     if (!Number.isInteger(v) || v === -1) continue;
     if (v < 0 || v > 39) {
