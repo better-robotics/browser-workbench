@@ -13,13 +13,19 @@ import { renderEntry } from "./render-bus.js";
 function hasWifi(entry) { return !!entry.wifiStatus?.ip; }
 
 // Open a WebRTC `video` data channel, ask the firmware for a stream at
-// 5 fps, render incoming binary frames into the existing <img> via blob
-// URLs. Returns a disposer; null on open failure.
+// 5 fps, decode incoming JPEG chunks into a <canvas>. Returns a disposer;
+// null on open failure.
 //
 // We tried RTP MJPEG via esp_peer's video track but the binary library
 // blocks too long inside packetization on classic ESP32 — TWDT triggers
 // on the first frame send. Chunked DC stays the working path.
-async function startEsp32WebRTCVideo(entry, img) {
+//
+// Decode path: WebCodecs ImageDecoder when available (Chrome 94+, Safari
+// 17+, Firefox 133+) — bypasses the blob→URL→<img>.src→layout roundtrip
+// that previously capped throughput around 30 fps even when the network
+// delivered more. Falls back to createImageBitmap (one fewer step than
+// blob URL but still off the layout path) on older browsers.
+async function startEsp32WebRTCVideo(entry, canvas) {
   const { openChannel, closePeer } = await import("../../webrtc-robot.js");
   let channel;
   try {
@@ -33,7 +39,38 @@ async function startEsp32WebRTCVideo(entry, img) {
     return null;
   }
   channel.binaryType = "arraybuffer";
-  let prevUrl = null;
+  const ctrl = { channel, canvas, ctx: canvas.getContext("2d") };
+  const useDecoder = typeof ImageDecoder !== "undefined";
+
+  async function paintJpeg(bytes) {
+    // Re-acquire ctx if the canvas got replaced by a re-render and
+    // app.js's transplant logic re-pointed ctrl.canvas at the live one.
+    const c = ctrl.canvas, g = ctrl.ctx;
+    if (!c || !g) return;
+    try {
+      if (useDecoder) {
+        const decoder = new ImageDecoder({ data: bytes, type: "image/jpeg" });
+        const { image } = await decoder.decode();
+        if (c.width !== image.codedWidth || c.height !== image.codedHeight) {
+          c.width = image.codedWidth; c.height = image.codedHeight;
+        }
+        g.drawImage(image, 0, 0);
+        image.close();
+        decoder.close();
+      } else {
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+        if (c.width !== bitmap.width || c.height !== bitmap.height) {
+          c.width = bitmap.width; c.height = bitmap.height;
+        }
+        g.drawImage(bitmap, 0, 0);
+        bitmap.close();
+      }
+    } catch {
+      // Decode failure — drop this frame. Common on partial JPEGs from
+      // out-of-order chunk reassembly; the next frame will arrive shortly.
+    }
+  }
+
   // Wire format per chunk: [frame_id u16 BE][chunk_idx u8][total_chunks u8][jpeg bytes].
   // Reassemble per frame_id; drop incomplete frames if a newer frame_id starts.
   const pending = new Map();
@@ -60,25 +97,19 @@ async function startEsp32WebRTCVideo(entry, img) {
     for (let i = 0; i < frame.total; i++) { merged.set(frame.parts.get(i), off); off += frame.parts.get(i).length; }
     pending.delete(frameId);
     for (const id of pending.keys()) if (id < frameId) pending.delete(id);
-    const blob = new Blob([merged], { type: "image/jpeg" });
-    const url = URL.createObjectURL(blob);
-    img.src = url;
-    if (prevUrl) URL.revokeObjectURL(prevUrl);
-    prevUrl = url;
+    paintJpeg(merged);
   };
   channel.addEventListener("message", onMsg);
   try { channel.send(JSON.stringify({ type: "start", fps: 5 })); } catch {}
-  logFor(entry, `video webrtc: streaming`);
-  return {
-    channel,
-    dispose() {
-      channel.removeEventListener("message", onMsg);
-      try { channel.send(JSON.stringify({ type: "stop" })); } catch {}
-      try { channel.close(); } catch {}
-      if (prevUrl) URL.revokeObjectURL(prevUrl);
-      closePeer(entry.id);
-    },
+  logFor(entry, `video webrtc: streaming (${useDecoder ? "ImageDecoder" : "createImageBitmap"})`);
+  ctrl.attachCanvas = (next) => { ctrl.canvas = next; ctrl.ctx = next.getContext("2d"); };
+  ctrl.dispose = () => {
+    channel.removeEventListener("message", onMsg);
+    try { channel.send(JSON.stringify({ type: "stop" })); } catch {}
+    try { channel.close(); } catch {}
+    closePeer(entry.id);
   };
+  return ctrl;
 }
 
 export function makeMjpegStreamCap(schema) {
@@ -108,11 +139,16 @@ export function makeMjpegStreamCap(schema) {
       if (!wifi) {
         body = `<div class="meta">Waiting for the robot to join WiFi — video needs a LAN IP.</div>`;
       } else if (running) {
-        // crossOrigin lets camera-frame.js's canvas read the pixels.
-        // For WebRTC: no src at render time — click handler attaches
-        // frames via blob URLs. For HTTP: the click handler sets src
-        // to http://<ip>:81/stream directly.
-        body = `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" alt="${transport} video">`;
+        // WebRTC path renders a <canvas> — the start handler decodes JPEG
+        // chunks via WebCodecs straight to it, skipping the blob→URL→<img>
+        // layout roundtrip that caps throughput. HTTP MJPEG keeps the <img>
+        // since the browser's native multipart parser is the cheapest path.
+        // crossOrigin on <img> lets camera-frame.js read pixels; canvas
+        // pixels are same-origin by construction.
+        const useCanvas = entry.fwType === "esp32" && transport === "webrtc";
+        body = useCanvas
+          ? `<canvas class="robot-camera" data-cam-id="${entry.id}" width="640" height="480" aria-label="webrtc video"></canvas>`
+          : `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" alt="${transport} video">`;
       }
       // Stream URL omitted from idle body — it's debug info that leaked
       // into daily UX. The dashboard log echoes it on connect for anyone
@@ -168,11 +204,14 @@ export function makeMjpegStreamCap(schema) {
     },
 
     wireActions(entry, node) {
+      const findEl = () => entry.node?.querySelector(
+        `img.robot-camera[data-cam-id="${entry.id}"], canvas.robot-camera[data-cam-id="${entry.id}"]`,
+      );
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", async () => {
         entry[runningField] = true;
         renderEntry(entry);
-        const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
-        if (!img) return;
+        const el = findEl();
+        if (!el) return;
 
         if (entry.fwType === "esp32") {
           const transport = entry[transportField] || "webrtc";
@@ -187,19 +226,19 @@ export function makeMjpegStreamCap(schema) {
               renderEntry(entry);
               return;
             }
-            img.src = `http://${ip}:81/stream`;
-            startMjpegForward(entry, img);
-            logFor(entry, `video: HTTP MJPEG ${img.src}`);
+            el.src = `http://${ip}:81/stream`;
+            startMjpegForward(entry, el);
+            logFor(entry, `video: HTTP MJPEG ${el.src}`);
             return;
           }
           // WebRTC — firmware/webrtc_peer.c routes a `video` data channel
           // into an esp_camera_fb_get loop, sending each JPEG as binary.
-          // Browser blob-URLs each frame into the img.
-          const ctrl = await startEsp32WebRTCVideo(entry, img);
+          // WebCodecs decodes each JPEG straight to the canvas.
+          const ctrl = await startEsp32WebRTCVideo(entry, el);
           if (ctrl) {
             entry._webrtcVideo = ctrl;
             if (!entry[runningField]) { ctrl.dispose(); entry._webrtcVideo = null; return; }
-            startMjpegForward(entry, img);
+            startMjpegForward(entry, el);
             return;
           }
           logFor(entry, `video: WebRTC unavailable; cannot stream`);
@@ -207,7 +246,7 @@ export function makeMjpegStreamCap(schema) {
           renderEntry(entry);
           return;
         }
-        startMjpegForward(entry, img);
+        startMjpegForward(entry, el);
       });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click", () => {
         if (entry._webrtcVideo) { entry._webrtcVideo.dispose(); entry._webrtcVideo = null; }
@@ -215,13 +254,20 @@ export function makeMjpegStreamCap(schema) {
         entry[runningField] = false;
         renderEntry(entry);
       });
-      // Post-render rebind: when the card re-renders (e.g. renderEntry fired
-      // from elsewhere) and the stream is already running, the old <img> is
-      // gone and we're drawing into nothing. Re-point at the fresh img.
-      if (entry[runningField] && entry._mjpegForward) {
-        const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
-        if (img && img !== entry._mjpegForward.imgEl) {
-          startMjpegForward(entry, img);
+      // Post-render rebind: when the card re-renders mid-stream, the
+      // element we were drawing into is detached. Re-point both the WebRTC
+      // decode target and the phone-restream source at the fresh element.
+      // (app.js's transplant logic preserves the live element across most
+      // re-renders, but rebind is the belt-and-suspenders fallback.)
+      if (entry[runningField]) {
+        const el = findEl();
+        if (el) {
+          if (entry._webrtcVideo && el !== entry._webrtcVideo.canvas) {
+            entry._webrtcVideo.attachCanvas?.(el);
+          }
+          if (entry._mjpegForward && el !== entry._mjpegForward.imgEl) {
+            startMjpegForward(entry, el);
+          }
         }
       }
       const transportSel = node.querySelector(`[data-action="${actionTransport}"]`);

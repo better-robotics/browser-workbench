@@ -1,11 +1,13 @@
 // Camera-frame helpers — pixel capture from <img class="robot-camera">
-// (ESP32 MJPEG with firmware CORS) or <video data-camera-id> (Pi WebRTC),
-// plus the attached-phone variant (data-attached-camera-id).
+// (ESP32 HTTP MJPEG with firmware CORS), <canvas class="robot-camera">
+// (ESP32 WebRTC via WebCodecs decode), or <video data-camera-id> (Pi
+// WebRTC), plus the attached-phone variant (data-attached-camera-id).
 
 function findPrimaryCameraElement(entry) {
   const node = entry.node;
   if (!node) return null;
   return node.querySelector("img.robot-camera:not([data-attached-camera-id])")
+      || node.querySelector("canvas.robot-camera:not([data-attached-camera-id])")
       || node.querySelector("video[data-camera-id]:not([data-attached-camera-id])")
       || node.querySelector("video:not([data-attached-camera-id])");
 }
@@ -38,8 +40,9 @@ export function captureFrameDataUrl(entry, maxDim = 320, quality = 0.75) {
 export function drawFrameToCanvas(entry, maxDim, source = null) {
   const el = source || findPrimaryCameraElement(entry);
   if (!el) return null;
-  let w = el.naturalWidth || el.videoWidth;
-  let h = el.naturalHeight || el.videoHeight;
+  const isCanvas = el instanceof HTMLCanvasElement;
+  let w = el.naturalWidth || el.videoWidth || (isCanvas ? el.width : 0);
+  let h = el.naturalHeight || el.videoHeight || (isCanvas ? el.height : 0);
   if (!w || !h) return null;
   if (Math.max(w, h) > maxDim) {
     const s = maxDim / Math.max(w, h);

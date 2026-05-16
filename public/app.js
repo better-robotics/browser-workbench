@@ -981,13 +981,16 @@ function renderEntry(entry) {
   const nameHtml = `<span class="robot-name" title="${escapeHtml(name)}">${nameInner}</span>`;
   const expanded = computeExpanded(entry);
   entry.node.classList.toggle("expanded", expanded);
-  // Capture the live MJPEG <img> before innerHTML wipes it. Tearing it
-  // down aborts the multipart/x-mixed-replace HTTP response and forces
-  // the ESP32 streamTask to detect a client disconnect + accept a fresh
-  // connection — costly. If the new render still expects the same src,
-  // we transplant the live element back so the stream keeps flowing.
+  // Capture the live MJPEG <img> or WebRTC-decode <canvas> before innerHTML
+  // wipes it. Tearing down the <img> aborts the multipart/x-mixed-replace
+  // HTTP response and forces the ESP32 streamTask to detect a client
+  // disconnect + accept a fresh connection — costly. Replacing the <canvas>
+  // detaches the drawing context mid-decode and forfeits any pixels until
+  // the cap's post-render rebind re-acquires it. Transplanting either keeps
+  // the stream visually continuous.
   const liveCameraImg = entry.node.querySelector("img.robot-camera[data-cam-id]");
   const liveCameraReady = liveCameraImg?.complete && liveCameraImg.naturalWidth > 0;
+  const liveCameraCanvas = entry.node.querySelector("canvas.robot-camera[data-cam-id]");
   entry.node.innerHTML = `
     <div class="row">
       <div class="robot-identity">
@@ -1050,6 +1053,18 @@ function renderEntry(entry) {
     );
     if (placeholder && placeholder.src === liveCameraImg.src) {
       placeholder.parentNode.replaceChild(liveCameraImg, placeholder);
+    }
+  }
+  // Same transplant for the WebRTC-decode canvas. The cap's post-render
+  // rebind re-points the decode loop at whichever canvas survives — by
+  // transplanting we preserve the already-painted pixels (no black flash)
+  // and the captureStream wired into entry.cameraStream.
+  if (liveCameraCanvas) {
+    const placeholder = entry.node.querySelector(
+      `canvas.robot-camera[data-cam-id="${entry.id}"]`,
+    );
+    if (placeholder) {
+      placeholder.parentNode.replaceChild(liveCameraCanvas, placeholder);
     }
   }
   // Bind the attached-camera MediaStream after innerHTML rebuild — srcObject

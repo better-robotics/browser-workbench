@@ -17,16 +17,31 @@ import { notifyRobotStreamChange } from "../../phones.js";
 
 const FPS = 15;
 
-export function startMjpegForward(entry, imgEl) {
+export function startMjpegForward(entry, srcEl) {
   stopMjpegForward(entry);
-  if (!imgEl) return;
+  if (!srcEl) return;
+
+  // Source is already a <canvas> (WebCodecs decode path): no drawImage
+  // polling needed — captureStream fires on every canvas update. One
+  // fewer per-frame copy than the legacy <img> path.
+  if (srcEl instanceof HTMLCanvasElement) {
+    try {
+      const stream = srcEl.captureStream(FPS);
+      entry._mjpegForward = { canvas: srcEl, intervalId: null, stream, imgEl: srcEl };
+      entry.cameraStream = stream;
+      notifyRobotStreamChange(entry);
+    } catch { /* captureStream unsupported — phone forward silently skipped */ }
+    return;
+  }
+
+  // Legacy <img> path (HTTP MJPEG): poll the img into our own canvas.
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  const state = { canvas, intervalId: null, stream: null, imgEl };
+  const state = { canvas, intervalId: null, stream: null, imgEl: srcEl };
   entry._mjpegForward = state;
 
   const start = () => {
-    const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
+    const w = srcEl.naturalWidth, h = srcEl.naturalHeight;
     if (!w || !h) return false;
     canvas.width = w;
     canvas.height = h;
@@ -34,17 +49,17 @@ export function startMjpegForward(entry, imgEl) {
     catch { return false; }
     entry.cameraStream = state.stream;
     state.intervalId = setInterval(() => {
-      try { ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height); }
+      try { ctx.drawImage(srcEl, 0, 0, canvas.width, canvas.height); }
       catch { /* tainted canvas or img not ready — keep last frame */ }
     }, 1000 / FPS);
     notifyRobotStreamChange(entry);
     return true;
   };
 
-  if (imgEl.complete && imgEl.naturalWidth) {
+  if (srcEl.complete && srcEl.naturalWidth) {
     start();
   } else {
-    imgEl.addEventListener("load", start, { once: true });
+    srcEl.addEventListener("load", start, { once: true });
   }
 }
 
