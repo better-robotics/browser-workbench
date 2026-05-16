@@ -65,36 +65,66 @@ const ESP32_PINS_BOT = [
   { label: "3V3",  kind: "3v3" },
 ];
 
+// ESP32-CAM canvas layout — top-to-bottom matches signal flow:
+//   encoders (sensors / inputs)
+//        ↓
+//   ESP32-CAM (compute)
+//        ↓
+//   L298N driver (output to motors)
+// Encoder OUT wires travel a short distance DOWN to the ESP32 top row
+// instead of UP across the L298N region, removing the worst diagonal
+// crossings the previous below-the-driver layout produced.
+const ESP_W            = 520;
+const ESP_PIN_R        = 9;
+const ESP_PIN_SPACING  = 56;
+const ESP_FIRST_PIN_X  = 50;
+
+const ESP_ENC_PCB_W    = 130;
+const ESP_ENC_PCB_H    = 80;
+const ESP_ENC_DOT_R    = 6;
+const ESP_ENC_PIN_DX   = 32;
+const ESP_ENC_Y        = 10;                                        // top of encoder PCBs
+const ESP_ENC_DOT_Y    = ESP_ENC_Y + 40;                            // 50 — vertical center of pin dots
+const ESP_ENC_LEFT_CX  = 130;
+const ESP_ENC_RIGHT_CX = 390;
+
+const ESP_ENC_TO_BOARD_GAP = 35;
+const ESP_TOP_ROW_Y    = ESP_ENC_Y + ESP_ENC_PCB_H + ESP_ENC_TO_BOARD_GAP;  // 125
+const ESP_BOT_ROW_Y    = ESP_TOP_ROW_Y + 160;                                // 285
+const ESP_H            = ESP_BOT_ROW_Y + 50;                                 // 335 — bot pin label space
+
+const ESP_DRIVER_GAP   = 60;
+const ESP_DRIVER_Y     = ESP_H + ESP_DRIVER_GAP;                             // 395
+const ESP_DRIVER_H     = 175;
+const ESP_TERM_R       = 7;
+const ESP_TERMINAL_XS  = [50, 134, 218, 302, 386, 470];
+const ESP_TERM_CY      = ESP_DRIVER_Y + 85;                                  // 480
+const ESP_TOTAL_H      = ESP_DRIVER_Y + ESP_DRIVER_H + 40;                   // 610
+
 // GPIO → (cx, cy) lookup for routing wires to ESP32 pins. Only labeled
 // GPIO pins make it in; power/ground pins are looked up separately by
 // kind when an encoder needs a 3V3 / GND destination.
 const ESP_GPIO_TO_POS = new Map();
-const ESP_FIRST_PIN_X_LATE = 50;          // mirrors ESP_FIRST_PIN_X (declared further down)
-const ESP_PIN_SPACING_LATE = 56;
-const ESP_TOP_ROW_Y_LATE = 50;
-const ESP_BOT_ROW_Y_LATE = 210;
 ESP32_PINS_TOP.forEach((p, i) => {
   if (p.gpio != null) ESP_GPIO_TO_POS.set(p.gpio, {
-    cx: ESP_FIRST_PIN_X_LATE + i * ESP_PIN_SPACING_LATE,
-    cy: ESP_TOP_ROW_Y_LATE,
+    cx: ESP_FIRST_PIN_X + i * ESP_PIN_SPACING,
+    cy: ESP_TOP_ROW_Y,
     row: "top",
   });
 });
 ESP32_PINS_BOT.forEach((p, i) => {
   if (p.gpio != null) ESP_GPIO_TO_POS.set(p.gpio, {
-    cx: ESP_FIRST_PIN_X_LATE + i * ESP_PIN_SPACING_LATE,
-    cy: ESP_BOT_ROW_Y_LATE,
+    cx: ESP_FIRST_PIN_X + i * ESP_PIN_SPACING,
+    cy: ESP_BOT_ROW_Y,
     row: "bot",
   });
 });
 
 // Power/ground destinations for encoder VCC + GND fan-in on ESP32.
-// First 3V3 pin on the bottom row (only one); pick the closest GND to
-// the centroid of the user-assignable pins.
 function espPinPosByKind(rowArr, rowY, kind) {
   for (let i = 0; i < rowArr.length; i++) {
     if (rowArr[i].kind === kind) {
-      return { cx: ESP_FIRST_PIN_X_LATE + i * ESP_PIN_SPACING_LATE, cy: rowY };
+      return { cx: ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, cy: rowY };
     }
   }
   return null;
@@ -516,18 +546,9 @@ function renderBoardWithDriver(claims, opts = {}) {
 }
 
 // ESP32-CAM header SVG — landscape layout that matches the physical board's
-// shape (two horizontal pin rows along the long edges). Read-only: the
-// firmware hardcodes camera / SD pins, and only the exposed headers remain
-// as "user-assignable," so this is a map, not an editor. Status colors
+// shape (two horizontal pin rows along the long edges). Status colors
 // (green / amber / grey) override the kind-based gold for GPIO pins so the
 // "free vs. SD-shared vs. reserved" story reads at a glance.
-const ESP_W = 520;
-const ESP_H = 260;
-const ESP_PIN_R = 9;
-const ESP_PIN_SPACING = 56;
-const ESP_FIRST_PIN_X = 50;
-const ESP_TOP_ROW_Y = 50;
-const ESP_BOT_ROW_Y = 210;
 
 function espPinFragment(pin, cx, cy, labelAbove, claimed) {
   const statusClass = pin.status ? `esp-${pin.status}` : "";
@@ -568,37 +589,14 @@ function renderEsp32Board() {
   `;
 }
 
-// Augmented ESP32 view — same physical-board map as renderEsp32Board,
-// plus the L298N driver below and encoder breakouts beneath that.
-// Motor wires fan from ESP32 GPIO pins (top or bottom row) down to the
-// driver terminals; encoder OUT wires fan from ESP32 free GPIOs to
-// encoder OUT pins; encoder VCC/GND wires terminate on the ESP32's
-// 3V3 and nearest GND. Visualization-only for now — editing still
-// happens in the form below the SVG.
-const ESP_DRIVER_GAP = 60;
-const ESP_DRIVER_Y   = ESP_H + ESP_DRIVER_GAP;          // 320
-const ESP_DRIVER_H   = 175;
-const ESP_TERM_R     = 7;
-// 6 terminals centered across ESP_W (520) — pad 50 each side, gap 84.
-const ESP_TERMINAL_XS = [50, 134, 218, 302, 386, 470];
-const ESP_TERM_CY    = ESP_DRIVER_Y + 85;                // 405
-const ESP_ENC_GAP    = 50;
-const ESP_ENC_PCB_W  = 130;
-const ESP_ENC_PCB_H  = 80;
-const ESP_ENC_DOT_R  = 6;
-const ESP_ENC_PIN_DX = 32;
-const ESP_ENC_Y      = ESP_DRIVER_Y + ESP_DRIVER_H + ESP_ENC_GAP;   // 545
-const ESP_ENC_DOT_Y  = ESP_ENC_Y + 45;                              // 590
-const ESP_ENC_LEFT_CX  = 130;
-const ESP_ENC_RIGHT_CX = 390;
-const ESP_TOTAL_H    = ESP_ENC_Y + ESP_ENC_PCB_H + 50;              // 675
-
-// ESP32-side encoder VCC + GND destinations. The ESP32-CAM exposes one
-// 3V3 (bottom row, last pin) and three GNDs (top row last, bottom row
-// first + middle). Pick the nearest GND for each encoder side.
-const ESP_VCC_POS = espPinPosByKind(ESP32_PINS_BOT, ESP_BOT_ROW_Y_LATE, "3v3");  // bottom-right 3V3
-const ESP_GND_LEFT_POS  = espPinPosByKind(ESP32_PINS_BOT, ESP_BOT_ROW_Y_LATE, "gnd");                    // first GND (left side of bottom row)
-const ESP_GND_RIGHT_POS = { cx: ESP_FIRST_PIN_X_LATE + 6 * ESP_PIN_SPACING_LATE, cy: ESP_TOP_ROW_Y_LATE }; // top row GND (right-ish)
+// ESP32-side encoder VCC + GND destinations. With encoders ABOVE the
+// ESP32 board, the closest power/ground pin is the top-row GND (right
+// end of the top row, x=386); VCC still has to reach the bottom-row
+// 3V3 (the only 3V3 on the AI-Thinker board) and crosses the chip
+// area faintly. OUT wires terminate at whichever GPIO the user picks.
+const ESP_VCC_POS       = espPinPosByKind(ESP32_PINS_BOT, ESP_BOT_ROW_Y, "3v3");
+const ESP_GND_LEFT_POS  = espPinPosByKind(ESP32_PINS_TOP, ESP_TOP_ROW_Y, "gnd");
+const ESP_GND_RIGHT_POS = espPinPosByKind(ESP32_PINS_TOP, ESP_TOP_ROW_Y, "gnd");
 
 // Maps the motors_pins.* paths the fw advertises into L298N terminal
 // roles. Same mapping as the Pi side because the schema is shared.
@@ -691,16 +689,20 @@ function espEncoderWiresFragment(side, claims) {
   const gndPos = side === "left" ? ESP_GND_LEFT_POS : ESP_GND_RIGHT_POS;
   const out = [];
 
-  // Encoder pin TOPS face up toward the ESP32. Bezier control points
-  // at midY produce a vertical-dominant S-curve.
+  // Encoder pin BOTTOMS face DOWN toward the ESP32 (encoders sit above
+  // the board). Wires emerge from the bottom of the encoder dot and
+  // arrive at the top of the ESP32 pin dot. Bezier control points at
+  // midY produce a vertical-dominant S-curve.
   const path = (sx, sy, ex, ey, cls, role) => {
     const midY = (sy + ey) / 2;
     const dataAttr = role ? ` data-wire="${escapeHtml(role)}"` : "";
     return `<path class="enc-wire ${cls}" d="M${sx},${sy} C${sx},${midY} ${ex},${midY} ${ex},${ey}"${dataAttr}/>`;
   };
+  const encY = ESP_ENC_DOT_Y + ESP_ENC_DOT_R;             // bottom of encoder dot
+  const targetY = (pos) => pos.cy - ESP_PIN_R;            // top of ESP32 pin dot
 
-  if (ESP_VCC_POS) out.push(path(vccX, ESP_ENC_DOT_Y - ESP_ENC_DOT_R, ESP_VCC_POS.cx, ESP_VCC_POS.cy + ESP_PIN_R, "wire-vcc"));
-  if (gndPos)      out.push(path(gndX, ESP_ENC_DOT_Y - ESP_ENC_DOT_R, gndPos.cx,      gndPos.cy + ESP_PIN_R, "wire-gnd"));
+  if (ESP_VCC_POS) out.push(path(vccX, encY, ESP_VCC_POS.cx, targetY(ESP_VCC_POS), "wire-vcc"));
+  if (gndPos)      out.push(path(gndX, encY, gndPos.cx,      targetY(gndPos),      "wire-gnd"));
 
   let outGpio = null;
   for (const [g, info] of Object.entries(claims)) {
@@ -708,7 +710,7 @@ function espEncoderWiresFragment(side, claims) {
   }
   if (outGpio != null) {
     const pos = ESP_GPIO_TO_POS.get(outGpio);
-    if (pos) out.push(path(outX, ESP_ENC_DOT_Y - ESP_ENC_DOT_R, pos.cx, pos.cy + ESP_PIN_R, "wire-out", `encoders.${side}`));
+    if (pos) out.push(path(outX, encY, pos.cx, targetY(pos), "wire-out", `encoders.${side}`));
   }
   return out.join("");
 }
