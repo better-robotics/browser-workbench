@@ -285,7 +285,7 @@ static void send_dc_text(uint16_t sid, const char *text) {
 // and silently dropped from the OTA bin. Roughly 1 in 256 chunk offsets
 // in a real firmware image hit that byte, so the old heuristic was a
 // time-bomb waiting for the wrong bin.
-static void handle_ota_dc(const char *msg, size_t len, esp_peer_data_frame_type_t type) {
+static void handle_ota_dc(const char *msg, size_t len, esp_peer_data_channel_type_t type) {
     if (len == 0) return;
     if (type == ESP_PEER_DATA_CHANNEL_STRING) {
         cJSON *root = cJSON_ParseWithLength(msg, len);
