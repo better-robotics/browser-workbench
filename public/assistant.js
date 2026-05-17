@@ -1,79 +1,34 @@
 import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
-import { shorten, labelTool, summarizeTool } from "./format.js";
+import { labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
 import { AUTH_URL } from "./endpoints.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
+import { createPip } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
 
-// Match Buddy: 10s total show, fade at 7s (last 3s).
-const SHOW_MS = 10000;
-const FADE_MS = 7000;
-const MIN_GAP_MS = 15000;
 const HISTORY_LIMIT = 12;
-// Inactivity after a turn before auto-dismiss resumes. Long enough to
-// read a reply, short enough that an abandoned chat doesn't stick.
-const IDLE_RESUME_MS = 20000;
 
-// Rules the executor mechanically enforces (3-pulse stop, pulse duration
-// cap, signed-pair clamp) live in pip-tools.js — Pip can't violate them,
-// so restating in the prompt is token rent. System prompt carries voice +
-// reasoning policy ONLY: choices the model makes where the executor can't.
+// Executor-enforced rules (3-pulse stop, pulse cap, signed-pair clamp) live
+// in pip-tools.js. Per-tool guidance (when to detect vs view, ask_human
+// routing) lives in tool descriptions and ships on every turn. System
+// prompt carries identity + discovery posture only.
 const PIP_SYSTEM = [
-  "You are Pip, a small assistant in a robotics dashboard for ESP32 and Raspberry Pi robots.",
-  "",
-  "VOICE: terse, specific, concrete — a colleague leaning over the user's shoulder,",
-  "not a tour guide. Under 140 chars unprompted, under 200 when answering a question.",
-  "No emoji, no sign-off, no preamble, no 'great question'. Prefer specifics",
-  "(file paths, service names, flag values) over generalities.",
-  "",
-  "TOOLS: when a question depends on real robot state, call the right tool",
-  "BEFORE answering. Don't guess robot ids or names; list_robots first if unsure.",
-  "If the user references 'the robot' / 'it' and only one is connected, infer it.",
-  "If a tool returns { error: ... }, surface it briefly — don't fabricate around it.",
-  "",
-  "SPATIAL REASONING: get_robot_detections returns bounding boxes and is the",
-  "only reliable source of left/right/near/far. If a motor move depends on",
-  "spatial position and no detector is available, call ask_human FIRST — never",
-  "infer position from a frame the model didn't see. ask_human routes to a",
-  "paired phone if available, otherwise renders inline option buttons.",
-  "",
-  "VISION: if view_robot_frame is in your tool list, use it for fine visual-",
-  "detail questions — colors, counts, readable text, condition ('is it dirty',",
-  "'any scratches'). One frame + your own eyes beats guessing. Spatial still",
-  "prefers get_robot_detections.",
-  "",
-  "When chatting: if you don't know AND no tool would help, say so in one line.",
-  "Stay warm and curious. Off-topic asks (poems, jokes, small talk) — answer",
-  "briefly in character. No scope-policing or capping ('that's the last one',",
-  "'ask me something useful', 'not my thing').",
+  "You are an assistant in a browser robotics dashboard for ESP32 and Pi robots.",
+  "Tools let you read robot state, see frames, detect objects, pulse motors, ask the human.",
+  "Use tools to discover — don't guess robot state. list_robots first if ambiguous.",
+  "If a tool returns { error: ... }, surface it; don't fabricate around it.",
+  "Respond concisely.",
 ].join("\n");
 
-// Single source of truth for "Hi, I'm Pip" — used by dashboard panel +
-// phone Pip accordion so voice doesn't drift across surfaces.
-export const PIP_INTRO = "Hi — I'm Pip. Ask me anything, or I'll pipe up when there's something worth knowing.";
+export const PIP_INTRO = "Try: \"why isn't this robot connecting\" or \"what's in the camera\". /help for commands.";
 
 let _pip = null;
-let _fadeTimer = null, _closeTimer = null, _resumeTimer = null;
-let _lastNotifyAt = 0;
 let _abort = false;
 let _activeTurnEl = null;
 
-function cancelAutoDismiss() {
-  if (_fadeTimer)   { clearTimeout(_fadeTimer);   _fadeTimer = null; }
-  if (_closeTimer)  { clearTimeout(_closeTimer);  _closeTimer = null; }
-  if (_resumeTimer) { clearTimeout(_resumeTimer); _resumeTimer = null; }
-  _pip.panel.classList.remove("fading");
-}
-
-function scheduleAutoDismiss() {
-  cancelAutoDismiss();
-  _fadeTimer  = setTimeout(() => _pip.panel.classList.add("fading"), FADE_MS);
-  _closeTimer = setTimeout(() => _pip.close(), SHOW_MS);
-}
-
-// Trace row, one per tool_use. .pending in flight, .error on tool error.
-// finishTraceLine fills pendingMs/result/error. Deeper inspection via
-// DevTools.
+// Trace row, one per tool_use. Click the summary to expand input/result —
+// makes Pip's reasoning auditable in-place instead of requiring DevTools.
+// Long strings (e.g. base64 image data) get truncated in the detail view
+// so a single view_robot_frame call doesn't dump 80KB into the panel.
 function appendTraceLine(turnEl, name) {
   let ul = turnEl.querySelector(".pip-trace");
   if (!ul) {
@@ -84,17 +39,47 @@ function appendTraceLine(turnEl, name) {
   }
   const li = document.createElement("li");
   li.className = "pip-trace-line pending";
-  li.textContent = `${labelTool(name)} …`;
+  const summary = document.createElement("button");
+  summary.type = "button";
+  summary.className = "pip-trace-summary";
+  summary.textContent = `${labelTool(name)} …`;
+  summary.setAttribute("aria-expanded", "false");
+  const detail = document.createElement("pre");
+  detail.className = "pip-trace-detail";
+  detail.hidden = true;
+  summary.addEventListener("click", () => {
+    const willOpen = detail.hidden;
+    detail.hidden = !willOpen;
+    summary.setAttribute("aria-expanded", String(willOpen));
+  });
+  li.appendChild(summary);
+  li.appendChild(detail);
   ul.appendChild(li);
   scrollPanelToBottom();
   return li;
 }
 
-function finishTraceLine(li, summary, isError) {
+function safeJson(obj, maxStr = 240) {
+  return JSON.stringify(obj, (_k, v) => {
+    if (typeof v === "string" && v.length > maxStr) {
+      return v.slice(0, maxStr) + `… (${v.length} chars)`;
+    }
+    return v;
+  }, 2);
+}
+
+function finishTraceLine(li, name, input, result, error, durationMs) {
   if (!li) return;
   li.classList.remove("pending");
+  const isError = !!error;
   if (isError) li.classList.add("error");
-  li.textContent = summary;
+  const summary = li.querySelector(".pip-trace-summary");
+  summary.textContent = summarizeTool(name, input, result, error, durationMs);
+  const detail = li.querySelector(".pip-trace-detail");
+  const payload = { input: input ?? null };
+  if (isError) payload.error = String(error?.message || error);
+  else payload.result = result ?? null;
+  detail.textContent = safeJson(payload);
   scrollPanelToBottom();
 }
 
@@ -107,64 +92,6 @@ function scrollPanelToBottom() {
 // (firmware safety floor caps blast radius — .claude/CLAUDE.md → Control-loop invariants).
 // Send + stop buttons live in pip-core 2.1.0+; we just toggle responding
 // state and provide an onAbort callback below.
-
-// Writes the ambient notify slot. Distinct from chat turns — notify is
-// "hey, I noticed X" and doesn't accumulate as history.
-export function speakMessage(text, { autoDismiss = true, fromAI = false } = {}) {
-  if (!_pip) return;
-  _pip.speak(text, { fromAI });
-  _pip.history.push({ role: "assistant", content: text });
-  if (_pip.history.length > HISTORY_LIMIT) _pip.history.splice(0, _pip.history.length - HISTORY_LIMIT);
-  cancelAutoDismiss();
-  if (autoDismiss) scheduleAutoDismiss();
-}
-
-const PIP_EVENT_TEMPLATES = {
-  "robot.disconnected": ({ name }) =>
-    `${name || "Robot"} just disconnected. Want me to look at the log?`,
-  "robot.service_crashed": ({ name }) =>
-    `Heads up — pi-robot.service went inactive on ${name || "the robot"}. The board is still reachable on wifi, but capabilities are offline until it restarts.`,
-};
-const PIP_EVENT_THROTTLE_MS = 60_000;
-const _lastPipEmit = new Map();
-export function emitPipEvent(name, data = {}) {
-  if (_pip?.isPending()) return;
-  const template = PIP_EVENT_TEMPLATES[name];
-  if (!template) return;
-  const key = `${name}:${data.id || data.name || ""}`;
-  const now = Date.now();
-  if (now - (_lastPipEmit.get(key) || 0) < PIP_EVENT_THROTTLE_MS) return;
-  _lastPipEmit.set(key, now);
-  const text = template(data);
-  if (text) speakMessage(text, { autoDismiss: true });
-}
-
-async function notifyDialog(dialogEl) {
-  const context = dialogEl.dataset.pipContext;
-  if (!context) return;
-  const fallback = dialogEl.dataset.pipFallback;
-  const now = Date.now();
-  if (_pip.isOpen()) return;
-  if (now - _lastNotifyAt < MIN_GAP_MS) return;
-  _lastNotifyAt = now;
-  const prompt = [
-    "The user just opened a dashboard panel.",
-    "",
-    `Panel context:\n${context}`,
-    "",
-    "Reply with ONE specific tip, gotcha, or symptom→cause the user wouldn't learn",
-    "by reading this panel. If nothing genuinely useful comes to mind, reply with",
-    "an empty string — silence beats narrating what they can see.",
-  ].join("\n");
-  _pip.setResponding(true);
-  const reply = await ask(prompt, { system: PIP_SYSTEM });
-  _pip.setResponding(false);
-  if (reply === "") return;
-  // Proactive notify tips are app voice even when Claude generated them — user
-  // didn't ask anything, so no amber "live reply" tint (that's reserved for
-  // direct answers to user questions).
-  speakMessage(reply ?? fallback);
-}
 
 // Lazy GitHub OAuth helper — shared between /model handler and the
 // failure-recovery flow. Module-scope so both code paths reach it.
@@ -241,7 +168,6 @@ async function actOnFailure(backend, turnEl) {
 async function onSubmit(text, { turnEl }) {
   _activeTurnEl = turnEl;
   _abort = false;
-  cancelAutoDismiss();
   // pip-core auto-toggles responding state around onSubmit, which morphs
   // the right-edge slot (send → stop). Just clear the abort flag here.
 
@@ -255,20 +181,19 @@ async function onSubmit(text, { turnEl }) {
     maxTokens: 1024,
     onToolStart: ({ name }) => { pendingTraceLi = appendTraceLine(turnEl, name); },
     onToolEnd: ({ name, input, result, error, durationMs }) => {
-      finishTraceLine(pendingTraceLi, summarizeTool(name, input, result, error, durationMs), !!error);
+      finishTraceLine(pendingTraceLi, name, input, result, error, durationMs);
       pendingTraceLi = null;
     },
     shouldAbort: () => _abort,
     onMaxIterations: async () => {
       const choice = await _pip.askInChat({
-        question: "Pip's worked through several steps without finishing. Continue?",
+        question: "Several steps in without finishing. Continue?",
         options: ["Continue", "Stop"],
       }, turnEl);
       return choice === "Continue" ? 5 : 0;
     },
   });
   _activeTurnEl = null;
-  _resumeTimer = setTimeout(scheduleAutoDismiss, IDLE_RESUME_MS);
   // Backend returned nothing usable → surface an actionable recovery
   // (button or repurposed main input) instead of pip-core's generic
   // "try again." See actOnFailure: github → Sign in button; anthropic/
@@ -408,10 +333,7 @@ function watchDialogs() {
     let wasOpen = dlg.hasAttribute("open");
     new MutationObserver(() => {
       const isOpen = dlg.hasAttribute("open");
-      if (isOpen && !wasOpen) {
-        if (dlg.dataset.pipContext) notifyDialog(dlg);
-        rehoistPip();
-      }
+      if (isOpen && !wasOpen) rehoistPip();
       wasOpen = isOpen;
     }).observe(dlg, { attributes: true, attributeFilter: ["open"] });
   }
@@ -429,19 +351,16 @@ export function initAssistant() {
     historyLimit: HISTORY_LIMIT,
     introText: showIntro ? PIP_INTRO : "",
     introDismissMs: 7000,
-    placeholder: "Ask Pip…",
+    placeholder: "Ask a question…",
     maxLength: 4000,
-    // Model identifier surfaces in the input placeholder ("Ask Pip… ·
-    // gpt-4o-mini") so the user always knows which backend is live.
+    // Model identifier surfaces in the input placeholder so the user
+    // always knows which backend is live.
     modelLabel: activeModelForBackend(settings.pipBackend),
-    onOpen: cancelAutoDismiss,
     // Stop button click — flag the askWithTools loop to abort between iterations.
     onAbort: () => { _abort = true; },
   });
   registerInitialSlashCommands();
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
-  // Typing cancels auto-dismiss so Pip doesn't vanish mid-thought.
-  _pip.input.addEventListener("input", () => { if (_pip.input.value) cancelAutoDismiss(); });
   // Inject in-chat ask handler so pip-tools' ask_human can render option
   // buttons / free-text input inline in the active turn.
   setAskInChatHandler(({ question, options }) =>

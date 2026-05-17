@@ -25,7 +25,7 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 // calls in the DOMContentLoaded wiring below.
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
-import { initAssistant, emitPipEvent } from "./assistant.js";
+import { initAssistant } from "./assistant.js";
 import { initPhones, broadcastTargetInfo } from "./phones.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 // aruco.js is wired through helpers.js — phone helpers can be designated
@@ -621,11 +621,7 @@ function onDisconnected(id) {
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];
   renderEntry(entry);
-  // autoReconnect===false means user explicitly clicked disconnect — they
-  // know what happened; no Pip nudge. Unexpected drops (BLE range / robot
-  // power / service crash while still BLE-connected) are the useful signal.
   if (entry.autoReconnect !== false) {
-    emitPipEvent("robot.disconnected", { id, name: entry.name });
     // OTA-induced disconnect: the firmware sets entry.expectingReconnectUntil
     // before its restart, so we keep retrying. Backoff 3 / 6 / 12 / 25 s
     // spreads attempts across the chip's ~10-30 s reboot window.
@@ -714,7 +710,6 @@ const HEALTH_PORT = 81;
 const PROBE_TIMEOUT_MS = 4000;
 const PROBE_INTERVAL_MS = 30000;
 let _wifiRobots = [];
-const _lastRobotServiceState = new Map();
 
 async function _probeUrl(url) {
   const ctrl = new AbortController();
@@ -753,14 +748,6 @@ async function _probeTick() {
     const health = await _probeRobot(r);
     if (!health) return;
     const id = r.id;
-    // active→inactive transition surfaces as a service-crash event so
-    // Pip can nudge the user toward recovery.
-    const now = health.pi_robot_service;
-    const was = _lastRobotServiceState.get(id);
-    if (was === "active" && now && now !== "active") {
-      emitPipEvent("robot.service_crashed", { name: r.name || id });
-    }
-    if (now !== undefined) _lastRobotServiceState.set(id, now);
     found.push({ id, name: r.name, ...health });
   }));
   _wifiRobots = found;

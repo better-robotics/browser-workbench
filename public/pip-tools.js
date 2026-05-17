@@ -35,65 +35,62 @@ import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js
 const ALL_TOOLS = [
   {
     name: "list_robots",
-    description: "Returns the dashboard's known robots: id, name, type (pi|esp32), connection status (idle|connecting|connected|error), and whether Bluetooth is currently paired (so you know whether tool calls that need a BLE link will work).",
+    description: "Known robots: id, name, type (pi|esp32), status, paired (BLE).",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "get_robot_state",
-    description: "Returns full known state for one robot: fwInfo, wifiStatus (incl. ip), telemetry (uptime_s, mem_free_mb, temp_c), robotStatus (rebooting/installing/etc), capability schema. Cheap — uses already-cached BLE notify state, no new BLE write.",
+    description: "Cached state for one robot: fwInfo, wifiStatus, telemetry, robotStatus, capability schema. No BLE write.",
     input_schema: {
       type: "object",
-      properties: { id: { type: "string", description: "Robot id from list_robots" } },
+      properties: { id: { type: "string" } },
       required: ["id"],
     },
   },
   {
     name: "get_log",
-    description: "Fetches recent journalctl lines from a Pi robot via BLE. Use when diagnosing why a service is failing or to confirm what a robot did recently. Pi only — ESP32 has no journal. ~1-2 sec round trip.",
+    description: "Recent journalctl lines from a Pi over BLE. Pi only.",
     input_schema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Robot id" },
-        lines: { type: "number", description: "Number of lines (default 50, cap 200)" },
+        id: { type: "string" },
+        lines: { type: "number", description: "Default 50, cap 200." },
       },
       required: ["id"],
     },
   },
   {
     name: "get_config",
-    description: "Fetches the robot's pi-robot.conf as JSON via BLE. Useful before suggesting pin or capability changes. Pi only.",
+    description: "pi-robot.conf as JSON via BLE. Pi only.",
     input_schema: {
       type: "object",
-      properties: { id: { type: "string", description: "Robot id" } },
+      properties: { id: { type: "string" } },
       required: ["id"],
     },
   },
   {
     name: "restart_service",
-    description: "Restarts pi-robot.service on a Pi. BLE drops briefly; the service comes back in ~5-10 sec. Use when a soft hang needs clearing or after a config change. The user will be prompted to confirm before the restart fires.",
+    description: "Restart pi-robot.service (user confirms). BLE drops ~5-10s.",
     input_schema: {
       type: "object",
-      properties: { id: { type: "string", description: "Robot id" } },
+      properties: { id: { type: "string" } },
       required: ["id"],
     },
   },
-  // Phone-awareness tools (webmcp-style). Listing is read-only and idempotent;
-  // sending a notice is open-world (there's no "unsend"), so annotated as
-  // non-destructive but not idempotent.
   {
     name: "list_phones",
-    description: "Returns phones currently paired with this desktop dashboard (WebRTC). Empty list means nobody's on mobile right now. Pip can check this to know if the user can receive a push notice.",
+    description: "Phones paired with this dashboard via WebRTC.",
     input_schema: { type: "object", properties: {}, required: [] },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "view_robot_frame",
-    description: "Attaches one of the robot's current camera frames to your next reasoning step so you see the pixels directly. Only in your tool list when the user explicitly enabled it AND the backend supports images. WHEN TO USE: questions about fine visual details — specific colors / shades, counts of small items, readable text in the frame, visible condition ('is it dirty', 'are there scratches', 'are there white dots'), identifying one object among visually-similar ones. WHEN NOT TO USE: precise spatial localization (prefer get_robot_detections — your visual bbox estimates are NOT pixel-accurate), chaining multiple frame views in one turn (one frame per question is the budget — pick primary OR phone, not both, unless the question genuinely depends on cross-camera comparison). Only needs the camera to be streaming (card open, camera connected). CAMERA SELECTION: pass camera='primary' (default) or 'phone' (when a phone is mounted on this robot). Each call sends an image to the backend (cost + network + frames leave the device — the user opted in). Returns the frame as an image attached to the tool result; your next turn sees it natively.",
+    description: "Attach one robot camera frame to your next step. Use for fine visual detail (colors, counts, readable text, condition). For spatial position, prefer get_robot_detections — bbox estimates from raw frames are not pixel-accurate.",
     input_schema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Robot id" },
-        camera: { type: "string", description: "'primary' (default) or 'phone' when mounted." },
+        id: { type: "string" },
+        camera: { type: "string", description: "'primary' (default) or 'phone'." },
       },
       required: ["id"],
     },
@@ -101,17 +98,17 @@ const ALL_TOOLS = [
   },
   {
     name: "list_helpers",
-    description: "Returns paired phones the operator has linked (id 'phone:<phoneId>'). Each carries kind, label, status. Use to discover an external viewpoint when the robot has no usable camera, or when a third-party angle would resolve ambiguity.",
+    description: "Paired phones available as external camera viewpoints (id 'phone:<id>').",
     input_schema: { type: "object", properties: {}, required: [] },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "take_helper_snapshot",
-    description: "Capture one JPEG frame from a paired phone's shared camera. Use when the robot's onboard camera can't see what matters (occluded, wrong angle, no camera at all) but a phone helper has been pointed at the scene. Returns { imageDataUrl, width, height } on success.",
+    description: "One JPEG frame from a paired phone's shared camera. Returns { imageDataUrl, width, height }.",
     input_schema: {
       type: "object",
       properties: {
-        helper_id: { type: "string", description: "Helper id from list_helpers ('phone:<phoneId>')." },
+        helper_id: { type: "string" },
       },
       required: ["helper_id"],
     },
@@ -119,11 +116,11 @@ const ALL_TOOLS = [
   },
   {
     name: "start_helper_camera",
-    description: "Surface a hint that the user should tap Share camera on the paired phone. Phone owns its own camera permission; desktop can't flip it on remotely. Idempotent — returns ok if already live.",
+    description: "Prompt the user to tap Share camera on the phone (desktop can't flip it remotely). Idempotent.",
     input_schema: {
       type: "object",
       properties: {
-        helper_id: { type: "string", description: "Helper id from list_helpers." },
+        helper_id: { type: "string" },
       },
       required: ["helper_id"],
     },
@@ -131,11 +128,11 @@ const ALL_TOOLS = [
   },
   {
     name: "stop_helper_camera",
-    description: "Release the helper's camera. Symmetric with start_helper_camera; idempotent.",
+    description: "Release the helper's camera. Idempotent.",
     input_schema: {
       type: "object",
       properties: {
-        helper_id: { type: "string", description: "Helper id from list_helpers." },
+        helper_id: { type: "string" },
       },
       required: ["helper_id"],
     },
@@ -143,15 +140,15 @@ const ALL_TOOLS = [
   },
   {
     name: "get_robot_detections",
-    description: "Runs an open-vocabulary object detector on the robot's current camera frame and returns bounding boxes for the queries you provide. Use this WHENEVER a decision depends on knowing where-in-the-frame something is. Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit, coordinates normalized to [0,1]: x=0 is left edge, x=1 is right edge, y=0 is top, y=1 is bottom. cx/cy is the center of the box — use cx to decide which way to turn (cx<0.45 = left of center, cx>0.55 = right of center). Empty array means nothing matching was found. Queries should be short concrete noun phrases (up to ~5 per call): 'yellow can', 'doorway', 'chair'. ~1-2s per call; first call after page load triggers a one-time model download (~300MB, cached). CAMERA SELECTION: pass camera='primary' (default), 'phone' (when mounted), or 'all' to detect on every camera and return per-camera arrays in `detections_by_camera: { primary: [...], phone: [...] }`. Per-camera bboxes are NOT comparable across cameras (different geometry) — use them to decide which view contains the target, not to triangulate. If the call returns an error, surface the error verbatim and note that the detector runs in the user's browser.",
+    description: "Open-vocab detector on the robot's camera frame. Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no match. Per-camera bboxes are not comparable across cameras.",
     input_schema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Robot id" },
+        id: { type: "string" },
         queries: {
           type: "array",
           items: { type: "string" },
-          description: "Up to ~5 short concrete noun phrases to locate in the frame.",
+          description: "Up to 5 short noun phrases ('yellow can', 'doorway').",
         },
         camera: { type: "string", description: "'primary' (default), 'phone', or 'all'." },
       },
@@ -161,14 +158,14 @@ const ALL_TOOLS = [
   },
   {
     name: "move_motor",
-    description: "Issues a time-bounded motor pulse on the robot: runs motors at (l, r) for duration_ms milliseconds, then firmware auto-stops. THE ONLY way to move the robot from Pip — there is no persistent-motion equivalent in the LLM tool surface (that's reserved for the human's joystick). Arguments: l and r are signed wheel speeds [-100, 100]; firmware clamps LLM-issued magnitude to ±40 and duration to [50, 2000]ms, so anything outside that range is silently capped. Use short, small pulses for exploratory motion and re-observe the scene after — large commits to a direction without re-checking are how the robot gets stuck or collides. STOPPING RULE: if this is your 3rd+ pulse toward the same target without a clear scene change between, you are stuck — stop calling this and escalate via ask_human. Iteration-limit crashes mean the planner loop didn't notice the loop; the stopping rule exists to prevent that. Not acknowledged (fire-and-forget); returns { ok, applied:{l,r,duration_ms} } with the actually-sent values or { ok:false, error }.",
+    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms. Firmware caps speed to ±40 and duration to [50, 2000]. Re-observe between pulses; executor stops you after 3 consecutive pulses without an intervening observation. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }.",
     input_schema: {
       type: "object",
       properties: {
-        id:          { type: "string", description: "Robot id" },
-        l:           { type: "number", description: "Left motor speed [-100, 100]. Firmware-capped to ±40." },
-        r:           { type: "number", description: "Right motor speed [-100, 100]. Firmware-capped to ±40." },
-        duration_ms: { type: "number", description: "Pulse length in ms. Firmware-capped to [50, 2000]." },
+        id:          { type: "string" },
+        l:           { type: "number" },
+        r:           { type: "number" },
+        duration_ms: { type: "number" },
       },
       required: ["id", "l", "r", "duration_ms"],
     },
@@ -176,16 +173,16 @@ const ALL_TOOLS = [
   },
   {
     name: "ask_human",
-    description: "Ask the human user a question, blocking until they answer (60s default). Routes to a paired phone if one is available (better UX — they're holding it), otherwise renders the question as buttons inline in the dashboard chat bubble. Preferred over guessing when spatial judgment matters: 'which door should I take?', 'is this the red book you meant?'. Provide 'options' for tappable answers; omit options to get a free-text response. Optionally attach a robot camera frame ('include_robot_camera' + 'robot_id') when the question is visual. Returns {answer, timed_out, via}: answer is the string the user tapped/typed, null on skip/timeout; via is 'phone' or 'chat'.",
+    description: "Blocking question to the user (60s). Routes to a paired phone if available, otherwise inline buttons in chat. Provide options for tappable answers; omit for free text. Returns {answer, timed_out, via}.",
     input_schema: {
       type: "object",
       properties: {
-        question: { type: "string", description: "One short, specific question. Open-ended wording beats leading wording." },
-        options: { type: "array", items: { type: "string" }, description: "Up to ~4 tappable answers. Omit or leave empty for a free-text response." },
-        prefer: { type: "string", enum: ["phone", "chat"], description: "Force a transport. Default: phone if paired, chat otherwise." },
-        phone_id: { type: "string", description: "Specific phone id from list_phones. Default: first paired phone." },
-        include_robot_camera: { type: "boolean", description: "Attach the robot's current camera frame (phone transport only). Default false." },
-        robot_id: { type: "string", description: "Robot whose camera to capture. Required when include_robot_camera is true." },
+        question: { type: "string" },
+        options: { type: "array", items: { type: "string" }, description: "Up to ~4 tappable answers." },
+        prefer: { type: "string", enum: ["phone", "chat"] },
+        phone_id: { type: "string" },
+        include_robot_camera: { type: "boolean", description: "Attach robot camera frame (phone transport only)." },
+        robot_id: { type: "string", description: "Required when include_robot_camera is true." },
       },
       required: ["question"],
     },
