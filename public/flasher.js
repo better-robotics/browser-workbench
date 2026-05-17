@@ -135,7 +135,8 @@ export async function flashFirmware(port, { onLog = () => {}, onProgress = () =>
     };
 
     // 1. Library reset method if available (esptool-js handles its own
-    //    RTS pulse). Don't early-return — we still need step 2.
+    //    RTS pulse to reboot the chip). Don't early-return — we still
+    //    need the cleanup steps below.
     let libReset = false;
     if (typeof loader.after === "function")
       libReset = await attempt("loader.after(hard_reset)", () => loader.after("hard_reset"));
@@ -144,25 +145,33 @@ export async function flashFirmware(port, { onLog = () => {}, onProgress = () =>
     if (!libReset && typeof transport.hardReset === "function")
       libReset = await attempt("transport.hardReset()", () => transport.hardReset());
 
-    // 2. Release the transport's reader/writer locks ALWAYS, even on the
-    //    happy path. Without this, port.close() in installEsp32's finally
-    //    silently fails ("port is locked") — Chrome's tab indicator stays
-    //    on, and the port can't be reused for the live console or another
-    //    install. Also unblocks setSignals on the raw port below.
-    if (typeof transport.disconnect === "function")
-      await attempt("transport.disconnect()", () => transport.disconnect());
-
-    // 3. If the library reset didn't run, drive the reset manually now
-    //    that the transport is released.
-    //      RTS=true  → EN low  (reset asserted)
-    //      DTR=false → IO0 high (normal boot, not download)
+    // 2. If the library didn't reset, drive the standard ESP reset
+    //    manually now while the port is still open and the transport
+    //    streams are still active (setSignals coexists with locked
+    //    streams). RTS=true asserts EN (reset), DTR=false keeps IO0 high
+    //    (normal boot, not download).
     if (!libReset) {
       await attempt("port.setSignals RTS=1 DTR=0", () =>
         port.setSignals({ requestToSend: true, dataTerminalReady: false }));
       await new Promise((r) => setTimeout(r, 100));
-      await attempt("port.setSignals RTS=0 DTR=0", () =>
-        port.setSignals({ requestToSend: false, dataTerminalReady: false }));
     }
+
+    // 3. Final-state cleanup BEFORE the transport closes the port.
+    //    Library reset can leave DTR asserted — when DTR stays asserted,
+    //    IO0 stays low, and the chip boots into *download mode*, not into
+    //    the just-flashed firmware. Symptom: no BLE advertisement until
+    //    the user physically unplugs (driver releases DTR on disconnect).
+    //    Forcing both signals false here ensures a clean boot state
+    //    regardless of what library reset left behind.
+    await attempt("port.setSignals RTS=0 DTR=0 (final)", () =>
+      port.setSignals({ requestToSend: false, dataTerminalReady: false }));
+
+    // 4. Release transport reader/writer locks (and on esptool-js v0.5
+    //    this also closes the port). Without this, port.close() in
+    //    installEsp32's finally silently fails and Chrome's tab keeps
+    //    the serial-port indicator on.
+    if (typeof transport.disconnect === "function")
+      await attempt("transport.disconnect()", () => transport.disconnect());
   }
 
   // main() syncs with the bootloader (asserts EN+GPIO0, reads chip
