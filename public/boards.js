@@ -74,8 +74,13 @@ const DEVKIT_PINS_BOT = [
   { label: "IO15", gpio: 15, kind: "gpio", status: "warn", note: "Strapping pin (MTDO) — pulling LOW at reset silences boot messages on UART0. Safe as GPIO after boot." },
   { label: "IO2",  gpio: 2,  kind: "gpio", status: "warn", note: "Strapping pin + onboard blue LED. Must not be HIGH at boot when the internal pull-down is disabled; usable as output safely once running." },
   { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
-  { label: "IO16", gpio: 16, kind: "gpio", status: "free", note: "Doubles as UART2 RX (silkscreen RX2)." },
-  { label: "IO17", gpio: 17, kind: "gpio", status: "free", note: "Doubles as UART2 TX (silkscreen TX2)." },
+  // TX2 (IO17) sits before RX2 (IO16) on the standard DOIT 30-pin DevKitV1
+  // header — i.e., the silkscreen-TX2 pin is closer to IO4 than silkscreen-RX2.
+  // Confirmed against a user's USB-C / CP210x variant; if a future clone
+  // mirrors them, add a board-specific entry to BOARDS instead of swapping
+  // these in place.
+  { label: "TX2",  gpio: 17, kind: "gpio", status: "free", note: "GPIO17, default UART2 TX. Silkscreen TX2." },
+  { label: "RX2",  gpio: 16, kind: "gpio", status: "free", note: "GPIO16, default UART2 RX. Silkscreen RX2." },
   { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
   { label: "IO18", gpio: 18, kind: "gpio", status: "free" },
   { label: "IO19", gpio: 19, kind: "gpio", status: "free" },
