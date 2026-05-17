@@ -157,6 +157,6 @@ export function init() {
 }
 
 // Tear down any active serial session held here. Idempotent — safe to
-// call when nothing's open. Used by the global pre-flash cleanup so
-// esp-web-tools' install button doesn't trip "port is already open".
+// call when nothing's open. Used by the front-page install hook so the
+// next port.open() doesn't trip "port is already open".
 export async function releasePort() { if (_port) await disconnect(); }

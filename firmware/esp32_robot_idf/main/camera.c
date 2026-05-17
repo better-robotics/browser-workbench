@@ -1,5 +1,9 @@
 #include "camera.h"
 
+#include "sdkconfig.h"
+
+#if CONFIG_BR_HAS_CAMERA
+
 #include "esp_camera.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -144,3 +148,19 @@ void camera_release(void) {
     }
     xSemaphoreGive(s_mutex);
 }
+
+#else  // CONFIG_BR_HAS_CAMERA
+
+// No-camera stubs. esp32-camera isn't in PRIV_REQUIRES on these builds,
+// so esp_camera.h isn't reachable — the whole real implementation above
+// is excluded. Callers see consistent "no camera" answers and skip their
+// own work paths (fw_info doesn't advertise the cap, http_stream doesn't
+// register /stream, snapshot returns an error to the BLE write).
+
+bool camera_probe(void)      { return false; }
+bool camera_present(void)    { return false; }
+int  camera_init_error(void) { return 0; }
+bool camera_acquire(void)    { return false; }
+void camera_release(void)    { }
+
+#endif  // CONFIG_BR_HAS_CAMERA

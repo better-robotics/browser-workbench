@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "nvs.h"
 
@@ -23,18 +24,43 @@ static int nvs_get_int_default(nvs_handle_t h, const char *key, int dflt) {
 }
 
 void pin_config_load(pin_config_t *out) {
+#if CONFIG_BR_BOARD_AITHINKER_CAM
+    // ESP32-CAM has ~8 user-assignable GPIOs (most SD- or PSRAM-shared)
+    // — these four are the only set that doesn't collide with the camera
+    // signal lines.
     out->led         = 33;
     out->flash       = 4;
     out->motor_l_fwd = 14;
     out->motor_l_bwd = 15;
     out->motor_r_fwd = 13;
     out->motor_r_bwd = 12;
-    // Encoders default disabled — ESP32-CAM has ~8 user-assignable GPIOs
-    // (most SD- or PSRAM-shared) and motors already claim four. The user
-    // picks free pins via the dashboard pin map; we don't ship a default
-    // that might collide with their board variant or shared peripherals.
-    out->enc_l       = -1;
-    out->enc_r       = -1;
+#elif CONFIG_BR_BOARD_DEVKIT
+    // DevKitV1: onboard LED on GPIO 2, no flash LED. Motors picked from
+    // pins with no strapping/UART/USB role on classic ESP32.
+    out->led         = 2;
+    out->flash       = -1;
+    out->motor_l_fwd = 16;
+    out->motor_l_bwd = 17;
+    out->motor_r_fwd = 18;
+    out->motor_r_bwd = 19;
+#elif CONFIG_BR_BOARD_C3_SUPERMINI
+    // SuperMini onboard LED on GPIO 8 (also a strapping pin, but its
+    // purpose on this board is the LED — leaving the LED unwired won't
+    // affect boot). Motors from the clean general-purpose set.
+    out->led         = 8;
+    out->flash       = -1;
+    out->motor_l_fwd = 3;
+    out->motor_l_bwd = 4;
+    out->motor_r_fwd = 5;
+    out->motor_r_bwd = 6;
+#else
+#error "pin_config: no BR_BOARD_* defined — check Kconfig.projbuild"
+#endif
+    // Encoders default disabled — picking sensible defaults requires
+    // knowing the user's motor driver wiring (encoder OUT pins land
+    // wherever the driver leaves them). User picks via dashboard.
+    out->enc_l = -1;
+    out->enc_r = -1;
 
     nvs_handle_t h;
     if (nvs_open("pins", NVS_READONLY, &h) != ESP_OK) return;
@@ -80,13 +106,31 @@ static int extract_int_key(const char *json, size_t len, const char *key) {
     return neg ? -v : v;
 }
 
-// AI-Thinker fixed camera pin map. Changing camera pins requires a code
-// change, not a config change, so baking the reserved set in is fine.
-static const int CAMERA_RESERVED[] = { 0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39 };
+// Forbidden set: pins where wiring something else physically prevents
+// the firmware from running (camera signal lines on AI-Thinker, SPI
+// flash pins on all boards). Strapping pins, UART, USB pins are
+// recoverable — they live in a dashboard-side warning tier, not here.
+// See CLAUDE.md's panda pattern: firmware enforces the irreversible
+// floor, dashboard handles the educational layer.
+#if CONFIG_BR_BOARD_AITHINKER_CAM
+static const int PINS_FORBIDDEN[] = { 0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39 };
+#elif CONFIG_BR_BOARD_DEVKIT
+static const int PINS_FORBIDDEN[] = { 6, 7, 8, 9, 10, 11 };
+#elif CONFIG_BR_BOARD_C3_SUPERMINI
+static const int PINS_FORBIDDEN[] = { 11, 12, 13, 14, 15, 16, 17 };
+#endif
 
-static bool pin_in_reserved(int p) {
-    for (size_t i = 0; i < sizeof(CAMERA_RESERVED) / sizeof(CAMERA_RESERVED[0]); i++) {
-        if (p == CAMERA_RESERVED[i]) return true;
+#if CONFIG_IDF_TARGET_ESP32
+#define PIN_MAX 39
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define PIN_MAX 21
+#else
+#error "pin_config: unknown IDF target — add PIN_MAX"
+#endif
+
+static bool pin_is_forbidden(int p) {
+    for (size_t i = 0; i < sizeof(PINS_FORBIDDEN) / sizeof(PINS_FORBIDDEN[0]); i++) {
+        if (p == PINS_FORBIDDEN[i]) return true;
     }
     return false;
 }
@@ -106,12 +150,12 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     for (int i = 0; i < 8; i++) {
         int p = candidates[i];
         if (p == PIN_ABSENT || p == -1) continue;
-        if (p < 0 || p > 39) {
+        if (p < 0 || p > PIN_MAX) {
             ESP_LOGW(TAG, "pin %d out of range, ignored", p);
             return;
         }
-        if (pin_in_reserved(p)) {
-            ESP_LOGW(TAG, "GPIO %d is camera-reserved, ignored", p);
+        if (pin_is_forbidden(p)) {
+            ESP_LOGW(TAG, "GPIO %d is board-forbidden, ignored", p);
             return;
         }
         for (int j = i + 1; j < 8; j++) {

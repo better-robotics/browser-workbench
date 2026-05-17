@@ -6,7 +6,7 @@
 //
 // What's NOT cached:
 // - /firmware/* — OTA bundles, big and per-device. Always fetched fresh.
-// - cross-origin (Claude API via the bridge, esp-web-tools CDN, etc.) —
+// - cross-origin (Claude API via the bridge, esptool-js CDN, etc.) —
 //   these have their own freshness needs and we'd be wrong to gatekeep.
 //
 // Update flow:
@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "63c8781a";
+const VERSION = "ed5a314d";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND

@@ -1,5 +1,9 @@
 #include "snapshot.h"
 
+#include "sdkconfig.h"
+
+#if CONFIG_BR_HAS_CAMERA
+
 #include <string.h>
 
 #include "esp_camera.h"
@@ -107,3 +111,12 @@ void snapshot_request(void) {
         s_task = NULL;
     }
 }
+
+#else  // CONFIG_BR_HAS_CAMERA
+
+// No-camera build: gatt_svr's snapshot characteristic still exists but
+// any request resolves to "no camera" silently. Keeping the symbol
+// avoids #ifdef'ing the BLE handler that may receive writes.
+void snapshot_request(void) { }
+
+#endif  // CONFIG_BR_HAS_CAMERA

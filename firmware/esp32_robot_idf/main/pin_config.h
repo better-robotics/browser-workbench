@@ -19,12 +19,12 @@ typedef struct {
 bool pin_valid(int pin);
 bool pin_motors_configured(const pin_config_t *cfg);
 
-// Load from NVS namespace "pins". Defaults are the AI-Thinker layout
-// (LED=33, FLASH=4, motors 14/15/13/12) — see pin_config.c.
+// Load from NVS namespace "pins". Defaults are board-dependent — see
+// pin_config.c's CONFIG_BR_BOARD_* switch.
 void pin_config_load(pin_config_t *out);
 
 // Handle a JSON write from the BLE pin-config char. Validates against the
-// camera-reserved set, persists valid pins to NVS, and arms a deferred
+// board's forbidden set, persists valid pins to NVS, and arms a deferred
 // reboot so the new pins take effect on next boot. Invalid writes are
 // dropped silently — the dashboard's editor catches most of these
 // client-side; the firmware-side check is the second line of defense.

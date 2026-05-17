@@ -34,6 +34,20 @@ if(EXISTS "${MANAGED_COMPONENTS}" AND EXISTS "${PATCH_DIR}")
     endforeach()
 endif()
 
+# Skip building esp_peer (vendored WebRTC component) on no-WebRTC variants.
+# IDF auto-discovers everything in components/ and compiles it whether or
+# not main requires it — so a conditional PRIV_REQUIRES in main alone
+# doesn't skip the compile. EXCLUDE_COMPONENTS removes it from the build
+# graph entirely; must be set before project() since component discovery
+# happens inside that call.
+#
+# Driven by BR_WANT_ESP_PEER env var (set by build.sh per board) rather
+# than CONFIG_BR_WEBRTC_ESP_PEER — CONFIG_* CMake vars aren't populated
+# until project()'s Kconfig pass runs, which is too late.
+if(NOT DEFINED ENV{BR_WANT_ESP_PEER} OR "$ENV{BR_WANT_ESP_PEER}" STREQUAL "0")
+    set(EXCLUDE_COMPONENTS espressif__esp_peer)
+endif()
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(esp32_robot)

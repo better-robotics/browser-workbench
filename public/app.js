@@ -1693,24 +1693,31 @@ document.addEventListener("DOMContentLoaded", () => {
   $("empty-add-robot-btn").addEventListener("click", openSetup);
   $("setup-close").addEventListener("click", () => $("setup-dialog").close());
 
-  // Pre-flash cleanup. esp-web-install-button has no hook to run code
-  // before it calls port.open(), and any port we (or a prior install
-  // session) left open makes its open() throw "port is already open".
-  // Capture-phase listener fires before ewt's bubble handler, kicks off
-  // an async release that completes well before the user finishes the
-  // port picker, leaving the port unlocked when ewt finally opens it.
-  document.querySelector("esp-web-install-button")?.addEventListener("click", () => {
-    Promise.all([
-      import("./recovery.js").then(m => m.releasePort?.()).catch(() => {}),
-      import("./esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
-    ]).then(async () => {
-      if (!("serial" in navigator)) return;
-      try {
-        const ports = await navigator.serial.getPorts();
-        await Promise.all(ports.map(p => p.close().catch(() => {})));
-      } catch {}
-    });
-  }, true);
+  // Setup card's Flash button → canonical install flow in esp-serial.js.
+  // The "Web Serial required" hint replaces the button when the browser
+  // can't support it.
+  const setupInstallBtn = document.getElementById("setup-esp-install");
+  if (setupInstallBtn) {
+    if (!("serial" in navigator)) {
+      setupInstallBtn.disabled = true;
+      document.getElementById("setup-esp-unsupported").hidden = false;
+    } else {
+      setupInstallBtn.addEventListener("click", async () => {
+        // Close the setup chooser — install dialog takes over from here.
+        // Two stacked modals split focus and make "which X dismisses what"
+        // ambiguous (HIG: avoid competing modals). Setup card has done
+        // its job by routing us into installEsp32.
+        $("setup-dialog").close();
+        // Release any console-held port before installEsp32 picks a new one.
+        await Promise.all([
+          import("./recovery.js").then(m => m.releasePort?.()).catch(() => {}),
+          import("./esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
+        ]);
+        const { installEsp32 } = await import("./esp-serial.js");
+        await installEsp32();
+      });
+    }
+  }
 
   initGamepad();
   initMotorsKeyboard();

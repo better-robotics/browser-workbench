@@ -14,8 +14,15 @@ dependencies:
   # shape and the mbedTLS 3.6.6+ sunset path. Local component takes
   # precedence over managed; keep this dep removed to avoid name conflict.
 
-  # Camera driver. Espressif official component.
-  espressif/esp32-camera: "^2.0.15"
+  # Camera driver. Espressif official component — supports esp32 / esp32s2
+  # / esp32s3 (DVP parallel interface). esp32c3 has no camera peripheral,
+  # so the dependency is gated to skip resolution on that target. Main's
+  # CMakeLists.txt also gates the REQUIRES line on CONFIG_BR_HAS_CAMERA so
+  # a DevKit (esp32 target, no camera wiring) doesn't link the driver.
+  espressif/esp32-camera:
+    version: "^2.0.15"
+    rules:
+      - if: "target in [esp32, esp32s2, esp32s3]"
 
   idf:
     version: ">=5.1.0"

@@ -33,7 +33,6 @@
   <!-- Error capture: synchronous, top of head, before any module — so it
        catches bootstrap errors. Feeds the report-issue link's body. -->
   <script src="error-capture.js"></script>
-  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.js"></script>
@@ -300,9 +299,7 @@
   </details>
 </dialog>
 
-<dialog id="pinout-modal" class="prepare-dialog"
-  data-pip-context="User is looking at the Pi 40-pin header. Real-world gotchas: 5V sag under servo load (separate supply + common grounds), I2C needs pull-ups on pins 3/5 or nothing talks, SPI and I2C can't share the same pins, GPIO defaults are input with no pull."
-  data-pip-fallback="Servos twitching? Almost always 5V sag — put them on a separate supply and common the grounds.">
+<dialog id="pinout-modal" class="prepare-dialog">
   <div class="modal-header">
     <div class="label" id="pinout-title">Pinout</div>
     <button class="icon" id="pinout-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
@@ -331,9 +328,7 @@
   <div id="scripts-output" class="scripts-output"></div>
 </dialog>
 
-<dialog id="console-modal" class="prepare-dialog"
-  data-pip-context="USB serial console to a Pi or ESP32. Pi mode (USB-CDC ACM) yields a real bash prompt; ESP32 mode (USB UART) yields boot log + serial output. Used when BLE is dead or for low-level debugging. Mode picker at the top of the dialog selects which one."
-  data-pip-fallback="First thing to check on a broken Pi: `journalctl -u pi-robot -n 50` — tells you if the service crashed.">
+<dialog id="console-modal" class="prepare-dialog">
   <div class="modal-header">
     <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-terminal"/></svg>Serial console</div>
     <button class="icon" id="console-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
@@ -377,8 +372,53 @@
   </div>
 </dialog>
 
-<dialog id="shell-modal" class="prepare-dialog"
-  data-pip-context="Browser-resident terminal into a Pi over a WebRTC DataChannel. Auth is the WebRTC peer trust (LAN-direct signaling via the Pi's :82/webrtc/offer). Spawned via libpeer-based pi-robot-rtc.service on the Pi side; PTY runs as the robot user.">
+<!-- Single canonical install dialog. Hosts every state of the flow:
+     connect → chip-detect → board pick → write progress → done. Both
+     entry points (front-page setup card, serial-console Flash button)
+     route through here. Board options filter to the detected chip so
+     a c3 image can't be mis-flashed onto a classic esp32 or vice versa. -->
+<dialog id="esp-flash-modal" class="prepare-dialog esp-flash-modal">
+  <div class="modal-header">
+    <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-download"/></svg>Install firmware<span class="modal-subtitle" id="esp-flash-subtitle"></span></div>
+    <button class="icon" id="esp-flash-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
+  </div>
+  <div class="meta esp-flash-status" id="esp-flash-status">Connecting…</div>
+  <!-- Hidden by default; ~30 lines of esptool chatter per install (chip
+       detect, sync, per-segment writes). Stored in-memory until the user
+       opens the disclosure to avoid the per-byte DOM thrash that
+       previously stalled sync timing. -->
+  <details class="esp-flash-details" id="esp-flash-details">
+    <summary>Installation log</summary>
+    <pre class="esp-flash-trace" id="esp-flash-trace"></pre>
+  </details>
+  <!-- Pick state. Shown after chip-detect succeeds. -->
+  <div class="esp-flash-pick" id="esp-flash-pick" hidden>
+    <div class="esp-flash-boards" role="radiogroup" aria-label="Board" id="esp-flash-boards"></div>
+    <label class="esp-flash-webrtc" id="esp-flash-webrtc-wrap" hidden>
+      <input type="checkbox" id="esp-flash-webrtc-cb" checked>
+      <span class="esp-flash-webrtc-title">WebRTC video</span>
+      <span class="meta">Browser ↔ robot live camera over BLE-signaled DTLS. Without this, video falls back to HTTP MJPEG (~215 KB smaller image).</span>
+    </label>
+    <p class="meta esp-flash-empty" id="esp-flash-empty" hidden>
+      No supported board matches the detected chip. We don't yet ship a firmware bundle for this variant.
+    </p>
+    <!-- Bundle version line — fetched from the picked board's manifest.json
+         so the operator knows what they're about to flash. Updates on
+         board / WebRTC checkbox change. -->
+    <div class="meta esp-flash-version" id="esp-flash-version"></div>
+  </div>
+  <!-- Progress state. Replaces pick once Install is clicked. -->
+  <div class="esp-flash-progress" id="esp-flash-progress" hidden>
+    <div class="esp-flash-progress-bar"><div class="esp-flash-progress-fill" id="esp-flash-progress-fill"></div></div>
+    <div class="meta esp-flash-progress-sub" id="esp-flash-progress-sub"></div>
+  </div>
+  <div class="row esp-flash-actions">
+    <button class="secondary" id="esp-flash-cancel">Cancel</button>
+    <button class="primary" id="esp-flash-install" disabled>Install</button>
+  </div>
+</dialog>
+
+<dialog id="shell-modal" class="prepare-dialog">
   <div class="modal-header">
     <div class="label"><svg class="icon-svg modal-title-icon" id="shell-transport-icon"><use href="icons.svg#icon-wifi"/></svg>Shell<span class="modal-subtitle" id="shell-subtitle"></span></div>
     <button class="icon" id="shell-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
@@ -405,9 +445,7 @@
   </div>
 </dialog>
 
-<dialog id="prepare-dialog" class="prepare-dialog"
-  data-pip-context="User is about to stage firmware/runtime onto a Pi SD card. Known gotchas in this codebase: PEP-668 'externally-managed' marker blocks pip installs on recent Pi OS, Spotlight indexing silently stalls SD writes on macOS, rfkill blocks WiFi on fresh Trixie until unblocked."
-  data-pip-fallback="If the stage stalls, Spotlight is probably indexing the SD — wait for Finder's indicator to stop.">
+<dialog id="prepare-dialog" class="prepare-dialog">
   <div class="modal-header">
     <div class="label">Set up a Pi robot</div>
     <button class="icon" id="prepare-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
@@ -470,9 +508,7 @@
   <div class="progress-log" id="prep-progress" hidden style="margin-top: 16px;"></div>
 </dialog>
 
-<dialog id="setup-dialog" class="prepare-dialog setup-dialog"
-  data-pip-context="User is choosing between ESP32 (USB flash in ~30s, basic onboard camera, no Linux) and Pi (HD camera, full Linux, longer setup, needs SD prep). Decision hinges on whether they want a lightweight microcontroller or onboard Linux with better video."
-  data-pip-fallback="ESP32 flashes in ~30s with a basic onboard camera. Pi's the path if you want HD video or onboard Linux.">
+<dialog id="setup-dialog" class="prepare-dialog setup-dialog">
   <div class="modal-header">
     <div class="label">Set up a robot</div>
     <button class="icon" id="setup-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
@@ -485,11 +521,8 @@
         <div class="platform-sub">Flash firmware over USB. ~30 seconds. Basic camera, no Linux.</div>
       </div>
       <div class="platform-cta">
-        <esp-web-install-button manifest="firmware/manifest.json">
-          <button slot="activate">Flash firmware</button>
-          <span slot="unsupported" class="platform-sub">Web Serial required (Chrome or Edge desktop).</span>
-          <span slot="not-allowed" class="platform-sub">HTTPS required to flash.</span>
-        </esp-web-install-button>
+        <button id="setup-esp-install">Flash firmware</button>
+        <span class="platform-sub" id="setup-esp-unsupported" hidden>Web Serial required (Chrome or Edge desktop).</span>
       </div>
       <div class="platform-footnote">
         <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>

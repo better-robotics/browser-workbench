@@ -1,5 +1,9 @@
 #include "http_stream.h"
 
+#include "sdkconfig.h"
+
+#if CONFIG_BR_HAS_CAMERA
+
 #include <stdio.h>
 #include <string.h>
 
@@ -65,3 +69,11 @@ void http_stream_init(void) {
     httpd_register_uri_handler(s_httpd, &uri);
     ESP_LOGI(TAG, "ready on :81/stream");
 }
+
+#else  // CONFIG_BR_HAS_CAMERA
+
+// No-camera build: skip httpd on port 81 entirely. The dashboard reads
+// the camera cap from fw_info; absent there, it doesn't probe /stream.
+void http_stream_init(void) { }
+
+#endif  // CONFIG_BR_HAS_CAMERA

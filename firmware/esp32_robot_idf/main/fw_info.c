@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+#include "sdkconfig.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 
@@ -13,6 +14,37 @@
 
 static const char *TAG = "fw_info";
 
+// Three identifiers reported to the dashboard:
+//   chip    — IDF target. Binary-compat constraint; what esptool checks.
+//   board   — hardware variant. Pin-map constraint; drives the visual
+//             pin editor and the dashboard's board-aware UI.
+//   variant — board + feature toggle. Disambiguates the OTA bundle so
+//             self-OTA preserves the user's WebRTC choice.
+#if CONFIG_IDF_TARGET_ESP32
+#  define BR_CHIP_STR "esp32"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#  define BR_CHIP_STR "esp32c3"
+#else
+#  error "fw_info: unknown IDF target"
+#endif
+
+#if CONFIG_BR_BOARD_AITHINKER_CAM
+#  define BR_BOARD_STR "aithinker_cam"
+#  if CONFIG_BR_WEBRTC_ESP_PEER
+#    define BR_VARIANT_STR "aithinker_cam_webrtc"
+#  else
+#    define BR_VARIANT_STR "aithinker_cam"
+#  endif
+#elif CONFIG_BR_BOARD_DEVKIT
+#  define BR_BOARD_STR   "devkit"
+#  define BR_VARIANT_STR "devkit"
+#elif CONFIG_BR_BOARD_C3_SUPERMINI
+#  define BR_BOARD_STR   "c3_supermini"
+#  define BR_VARIANT_STR "c3_supermini"
+#else
+#  error "fw_info: no BR_BOARD_* defined"
+#endif
+
 #define FW_INFO_BUF_SIZE 768
 static char s_buf[FW_INFO_BUF_SIZE];
 
@@ -23,7 +55,10 @@ void fw_info_init(const pin_config_t *pins) {
     // so local flashes report an accurate SHA without a CI stamp step.
     const char *version = esp_app_get_description()->version;
     o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
-        "{\"type\":\"esp32\",\"url\":\"firmware/bins/esp32_robot.bin\","
+        "{\"type\":\"esp32\","                  // hardware-class id, stable across chip families
+        "\"chip\":\"" BR_CHIP_STR "\","         // esptool-visible identity (binary-compat)
+        "\"board\":\"" BR_BOARD_STR "\","       // pin-map identity (UI editor)
+        "\"url\":\"firmware/bins/" BR_VARIANT_STR "/firmware.bin\","
         "\"version\":\"%s\",\"caps\":[", version);
 
     bool first = true;

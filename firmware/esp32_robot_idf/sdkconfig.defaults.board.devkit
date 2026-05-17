@@ -1,0 +1,8 @@
+# ESP32 DevKitV1 / WROOM-32 — classic ESP32, no camera, no PSRAM. About
+# 25 usable GPIOs vs. the AI-Thinker's ~8, so motor + encoder layouts have
+# room to spread out without colliding with camera-reserved pins.
+CONFIG_BR_BOARD_DEVKIT=y
+
+# Classic ESP32 max. No camera DMA pressure on this board, so the CPU
+# can sit at full clock without contending with peripheral bandwidth.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

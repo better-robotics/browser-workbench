@@ -1,7 +1,7 @@
 // Browser-side ESP32 flasher using esptool-js + Web Serial.
 //
 // Replaces the local-CLI flow (`make setup` → `idf.py flash` /
-// `esptool.py write_flash`). The dashboard fetches the same 4 bins it
+// `esptool.py write_flash`). The dashboard fetches the per-board bins it
 // publishes for OTA, then esptool-js streams them to the chip over a
 // Web Serial port the operator picks from the browser chooser. No
 // driver install on macOS/Linux; Windows still needs the usual CP210x
@@ -10,9 +10,10 @@
 // Same browser constraint as the rest of the recovery UI — Chrome /
 // Edge with Web Serial. esptool-js is dynamic-imported on first use so
 // the ~250 KB module only downloads when actually flashing.
-
-import { $ } from "./dom.js";
-import { log } from "./log.js";
+//
+// UI host is the caller's problem. flashFirmware takes callbacks
+// (onLog for human-facing status, onProgress for the bar, pickBoard
+// for the variant choice).
 
 let _esptoolModule = null;
 
@@ -43,61 +44,134 @@ async function fetchBin(path) {
   return bytesToBinaryString(await r.arrayBuffer());
 }
 
-// Adapter: esptool-js wants a `terminal` object with clean/writeLine/write.
-// The recovery dialog's xterm Terminal has slightly different methods
-// (write/writeln). Bridge them.
-function makeXtermAdapter(term) {
+async function fetchJson(path) {
+  const r = await fetch(path, { cache: "no-cache" });
+  if (!r.ok) throw new Error(`fetch ${path}: HTTP ${r.status}`);
+  return r.json();
+}
+
+// Map esptool's chip-name string to the IDF target string firmware reports
+// in fw_info.chip. Lets the UI compare chip identity across the two
+// surfaces without each side knowing the other's casing.
+function chipNameToIdfTarget(chipName) {
+  const s = (chipName || "").toLowerCase().replace(/-/g, "");
+  if (s.startsWith("esp32c3")) return "esp32c3";
+  if (s.startsWith("esp32s3")) return "esp32s3";
+  if (s.startsWith("esp32s2")) return "esp32s2";
+  if (s.startsWith("esp32")) return "esp32";
+  return s;  // fallback — caller treats unknown as "no compatible board"
+}
+
+// Buffering terminal — esptool-js writes chip-detect / sync / write
+// progress lines through this. The callback `onTrace(line)` is supplied
+// by the caller; if it's a plain array push (no DOM work), it doesn't
+// stall the main thread or break sync timing. An earlier version
+// wrote each byte to log() / DOM directly, which drifted the DTR/RTS↔
+// sync window enough that connect attempts timed out.
+function makeBufferingTerminal(onTrace) {
+  let buf = "";
   return {
-    clean: () => term.write("\x1b[2J\x1b[H"),
-    writeLine: (line) => term.writeln(line),
-    write: (s) => term.write(s),
+    clean: () => {},
+    writeLine: (line) => { if (line) onTrace(line); },
+    write: (s) => {
+      buf += s;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl).replace(/\r$/, "");
+        if (line) onTrace(line);
+        buf = buf.slice(nl + 1);
+      }
+    },
   };
 }
 
-// Returns a function the recovery dialog can call. Caller provides the
-// already-open Web Serial port (so we share the same chooser session
-// the operator just authorized) and the xterm Terminal for progress
-// output. On success the chip resets into the new firmware; the recovery
-// console then re-attaches to the same port at 115200 to follow boot.
-export async function flashFirmware(port, term, onProgress = () => {}) {
+// Flash flow split into two stages so the caller can pop a board picker
+// between chip detection and write:
+//
+//   1. loader.main()          → detects chip; pickBoard resolves variant
+//   2. fetch manifest + write → uses manifest's per-target flash offsets
+//
+// Callbacks the caller supplies:
+//   onLog(text)                  — user-facing status line (one short message)
+//   onProgress(fileIndex, pct)   — progress bar update during writeFlash
+//   pickBoard({chip, chipName})  — returns variant id ("aithinker_cam_webrtc"
+//                                  etc.) or null to cancel
+//
+// Returns { board, chip } on success, null on cancel.
+export async function flashFirmware(port, { onLog = () => {}, onProgress = () => {}, onTrace = () => {}, pickBoard }) {
+  if (!pickBoard) throw new Error("flashFirmware: pickBoard callback required");
+
   const { ESPLoader, Transport } = await ensureEsptoolLoaded();
 
+  // Match esp-web-tools' configuration exactly — same Transport tracing
+  // flag, same baud through sync and flash. Bumping to 921600 for flash
+  // saves time but isn't worth it if it ever destabilizes sync; revisit
+  // once the install path is confirmed reliable across hardware.
   const transport = new Transport(port, true);
   const loader = new ESPLoader({
     transport,
-    baudrate: 921600,                  // sync at 115200, switch up after
+    baudrate: 115200,
     romBaudrate: 115200,
-    terminal: makeXtermAdapter(term),
+    enableTracing: false,
+    debugLogging: false,
+    terminal: makeBufferingTerminal(onTrace),
   });
+
+  // esptool-js method names drift between minor versions (v0.4's
+  // `loader.hardReset()` is gone in v0.5; v0.5's `transport.hardReset()`
+  // also isn't there in some patch releases). The flash itself is done
+  // by the time we hit this, so the post-flash reset is best-effort:
+  // try the documented names in order, fall back to a manual RTS pulse,
+  // swallow any failure. Worst case the chip stays in download/stub mode
+  // until the user power-cycles, which is fine — firmware is already on
+  // it.
+  async function resetChip() {
+    try { if (typeof loader.after === "function")           { await loader.after("hard_reset"); return; } } catch {}
+    try { if (typeof loader.hardReset === "function")       { await loader.hardReset();         return; } } catch {}
+    try { if (typeof transport.hardReset === "function")    { await resetChip();      return; } } catch {}
+    try {
+      // Manual ESP-style reset: assert RTS (EN low) for 100 ms, release.
+      // Both setRTS and a direct setSignals exist in esptool-js's Transport.
+      if (typeof transport.setRTS === "function") {
+        await transport.setRTS(true);
+        await new Promise((r) => setTimeout(r, 100));
+        await transport.setRTS(false);
+      }
+    } catch {}
+  }
 
   // main() syncs with the bootloader (asserts EN+GPIO0, reads chip
   // signature, picks ROM stub). Throws if the chip isn't in download
   // mode — most CAM-MB boards have auto-reset wiring so a fresh
   // serial.open() pulse will land here cleanly.
-  await loader.main();
+  onLog("Detecting chip…");
+  const chipName = await loader.main();
+  const chip = chipNameToIdfTarget(chipName);
+  onLog(`Detected: ${chipName}`);
 
-  // Fetch the same bins CI publishes for OTA. Offsets match the
-  // partition layout (matches arduino-esp32 min_spiffs):
-  //   0x01000 bootloader
-  //   0x08000 partition table
-  //   0x0E000 ota_data_initial
-  //   0x10000 application
-  term.writeln("\r\nFetching firmware bins…");
-  const [bootloader, partitions, otaData, app] = await Promise.all([
-    fetchBin("firmware/bins/bootloader.bin"),
-    fetchBin("firmware/bins/partitions.bin"),
-    fetchBin("firmware/bins/boot_app0.bin"),
-    fetchBin("firmware/bins/esp32_robot.bin"),
-  ]);
-  term.writeln(`bootloader=${bootloader.length} part=${partitions.length} ota=${otaData.length} app=${app.length}`);
+  const board = await pickBoard({ chip, chipName });
+  if (!board) {
+    onLog("Cancelled. Resetting chip…");
+    await resetChip();
+    return null;
+  }
 
-  const fileArray = [
-    { data: bootloader, address: 0x1000 },
-    { data: partitions, address: 0x8000 },
-    { data: otaData,    address: 0xE000 },
-    { data: app,        address: 0x10000 },
-  ];
+  // Per-board manifest carries the flash offsets — bootloader sits at
+  // 0x1000 on esp32 and 0x0 on esp32c3, so a single hardcoded offset
+  // table doesn't work. build.sh writes this alongside the bins.
+  onLog(`Fetching ${board} bundle…`);
+  const manifest = await fetchJson(`firmware/bins/${board}/manifest.json`);
+  if (manifest.chip && manifest.chip !== chip) {
+    throw new Error(`Bundle is for ${manifest.chip}, connected chip is ${chip}. Flashing would brick the bootloader until USB recovery.`);
+  }
 
+  const fileArray = [];
+  for (const f of manifest.files) {
+    const data = await fetchBin(`firmware/bins/${board}/${f.path}`);
+    fileArray.push({ data, address: parseInt(f.offset, 16) });
+  }
+
+  onLog("Writing firmware…");
   await loader.writeFlash({
     fileArray,
     flashSize: "keep",
@@ -107,12 +181,11 @@ export async function flashFirmware(port, term, onProgress = () => {}) {
     compress: true,
     reportProgress: (fileIndex, written, total) => {
       const pct = total ? Math.round((written / total) * 100) : 0;
-      onProgress(fileIndex, pct);
+      onProgress(fileIndex, pct, manifest.files.length);
     },
   });
 
-  term.writeln("\r\nFlash complete. Resetting…");
-  await loader.hardReset();
-  // Caller is responsible for closing/reopening the Transport — we leave
-  // the port in the same state we got it.
+  onLog("Resetting chip…");
+  await resetChip();
+  return { board, chip };
 }

@@ -16,18 +16,77 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  build:
+  detect:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      esp_changed: ${{ steps.changes.outputs.esp_changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Need HEAD~1 for the change-detection diff below. Default
-          # depth=1 leaves rev-parse HEAD~1 unable to resolve the
-          # parent commit and the diff goes empty (skipping every
-          # build, including the ones we wanted to run).
+          # Full history — diffing against github.event.before requires
+          # the base commit to be present locally. A batched push of N
+          # commits would otherwise need fetch-depth ≥ N+1, which we
+          # can't predict at config time.
+          fetch-depth: 0
+
+      - name: Detect what changed
+        # Decide whether the ESP build matrix needs to run at all. A pure
+        # Pi-side commit (firmware/pi_robot/**) shouldn't pay 5+ minutes
+        # of IDF compile time per board (×4 = ~20 min).
+        #
+        # Push events: compare against github.event.before — the commit
+        # the branch was at before the push. HEAD~1 is wrong when the
+        # push contains multiple commits: it diffs the latest commit
+        # against its parent only, missing changes in earlier commits in
+        # the same push range. Real example: a multi-board firmware
+        # commit pushed alongside a pip-only commit ran detect on
+        # pip↔firmware, saw no firmware/**, and skipped the matrix —
+        # leaving public/firmware/bins/<variant>/ unpublished.
+        #
+        # workflow_dispatch: always run the full matrix (forced rebuild
+        # is the whole point of dispatching).
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "esp_changed=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch — forcing full build matrix."
+            exit 0
+          fi
+          base="${{ github.event.before }}"
+          # First push to a branch / force-push gives the all-zeros SHA.
+          # Fall back to HEAD~1 in that case so we still emit a useful
+          # decision.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+          fi
+          if git diff --name-only "$base" HEAD | grep -qE '^(firmware/esp32_robot_idf/|protocol/uuids\.json|tools/gen-uuids\.py|\.github/workflows/build-firmware\.yml)'; then
+            echo "esp_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "esp_changed=false" >> "$GITHUB_OUTPUT"
+            echo "No ESP-side changes — skipping IDF build, will reuse staged bins."
+          fi
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.esp_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # fail-fast=false: a flake in one board shouldn't cancel the others —
+      # each cell is independent and CI artifacts are still useful per-board.
+      fail-fast: false
+      matrix:
+        board:
+          - aithinker_cam
+          - aithinker_cam_webrtc
+          - devkit
+          - c3_supermini
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # IDF derives the firmware version from `git describe --always`
+          # which needs more than depth=1.
           fetch-depth: 2
 
       - name: Set up Python
@@ -36,83 +95,107 @@ jobs:
           python-version: '3.13'
 
       - name: Generate uuids.h
-        # Run from repo root so tools/gen-uuids.py resolves cleanly.
         run: python3 tools/gen-uuids.py
 
-      - name: Detect what changed
-        # Decide whether the ESP build needs to run at all. A pure Pi-side
-        # commit (firmware/pi_robot/**) shouldn't pay 5+ minutes of IDF
-        # compile time. Compare against origin/main's parent — covers
-        # workflow_dispatch and pushes that include unrelated paths.
-        id: changes
-        run: |
-          base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
-          if git diff --name-only "$base" HEAD | grep -qE '^(firmware/esp32_robot_idf/|protocol/uuids\.json|tools/gen-uuids\.py|\.github/workflows/build-firmware\.yml)'; then
-            echo "esp_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "esp_changed=false" >> "$GITHUB_OUTPUT"
-            echo "No ESP-side changes — skipping IDF build, will reuse staged bins."
-          fi
-
       - name: Restore IDF build cache
-        # Incremental rebuilds: ninja recompiles only what changed when
-        # we restore the previous build/ + managed_components/. Cache
-        # key is content-hash of every input the build actually depends
-        # on, namespaced by github.repository so a repo rename/transfer
-        # (which changes the runner workspace path) doesn't restore a
-        # build/ with CMake configuration pointing at the old absolute
-        # path (fails with "Build directory configured for project X not
-        # Y"). restore-keys lets a partial miss still hydrate from the
-        # most-recent successful build under the same repo path.
-        if: steps.changes.outputs.esp_changed == 'true'
+        # Per-board cache key — different boards produce different artifacts,
+        # so sharing the build/ dir corrupts the next board's link. Cache
+        # key includes the per-board overlay file so editing it busts the
+        # cache cell for that board only.
         uses: actions/cache@v4
         with:
           path: |
             firmware/esp32_robot_idf/build
             firmware/esp32_robot_idf/managed_components
-          key: idf-build-v5.5.4-${{ github.repository }}-${{ hashFiles('firmware/esp32_robot_idf/main/**', 'firmware/esp32_robot_idf/sdkconfig.defaults', 'firmware/esp32_robot_idf/CMakeLists.txt', 'firmware/esp32_robot_idf/main/idf_component.yml', 'firmware/esp32_robot_idf/patches/**') }}
+          key: idf-build-v5.5.4-${{ github.repository }}-${{ matrix.board }}-${{ hashFiles('firmware/esp32_robot_idf/main/**', 'firmware/esp32_robot_idf/sdkconfig.defaults*', 'firmware/esp32_robot_idf/CMakeLists.txt', 'firmware/esp32_robot_idf/main/idf_component.yml', 'firmware/esp32_robot_idf/patches/**', 'firmware/esp32_robot_idf/build.sh') }}
           restore-keys: |
-            idf-build-v5.5.4-${{ github.repository }}-
+            idf-build-v5.5.4-${{ github.repository }}-${{ matrix.board }}-
 
-      - name: Build ESP32 firmware (ESP-IDF)
-        if: steps.changes.outputs.esp_changed == 'true'
-        # esp-idf-ci-action handles the IDF install + export.sh + idf.py call.
-        # Pinned to v5.5.4 to match local dev (`make setup`); the IDF action
-        # caches the toolchain so repeat runs are fast. CWD inside the
-        # action is path:, hence the bare `idf.py build`.
+      - name: Build firmware
+        # build.sh picks the target + composes SDKCONFIG_DEFAULTS for the
+        # board, then stages bins + manifest.json to
+        # public/firmware/bins/<board>/.
+        #
+        # BOARD is inlined into the command string, not passed via env:.
+        # espressif/esp-idf-ci-action runs `command` inside its Docker
+        # container, and the action's docker run invocation only forwards
+        # IDF_TARGET — step-level env vars don't reach the container. The
+        # inline VAR=value prefix sets it in the container shell.
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.4
-          target: esp32
           path: 'firmware/esp32_robot_idf'
-          command: idf.py build
+          command: BOARD=${{ matrix.board }} ./build.sh
 
       - name: Static DRAM budget check
         # The classic ESP32-CAM has ~125 KB DRAM. Camera+BLE+WiFi+lwIP all
         # contend for it; a static-DRAM bump that looks innocent in a diff
         # can starve lwIP's pbuf pool at runtime — UDP sends from libpeer
-        # then return ENOMEM and WebRTC video silently breaks (we hit this
-        # exact failure with mailbox MAILBOX_AD_MAX 384→768 in DRAM-BSS).
-        # Failing the build at PR-time beats finding out by re-flashing.
-        # Logic lives in tools/check-dram-budget.py — espressif's action
-        # wraps `command:` through bash -c, which doesn't pass embedded
-        # heredocs cleanly.
-        if: steps.changes.outputs.esp_changed == 'true'
+        # then return ENOMEM and WebRTC video silently breaks. Only the
+        # aithinker_cam variants are sensitive (DevKit + C3 have no camera
+        # DMA pressure on the same heap).
+        if: matrix.board == 'aithinker_cam' || matrix.board == 'aithinker_cam_webrtc'
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.4
-          target: esp32
           path: 'firmware/esp32_robot_idf'
           command: idf.py size 2>&1 | python3 ../../tools/check-dram-budget.py
 
-      - name: Stage published artifacts
-        if: steps.changes.outputs.esp_changed == 'true'
+      - name: Upload board artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.board }}
+          path: public/firmware/bins/${{ matrix.board }}/
+          if-no-files-found: error
+
+  publish:
+    needs: [detect, build]
+    # Always run publish — pi-side artifacts publish regardless of whether
+    # ESP cells ran. `always()` lets us reach this even if `build` was
+    # skipped (no ESP changes) or a single cell flaked (fail-fast=false).
+    if: always() && needs.detect.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Download ESP firmware artifacts
+        # Only present when build matrix ran. download-artifact emits a
+        # warning (not an error) when there are no matching artifacts,
+        # so the pi-only path still works.
+        if: needs.detect.outputs.esp_changed == 'true' && needs.build.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: public/firmware/bins/
+          merge-multiple: false
+
+      - name: Flatten artifact dirs
+        # download-artifact nests as firmware/bins/firmware-<board>/<files>.
+        # The flasher + OTA expect firmware/bins/<board>/<files>, so rename
+        # each artifact dir to drop the firmware- prefix. rm -rf target
+        # first because `mv dir existing-dir` moves INTO the existing dir
+        # rather than replacing it (Linux semantics) — that produced bins
+        # at `aithinker_cam/firmware-aithinker_cam/firmware.bin` on a prior
+        # CI run where the per-board dir was already in the working tree
+        # from a previous publish.
+        if: needs.detect.outputs.esp_changed == 'true' && needs.build.result == 'success'
         run: |
-          mkdir -p public/firmware/bins
-          cp firmware/esp32_robot_idf/build/esp32_robot.bin                     public/firmware/bins/esp32_robot.bin
-          cp firmware/esp32_robot_idf/build/bootloader/bootloader.bin           public/firmware/bins/bootloader.bin
-          cp firmware/esp32_robot_idf/build/partition_table/partition-table.bin public/firmware/bins/partitions.bin
-          cp firmware/esp32_robot_idf/build/ota_data_initial.bin                public/firmware/bins/boot_app0.bin
+          cd public/firmware/bins
+          for d in firmware-*; do
+            [ -d "$d" ] || continue
+            target="${d#firmware-}"
+            rm -rf "$target"
+            mv "$d" "$target"
+          done
+          ls -la
 
       - name: Publish Pi firmware + wheels
         run: make publish-pi-firmware
@@ -124,15 +207,11 @@ jobs:
           # main may have moved while we were building. Soft-reset to the
           # latest main on each retry and recommit our staged artifacts
           # on top — avoids rebase merge-conflicts on binary outputs
-          # (esp32_robot.bin, version.py, ota-manifest.json) when two CI
+          # (firmware.bin, version.py, ota-manifest.json) when two CI
           # runs race. Outputs are deterministic from source, so "ours"
           # is always correct: we don't merge two builds, we replace.
           for attempt in 1 2 3 4 5; do
             git fetch origin main
-            # Drop any prior attempt's commit; keep the artifact files
-            # only as a working-tree change. This is a no-op on attempt 1
-            # (we're already at HEAD), but on retries it parks our
-            # generated files for re-staging on top of fresh origin/main.
             git reset --mixed origin/main
             git add public/firmware/
             if git diff --staged --quiet; then

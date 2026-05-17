@@ -1689,6 +1689,104 @@ details.tray.has-alert > summary::after {
    action by default. */
 .recovery-actions { margin: 0 0 12px; align-items: center; }
 .recovery-actions #esp-serial-flash { margin-left: auto; }
+
+/* Install dialog (esp-flash-modal). One <dialog> hosts the full arc:
+   connecting → board pick → write progress → done. The pick and
+   progress sections show/hide via [hidden]; status text + action row
+   stay visible across states so the operator sees continuous feedback. */
+.esp-flash-status { margin: 0 0 12px; }
+.esp-flash-status.success { color: var(--success); font-weight: 500; }
+.esp-flash-status.error   { color: var(--danger);  font-weight: 500; }
+/* Fade-in when a section becomes visible — matches macOS sheet content
+   transitions. No fade-out (HIG: outgoing content can be instant). */
+@keyframes esp-flash-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: none; }
+}
+.esp-flash-pick:not([hidden]),
+.esp-flash-progress:not([hidden]) {
+  animation: esp-flash-fade-in 150ms ease-out;
+}
+.esp-flash-boards { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+.esp-flash-board-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.esp-flash-board-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.esp-flash-board-option input[type="radio"] { grid-row: 1 / 3; align-self: center; }
+.esp-flash-board-title { font-weight: 500; }
+.esp-flash-board-sub { font-size: 12px; }
+.esp-flash-webrtc {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  margin: 0 0 12px;
+  cursor: pointer;
+}
+.esp-flash-webrtc input[type="checkbox"] { grid-row: 1 / 3; align-self: center; }
+.esp-flash-webrtc-title { font-weight: 500; }
+/* `display: grid` above beats the [hidden] attribute on specificity, so
+   .hidden=true alone leaves the checkbox visible on no-camera boards.
+   Explicit attribute-selector rule restores the expected behavior. */
+.esp-flash-webrtc[hidden] { display: none; }
+.esp-flash-actions { justify-content: flex-end; }
+.esp-flash-empty { margin: 0 0 12px; }
+.esp-flash-version { font-size: 11px; margin: 0 0 12px; opacity: 0.7; font-family: var(--mono, ui-monospace, monospace); }
+.esp-flash-progress { margin: 0 0 12px; }
+.esp-flash-progress-bar {
+  height: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.esp-flash-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 120ms ease-out;
+}
+.esp-flash-progress-sub { margin: 6px 0 0; font-size: 12px; }
+/* Subordinate to the status line above: tight gap, smaller text, slight
+   indent. HIG-flavored — disclosure reads as "more about that status",
+   not a peer of the picker/progress sections. */
+.esp-flash-details { margin: -6px 0 12px 4px; }
+.esp-flash-details summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--ink-muted);
+  user-select: none;
+}
+.esp-flash-details summary:hover { color: var(--ink); }
+.esp-flash-details[open] summary { margin-bottom: 4px; }
+.esp-flash-trace {
+  margin: 8px 0 0;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  background: var(--bg);
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 /* Inline text-link affordance for the post-empty-picker escape hatch.
    Quiet by default (yielding lens) — only earns ink when the user
    has hit the dead-end the filtered picker leaves. */
@@ -1888,6 +1986,35 @@ dialog[open]::backdrop { opacity: 1; }
 .pip-trace-line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
 .pip-trace-line.pending { font-style: italic; opacity: 0.7; }
 .pip-trace-line.error   { color: var(--danger); }
+.pip-trace-summary {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.pip-trace-summary:hover { color: var(--ink); }
+.pip-trace-summary::before {
+  content: "▸ ";
+  font-size: 9px;
+  opacity: 0.5;
+}
+.pip-trace-summary[aria-expanded="true"]::before { content: "▾ "; }
+.pip-trace-detail {
+  margin: 4px 0 6px 12px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border-radius: 4px;
+  font-size: 10.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+}
 
 .settings-profile {
   display: flex;
