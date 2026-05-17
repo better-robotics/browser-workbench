@@ -127,8 +127,9 @@ needs to see them as one shape:
 4. **mbedTLS Kconfig** must enable the WebRTC cipher set explicitly
    (DTLS_SRTP, ECDHE_ECDSA, ECDH_C, ECDSA_C, SECP256R1, GCM_C, SHA1_C,
    HKDF_C). IDF defaults are tuned for HTTPS-client and lack what DTLS-SRTP
-   needs. X509_CREATE_C is no longer needed — dashboard does the cert
-   creation; chip only parses.
+   needs. X509_CREATE_C: not needed on v5 (dashboard does the cert
+   creation, chip only parses); v6 path of esp_peer re-enables it for
+   upstream cert helpers even though our flow stays dashboard-side.
 5. **PSRAM-default malloc** with `RESERVE_INTERNAL=32768` — mbedTLS context
    + libpeer SCTP/SRTP buffers go to PSRAM so the camera DMA's 32 KB
    contiguous internal block is always available mid-session.
@@ -139,6 +140,32 @@ constraints (DTLS role, mbedTLS Kconfig, PSRAM malloc) are documented in
 firmware/esp32_robot_idf/components/espressif__esp_peer/src/dtls_srtp.c
 and sdkconfig.defaults.esp32; dashboard-side constraints (cert push, SDP
 rewriting) in public/webrtc-cert.js and public/webrtc-robot.js.
+
+**Sunset path.** mbedTLS PR #10623 (3.6 backport of the fragmented DTLS-
+ClientHello reassembly fix, first released in 3.6.6 / 4.1.0, March 2026)
+collapses Patch 1 and the half of Patch 3 that exists because of it.
+ESP-IDF v5.5.4 (current pin) ships 3.6.5, v6.0.1 ships 4.0.0 — both
+pre-fix. espressif/esp-idf release/v5.5 (now on 3.6.6-idf) and
+release/v6.0 (now on 4.1.0-idf) have the fix on their HEAD branches; the
+next tagged release in either line is the trigger.
+
+Prefer v6.0.x. components/espressif__esp_peer/src/dtls_srtp_v6.c is
+pre-staged (CMake selects it on `IDF_VERSION_MAJOR >= 6`) and already
+encodes the post-sunset shape: role honored from cfg (no CLIENT
+override), HelloVerifyRequest cookies enabled, PSA crypto path. The
+cleanup on a v6.0.2 bump collapses to "delete the v5 dtls_srtp.c sibling
+and the IDF major-version CMake selector" rather than reverting patches
+in-place. The rest of the firmware migrates clean — NimBLE / WiFi /
+esp_netif / esp_http_server / LEDC / GPIO / NVS / esp_timer call sites
+all survive v6.0; exposure is `-Werror` flip + gnu23 default surfacing
+latent warnings.
+
+v5.5.5 is the fallback if v6.0.2 is slow. On v5.5.5, the manual cleanup
+is: revert chip-as-CLIENT in dtls_srtp.c (lines 75 and 161), restore
+HelloVerifyRequest cookies (line 95). In either case, drop the
+`setup:passive`→`setup:active` flip from public/webrtc-robot.js. Patches
+2 (dashboard ECDSA cert), 4 (mbedTLS Kconfig) and 5 (PSRAM malloc) stay
+— those are WebRTC-spec or chip-shape, not mbedTLS-bug workarounds.
 
 **Opt-in via `CONFIG_BR_WEBRTC_ESP_PEER`** (main/Kconfig.projbuild, default
 y). Set =n to drop all WebRTC code — `select` chain removes the WebRTC-only

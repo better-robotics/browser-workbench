@@ -217,3 +217,21 @@ Loads at runtime but not confirmed end-to-end against hardware. Kept out of `REA
 Considered as a faster sibling to Grounding DINO for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. Don't promise externally until it ships *and* validates against a use case Grounding DINO can't serve.
 
 "Detector eval mode" (swap detectors on the same frame, render side-by-side) is interesting infrastructure but only earns its way in when there are two backends worth comparing.
+
+---
+
+# Forks in the road — alternatives evaluated, with revisit triggers
+
+Paths we looked at and chose not to take, with the specific change in project direction that would make us revisit. Distinct from competitors (which compete for the same user decision) — these are *adjacent technical paths* we declined.
+
+## Espressif KVS WebRTC SDK for ESP32
+
+**Evaluated:** May 2026. Espressif's first-party WebRTC stack ([awslabs/amazon-kinesis-video-streams-webrtc-sdk-c@beta-reference-esp-port](https://github.com/awslabs/amazon-kinesis-video-streams-webrtc-sdk-c/tree/beta-reference-esp-port), HEAD 119617b7 at evaluation time). Ships an AppRTC-mode example targeting classic ESP32. Active development, monthly sync to upstream awslabs releases, 1.2k stars.
+
+**What it would buy us.** Eliminates three of our four libpeer/esp_peer patches at the chip level: chip is DTLS CLIENT by default (so the fragmented-ClientHello bug is sidestepped without patching), SDP answerer emits `setup:active` directly, MID copied from remote offer, ICE agent silently ignores TCP candidates. The four-patch shape in `CLAUDE.md`'s WebRTC section collapses to one (mbedTLS Kconfig). Cert flow returns to chip-side ECDSA generation (~9 KB flash cost we currently save).
+
+**Why not now.** Signaling is hardwired to HTTPS+WebSocket against AWS KVS or `webrtc.espressif.com`. Swapping in means writing a custom `signaling_client_if` implementation that takes offers/answers off our BLE `SIGNAL` characteristic and feeds the SDK's `kvs_peer_connection_if`. The plug point is documented (`CUSTOM_SIGNALING.md` in their tree), but the work doesn't buy us anything the libpeer patches don't already deliver — our wedge is precisely "BLE-signaled, no internet rendezvous." We'd also inherit a 3 MB factory partition expectation that's marginal on classic ESP32's 4 MB flash.
+
+**Revisit trigger.** If a hosted-mode / internet-rendezvoused operator surface lands on the roadmap (share-a-link demos, remote tele-op, third-party robots controlling our robots), KVS WebRTC SDK is the prebuilt path. **Do not reinvent BLE-on-KVS at that point — switch outright.** The libpeer + four-patch setup made sense for BLE-only; it does not earn its keep against a stack that handles cloud signaling for free.
+
+**Bonus capability worth knowing.** KVS WebRTC Split Mode distributes signaling to ESP32-C6 (light sleep) and streaming to ESP32-P4 (deep sleep until wake-on-signal) — the only battery-powered WebRTC camera architecture in the ecosystem. Irrelevant to mains-powered robots today; remember it if low-power ever becomes a constraint.

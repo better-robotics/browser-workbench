@@ -5,10 +5,13 @@
 ## SCTP usage in particular has been sensitive to mbedTLS version changes.
 
 dependencies:
-  # WebRTC peer — vendored in components/esp_peer/ (forked from
-  # espressif/esp_peer 1.4.1) so we can patch dtls_srtp.c to use ECDSA
-  # P-256 instead of stock RSA-1024. Chrome 124+ rejects RSA WebRTC
-  # certs; ECDSA is what WebRTC standardized on. Local component takes
+  # WebRTC peer — vendored in components/espressif__esp_peer/ so we can
+  # patch dtls_srtp.c against mbedTLS's fragmented-ClientHello bug: force
+  # chip into DTLS CLIENT role (libpeer always passes ROLE_SERVER) and
+  # disable HelloVerifyRequest cookies. ECDSA P-256 cert generation is
+  # delegated to the dashboard via SIGNAL char opcodes; chip only parses.
+  # See .claude/CLAUDE.md "ESP32 WebRTC" section for the full four-patch
+  # shape and the mbedTLS 3.6.6+ sunset path. Local component takes
   # precedence over managed; keep this dep removed to avoid name conflict.
 
   # Camera driver. Espressif official component.
