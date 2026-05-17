@@ -1404,6 +1404,11 @@ function renderEsp32View(entry) {
       ${note ? `<span class="meta">· ${escapeHtml(note)}</span>` : ""}
     </div>`;
   };
+  // The Flash row is the AI-Thinker camera-flash LED. Boards without a
+  // camera (DevKit, C3) have nowhere to wire it; the firmware also
+  // disables it by default. Hide the row instead of showing a permanently
+  // disabled slot that reads as "we're reserving something for camera."
+  const hasFlash = (entry?.fwInfo?.caps || []).some(c => c.name === "flash");
   const connected = entry?.status === "connected";
   const editBtn = connected
     ? `<button class="secondary sm" id="pinout-edit-btn">Edit pins</button>`
@@ -1413,7 +1418,7 @@ function renderEsp32View(entry) {
     <div class="pinout-edit">
       <div class="pinout-edit-section">
         ${row("LED",            "led")}
-        ${row("Flash",          "flash")}
+        ${hasFlash ? row("Flash", "flash") : ""}
         ${row("Left forward",   "m_l_fwd")}
         ${row("Left backward",  "m_l_bwd")}
         ${row("Right forward",  "m_r_fwd")}
