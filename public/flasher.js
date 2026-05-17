@@ -119,24 +119,31 @@ export async function flashFirmware(port, { onLog = () => {}, onProgress = () =>
 
   // esptool-js method names drift between minor versions (v0.4's
   // `loader.hardReset()` is gone in v0.5; v0.5's `transport.hardReset()`
-  // also isn't there in some patch releases). The flash itself is done
-  // by the time we hit this, so the post-flash reset is best-effort:
-  // try the documented names in order, fall back to a manual RTS pulse,
-  // swallow any failure. Worst case the chip stays in download/stub mode
-  // until the user power-cycles, which is fine — firmware is already on
-  // it.
+  // also isn't there in some patch releases; transport.setRTS exists
+  // but is a no-op while the transport's reader/writer locks are still
+  // held on the port). The flash itself is done by the time we hit
+  // this, so the post-flash reset is best-effort.
+  //
+  // Order: try the documented method names, then release the transport
+  // and drive port.setSignals directly. Any failure is swallowed —
+  // worst case the chip stays in stub-loader mode until the user
+  // power-cycles, which is fine because the firmware is already on it.
   async function resetChip() {
-    try { if (typeof loader.after === "function")           { await loader.after("hard_reset"); return; } } catch {}
-    try { if (typeof loader.hardReset === "function")       { await loader.hardReset();         return; } } catch {}
-    try { if (typeof transport.hardReset === "function")    { await resetChip();      return; } } catch {}
+    try { if (typeof loader.after === "function")        { await loader.after("hard_reset"); return; } } catch {}
+    try { if (typeof loader.hardReset === "function")    { await loader.hardReset();         return; } } catch {}
+    try { if (typeof transport.hardReset === "function") { await transport.hardReset();      return; } } catch {}
+
+    // Manual hard-reset via the underlying SerialPort. Release the
+    // transport's reader/writer locks first or setSignals will fail
+    // with "the port is locked." Drive the standard ESP reset:
+    //   RTS=true  → EN low  (reset asserted)
+    //   DTR=false → IO0 high (normal boot, not download)
+    //   wait 100 ms, then RTS=false → reset released, chip boots.
+    try { if (typeof transport.disconnect === "function") await transport.disconnect(); } catch {}
     try {
-      // Manual ESP-style reset: assert RTS (EN low) for 100 ms, release.
-      // Both setRTS and a direct setSignals exist in esptool-js's Transport.
-      if (typeof transport.setRTS === "function") {
-        await transport.setRTS(true);
-        await new Promise((r) => setTimeout(r, 100));
-        await transport.setRTS(false);
-      }
+      await port.setSignals({ requestToSend: true,  dataTerminalReady: false });
+      await new Promise((r) => setTimeout(r, 100));
+      await port.setSignals({ requestToSend: false, dataTerminalReady: false });
     } catch {}
   }
 
