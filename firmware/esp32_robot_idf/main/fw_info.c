@@ -88,6 +88,14 @@ void fw_info_init(const pin_config_t *pins) {
         "%s{\"name\":\"wifi\",\"type\":\"wifi-scan\"}", first ? "" : ",");
     first = false;
 
+    // Ops: structured command channel (JSON over BLE write). Dashboard
+    // dispatches verbs through this — currently motors-pulse-raw and
+    // motors-set-orientation for the calibration wizard. fw_info.caps
+    // entry makes the OPS_CHAR_UUID resolvable as entry.opsChar on the
+    // dashboard side.
+    o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
+        ",{\"name\":\"ops\",\"type\":\"command\"}");
+
     if (motors_enabled()) {
         // Schema matches gpiozero Motor() on the Pi side — `enable` is
         // optional and only present when wired. When omitted the chip is

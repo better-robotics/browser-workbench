@@ -25,11 +25,25 @@
 //     H-bridge cooks. No-op when encoders aren't configured.
 void motors_init(const pin_config_t *cfg);
 
-// Persistent apply (joystick). Speed in [-100, 100].
+// Persistent apply (joystick). Speed in [-100, 100]. Applies the
+// orientation transform (swap motors, invert each side) loaded at init
+// from NVS — same shape as the Pi side's motors_orientation.
 void motors_apply(int8_t left, int8_t right);
 
-// Time-bounded pulse (LLM safety). Speed clamped, dur clamped.
+// Time-bounded pulse (LLM safety). Speed clamped, dur clamped. Goes
+// through motors_apply, so orientation transform applies.
 void motors_pulse(int8_t left, int8_t right, uint16_t dur_ms);
+
+// Calibration: drive ONE motor (0=A=left-physical, 1=B=right-physical)
+// for dur_ms, bypassing the orientation transform. The dashboard
+// wizard uses this to discover which physical wheel motor-A drives
+// and in what direction — derives swap/invert_a/invert_b from the
+// answers. Speed clamped, dur clamped; auto-stops at the deadline.
+void motors_pulse_raw(int motor_idx, int8_t signed_speed, uint16_t dur_ms);
+
+// Persist orientation to NVS and schedule a restart. swap=true means
+// the dashboard's "left" wheel is wired to motor B's pins.
+void motors_set_orientation(bool swap, bool invert_a, bool invert_b);
 
 void motors_get(int8_t *left, int8_t *right);
 bool motors_enabled(void);

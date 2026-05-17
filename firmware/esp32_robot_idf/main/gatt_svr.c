@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cJSON.h"
 #include "esp_log.h"
 #include "host/ble_hs.h"
 #include "os/os_mbuf.h"
@@ -39,6 +40,7 @@ static ble_uuid128_t s_snapshot_request_uuid;
 static ble_uuid128_t s_snapshot_data_uuid;
 static ble_uuid128_t s_telemetry_uuid;
 static ble_uuid128_t s_fw_info_uuid;
+static ble_uuid128_t s_ops_uuid;
 #ifdef CONFIG_BR_WEBRTC_ESP_PEER
 static ble_uuid128_t s_signal_uuid;
 #endif
@@ -139,6 +141,68 @@ static int pin_config_access(uint16_t conn, uint16_t attr,
         return 0;
     }
     return BLE_ATT_ERR_UNLIKELY;
+}
+
+// OPS dispatcher. Matches the Pi side's _ops_handle_write vocabulary; we
+// only implement the verbs ESP32 actually needs. Today: motors calibration
+// (motors-pulse-raw to drive one motor briefly bypassing the orientation
+// transform, motors-set-orientation to persist swap/invert_a/invert_b
+// flips). Add new verbs here as they earn their keep.
+static int ops_access(uint16_t conn, uint16_t attr,
+                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    uint8_t buf[256];
+    uint16_t copied = 0;
+    ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
+    if (copied == 0) return 0;
+
+    cJSON *root = cJSON_ParseWithLength((const char *)buf, copied);
+    if (!root) { ESP_LOGW(TAG, "ops: bad JSON, ignored"); return 0; }
+
+    const cJSON *op   = cJSON_GetObjectItemCaseSensitive(root, "op");
+    const cJSON *args = cJSON_GetObjectItemCaseSensitive(root, "args");
+    if (!cJSON_IsString(op) || !op->valuestring) {
+        ESP_LOGW(TAG, "ops: missing op field, ignored");
+        cJSON_Delete(root);
+        return 0;
+    }
+    const char *op_name = op->valuestring;
+
+    if (strcmp(op_name, "motors-pulse-raw") == 0) {
+        const cJSON *m = cJSON_GetObjectItemCaseSensitive(args, "motor");
+        const cJSON *s = cJSON_GetObjectItemCaseSensitive(args, "speed");
+        const cJSON *d = cJSON_GetObjectItemCaseSensitive(args, "direction");
+        const cJSON *t = cJSON_GetObjectItemCaseSensitive(args, "duration_ms");
+        // motor: "a"|"b" or 0|1. Tolerate either shape — pi side uses "a"/"b".
+        int motor_idx = -1;
+        if (cJSON_IsString(m) && m->valuestring) {
+            if (m->valuestring[0] == 'a' || m->valuestring[0] == 'A') motor_idx = 0;
+            if (m->valuestring[0] == 'b' || m->valuestring[0] == 'B') motor_idx = 1;
+        } else if (cJSON_IsNumber(m)) {
+            motor_idx = (int)m->valuedouble;
+        }
+        int speed = cJSON_IsNumber(s) ? (int)s->valuedouble : 30;
+        // direction defaults to forward; "backward" flips the sign so the
+        // wizard can probe either polarity, though step 1 always pulses
+        // forward and infers direction from the user's wheel-direction
+        // answer.
+        if (cJSON_IsString(d) && d->valuestring && strncmp(d->valuestring, "back", 4) == 0) speed = -speed;
+        int dur = cJSON_IsNumber(t) ? (int)t->valuedouble : 300;
+        if (motor_idx >= 0) motors_pulse_raw(motor_idx, (int8_t)speed, (uint16_t)dur);
+    } else if (strcmp(op_name, "motors-set-orientation") == 0) {
+        const cJSON *sw = cJSON_GetObjectItemCaseSensitive(args, "swap");
+        const cJSON *ia = cJSON_GetObjectItemCaseSensitive(args, "invert_a");
+        const cJSON *ib = cJSON_GetObjectItemCaseSensitive(args, "invert_b");
+        bool swap     = cJSON_IsTrue(sw);
+        bool invert_a = cJSON_IsTrue(ia);
+        bool invert_b = cJSON_IsTrue(ib);
+        motors_set_orientation(swap, invert_a, invert_b);
+    } else {
+        ESP_LOGW(TAG, "ops: unknown verb '%s', ignored", op_name);
+    }
+
+    cJSON_Delete(root);
+    return 0;
 }
 
 // Read kicks off a fresh scan AND returns the last cached result. The
@@ -284,6 +348,11 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_WRITE,
     },
     {
+        .uuid = &s_ops_uuid.u,
+        .access_cb = ops_access,
+        .flags = BLE_GATT_CHR_F_WRITE,
+    },
+    {
         .uuid = &s_wifi_scan_uuid.u,
         .access_cb = wifi_scan_access,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
@@ -362,6 +431,7 @@ void gatt_svr_init(void) {
     parse_uuid128(FLASH_CHAR_UUID,       &s_flash_uuid);
     parse_uuid128(MOTOR_CHAR_UUID,       &s_motor_uuid);
     parse_uuid128(PIN_CONFIG_CHAR_UUID,  &s_pin_config_uuid);
+    parse_uuid128(OPS_CHAR_UUID,         &s_ops_uuid);
     parse_uuid128(WIFI_SCAN_CHAR_UUID,   &s_wifi_scan_uuid);
     parse_uuid128(WIFI_JOIN_CHAR_UUID,   &s_wifi_join_uuid);
     parse_uuid128(WIFI_STATUS_CHAR_UUID, &s_wifi_status_uuid);

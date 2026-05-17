@@ -4,9 +4,11 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs.h"
 
 #include "encoders.h"
 #include "gatt_svr.h"
+#include "restart_util.h"
 
 static const char *TAG = "motors";
 
@@ -51,6 +53,15 @@ static const char *TAG = "motors";
 static int s_pin[4] = { -1, -1, -1, -1 };
 static int s_ena = -1, s_enb = -1;
 static bool s_use_en_pwm = false;
+
+// Orientation transform (matches Pi side's motors_orientation). Loaded
+// from NVS at init; calibration writes via motors_set_orientation.
+//   swap   — dashboard's "left" wheel is wired to physical motor B
+//   inv_a  — physical motor A spins the wrong way for forward
+//   inv_b  — physical motor B spins the wrong way for forward
+// Default all false → dashboard-left = motor A, dashboard-right = motor B,
+// both forward. New robots typically need one or more flips.
+static bool s_swap = false, s_inv_a = false, s_inv_b = false;
 // MODE_DIR uses ch[0..3] for L-fwd, L-bwd, R-fwd, R-bwd PWM.
 // MODE_EN  uses ch[0]   for ENA PWM and ch[1] for ENB PWM (other
 //          channels unused; IN1..IN4 are plain GPIO outputs).
@@ -158,11 +169,23 @@ static void stall_check(void *arg) {
     }
 }
 
+static void load_orientation(void) {
+    nvs_handle_t h;
+    if (nvs_open("motors", NVS_READONLY, &h) != ESP_OK) return;
+    uint8_t v = 0;
+    if (nvs_get_u8(h, "swap",   &v) == ESP_OK) s_swap  = !!v;
+    if (nvs_get_u8(h, "inv_a",  &v) == ESP_OK) s_inv_a = !!v;
+    if (nvs_get_u8(h, "inv_b",  &v) == ESP_OK) s_inv_b = !!v;
+    nvs_close(h);
+    ESP_LOGI(TAG, "orientation: swap=%d inv_a=%d inv_b=%d", s_swap, s_inv_a, s_inv_b);
+}
+
 void motors_init(const pin_config_t *cfg) {
     if (!pin_motors_configured(cfg)) {
         ESP_LOGI(TAG, "pins -1, cap disabled");
         return;
     }
+    load_orientation();
     s_pin[0] = cfg->motor_l_fwd;
     s_pin[1] = cfg->motor_l_bwd;
     s_pin[2] = cfg->motor_r_fwd;
@@ -243,8 +266,16 @@ void motors_apply(int8_t left, int8_t right) {
     s_left = left;
     s_right = right;
     s_pulse_id++;
-    drive_motor(0, left);
-    drive_motor(1, right);
+    // Orientation transform: dashboard's "left/right" → physical motor A/B.
+    //   swap  — dashboard-left goes to motor B (and dashboard-right to A)
+    //   inv_a — physical motor A's "forward" is actually backward, flip
+    //   inv_b — same for motor B
+    int8_t a = s_swap ? right : left;
+    int8_t b = s_swap ? left  : right;
+    if (s_inv_a) a = -a;
+    if (s_inv_b) b = -b;
+    drive_motor(0, a);
+    drive_motor(1, b);
 
     esp_timer_stop(s_watchdog_timer);
     esp_timer_stop(s_stall_timer);
@@ -272,6 +303,46 @@ void motors_pulse(int8_t left, int8_t right, uint16_t dur_ms) {
     s_active_pulse_id = s_pulse_id;         // claim this pulse
     esp_timer_stop(s_pulse_timer);
     esp_timer_start_once(s_pulse_timer, (uint64_t)dur_ms * 1000);
+}
+
+void motors_pulse_raw(int motor_idx, int8_t signed_speed, uint16_t dur_ms) {
+    if (!s_attached) return;
+    if (motor_idx != 0 && motor_idx != 1) return;
+    // Same clamps as the LLM pulse safety rung — calibration runs at the
+    // same low magnitudes (30 typical), brief duration (300 ms typical).
+    if (signed_speed < -LLM_MAX_SPEED) signed_speed = -LLM_MAX_SPEED;
+    if (signed_speed >  LLM_MAX_SPEED) signed_speed =  LLM_MAX_SPEED;
+    if (dur_ms < 50)                   dur_ms = 50;
+    if (dur_ms > LLM_MAX_DURATION_MS)  dur_ms = LLM_MAX_DURATION_MS;
+
+    // Bypass orientation transform — calibration is observing physical
+    // motor A vs B, not the post-transform dashboard left/right.
+    s_pulse_id++;
+    if (motor_idx == 0) { s_left  = signed_speed; s_right = 0; drive_motor(0, signed_speed); drive_motor(1, 0); }
+    else                { s_left  = 0; s_right = signed_speed; drive_motor(0, 0);            drive_motor(1, signed_speed); }
+    gatt_svr_notify_motor();
+    ESP_LOGI(TAG, "raw pulse: motor=%d speed=%+d dur=%ums (bypasses orientation)", motor_idx, signed_speed, dur_ms);
+
+    // Reuse the same pulse-timer infrastructure: stop after dur_ms.
+    s_active_pulse_id = s_pulse_id;
+    esp_timer_stop(s_pulse_timer);
+    esp_timer_start_once(s_pulse_timer, (uint64_t)dur_ms * 1000);
+}
+
+void motors_set_orientation(bool swap, bool invert_a, bool invert_b) {
+    nvs_handle_t h;
+    if (nvs_open("motors", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open failed");
+        return;
+    }
+    nvs_set_u8(h, "swap",  swap  ? 1 : 0);
+    nvs_set_u8(h, "inv_a", invert_a ? 1 : 0);
+    nvs_set_u8(h, "inv_b", invert_b ? 1 : 0);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "orientation saved: swap=%d inv_a=%d inv_b=%d — restarting",
+             swap, invert_a, invert_b);
+    schedule_restart(500);
 }
 
 void motors_get(int8_t *left, int8_t *right) { *left = s_left; *right = s_right; }

@@ -166,6 +166,17 @@ export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) 
     const o = deriveOrientation(state.answers.a, state.answers.b);
     state.step = "saving";
     render();
+    // ESP32: persist via BLE ops verb (NVS-backed, firmware reboots itself).
+    // Pi: persist via pi-robot.conf upload, restart the service. Same
+    // {swap, invert_a, invert_b} shape, different transports.
+    if (entry.fwType === "esp32") {
+      const ok = await sendCommand(entry, "ops", {
+        op: "motors-set-orientation",
+        args: { swap: o.swap, invert_a: o.invert_a, invert_b: o.invert_b },
+      });
+      onDone?.(ok);
+      return;
+    }
     const merged = {
       ...editConfig,
       motors_orientation: {
