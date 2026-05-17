@@ -145,6 +145,8 @@ export function makeMjpegStreamCap(schema) {
   return {
     name,
     schema,
+    // Default to webrtc — most boards support it. The render path below
+    // downgrades to http when fw_info.webrtc === false.
     initEntry: () => ({ [runningField]: false, [transportField]: "webrtc" }),
     cleanup(entry)  {
       entry[runningField] = false;
@@ -155,7 +157,8 @@ export function makeMjpegStreamCap(schema) {
       if (entry.status !== "connected") return "";
       const wifi = hasWifi(entry);
       const running = entry[runningField];
-      const transport = entry[transportField] || "webrtc";
+      const webrtcSupported = entry.fwInfo?.webrtc !== false;
+      const transport = webrtcSupported ? (entry[transportField] || "webrtc") : "http";
       let body = "";
       if (!wifi) {
         body = `<div class="meta">Waiting for the robot to join WiFi — video needs a LAN IP.</div>`;
@@ -192,19 +195,31 @@ export function makeMjpegStreamCap(schema) {
         ? `http://${entry.wifiStatus.ip}:81/stream` : null;
       const httpsBlocked = typeof location !== "undefined" && location.protocol === "https:";
       const showNewTabLink = transport === "http" && httpsBlocked && httpStreamUrl;
-      const transportHint = transport === "http"
+      // Firmware advertises whether it has the WebRTC code path built in.
+      // Missing field (older firmware) defaults to true for back-compat —
+      // those builds shipped pre-multi-board and always had WebRTC.
+      const webrtcSupported = entry.fwInfo?.webrtc !== false;
+      // Force http when webrtc is unsupported, regardless of saved choice.
+      const effectiveTransport = webrtcSupported ? transport : "http";
+      const transportHint = effectiveTransport === "http"
         ? "LAN only, no encryption — fastest"
         : "Encrypted, works cross-network";
       let transportRow = "";
       if (wifi && entry.fwType === "esp32") {
         if (running) {
-          transportRow = `<div class="meta">via ${transport === "http" ? "HTTP MJPEG" : "WebRTC"}</div>`;
+          transportRow = `<div class="meta">via ${effectiveTransport === "http" ? "HTTP MJPEG" : "WebRTC"}</div>`;
+        } else if (!webrtcSupported) {
+          // Only one option; render as a fixed label, not a dropdown — a
+          // single-choice select is dead UI weight.
+          transportRow = `<div class="cap-profile">
+             <span class="meta">Transport: HTTP MJPEG — ${transportHint}${showNewTabLink ? ` · <a href="${httpStreamUrl}" target="_blank" rel="noreferrer">open in new tab ↗</a>` : ""}</span>
+           </div>`;
         } else {
           transportRow = `<div class="cap-profile">
              <label>Transport
                <select data-action="${actionTransport}">
-                 <option value="webrtc" ${transport === "webrtc" ? "selected" : ""}>WebRTC</option>
-                 <option value="http" ${transport === "http" ? "selected" : ""}>HTTP MJPEG</option>
+                 <option value="webrtc" ${effectiveTransport === "webrtc" ? "selected" : ""}>WebRTC</option>
+                 <option value="http" ${effectiveTransport === "http" ? "selected" : ""}>HTTP MJPEG</option>
                </select>
              </label>
              <span class="meta">${transportHint}${showNewTabLink ? ` — <a href="${httpStreamUrl}" target="_blank" rel="noreferrer">open in new tab ↗</a> (HTTPS blocks inline)` : ""}</span>
@@ -235,7 +250,12 @@ export function makeMjpegStreamCap(schema) {
         if (!el) return;
 
         if (entry.fwType === "esp32") {
-          const transport = entry[transportField] || "webrtc";
+          // Mirror the render-path override — firmware without WebRTC
+          // forces HTTP regardless of the saved-transport field. Avoids
+          // hitting the "WebRTC signaling needs a BLE signal char" path
+          // when the user pre-existing transport choice was "webrtc".
+          const webrtcSupported = entry.fwInfo?.webrtc !== false;
+          const transport = webrtcSupported ? (entry[transportField] || "webrtc") : "http";
           if (transport === "http") {
             // HTTP MJPEG — bypass DTLS/SCTP entirely. Browser will block
             // mixed content if the dashboard is on HTTPS; users in that

@@ -58,6 +58,15 @@ void fw_info_init(const pin_config_t *pins) {
         "{\"type\":\"esp32\","                  // hardware-class id, stable across chip families
         "\"chip\":\"" BR_CHIP_STR "\","         // esptool-visible identity (binary-compat)
         "\"board\":\"" BR_BOARD_STR "\","       // pin-map identity (UI editor)
+        // webrtc: build-time toggle for the libpeer + DTLS-SRTP path.
+        // Dashboard reads this to gate its transport selector; MJPEG-only
+        // builds shouldn't offer a WebRTC option that will fail at the
+        // signal-characteristic probe.
+#if CONFIG_BR_WEBRTC_ESP_PEER
+        "\"webrtc\":true,"
+#else
+        "\"webrtc\":false,"
+#endif
         "\"url\":\"firmware/bins/" BR_VARIANT_STR "/firmware.bin\","
         "\"version\":\"%s\",\"caps\":[", version);
 
