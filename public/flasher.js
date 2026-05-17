@@ -129,22 +129,31 @@ export async function flashFirmware(port, { onLog = () => {}, onProgress = () =>
   // worst case the chip stays in stub-loader mode until the user
   // power-cycles, which is fine because the firmware is already on it.
   async function resetChip() {
-    try { if (typeof loader.after === "function")        { await loader.after("hard_reset"); return; } } catch {}
-    try { if (typeof loader.hardReset === "function")    { await loader.hardReset();         return; } } catch {}
-    try { if (typeof transport.hardReset === "function") { await transport.hardReset();      return; } } catch {}
+    const attempt = async (label, fn) => {
+      try { await fn(); onTrace(`reset: ${label} ok`); return true; }
+      catch (e) { onTrace(`reset: ${label} failed (${e?.message || e})`); return false; }
+    };
+    if (typeof loader.after === "function" &&
+        await attempt("loader.after(hard_reset)", () => loader.after("hard_reset"))) return;
+    if (typeof loader.hardReset === "function" &&
+        await attempt("loader.hardReset()", () => loader.hardReset())) return;
+    if (typeof transport.hardReset === "function" &&
+        await attempt("transport.hardReset()", () => transport.hardReset())) return;
 
     // Manual hard-reset via the underlying SerialPort. Release the
-    // transport's reader/writer locks first or setSignals will fail
-    // with "the port is locked." Drive the standard ESP reset:
+    // transport's reader/writer locks first or setSignals fails with
+    // "the port is locked." Drive the standard ESP reset:
     //   RTS=true  → EN low  (reset asserted)
     //   DTR=false → IO0 high (normal boot, not download)
     //   wait 100 ms, then RTS=false → reset released, chip boots.
-    try { if (typeof transport.disconnect === "function") await transport.disconnect(); } catch {}
-    try {
-      await port.setSignals({ requestToSend: true,  dataTerminalReady: false });
-      await new Promise((r) => setTimeout(r, 100));
-      await port.setSignals({ requestToSend: false, dataTerminalReady: false });
-    } catch {}
+    if (typeof transport.disconnect === "function") {
+      await attempt("transport.disconnect()", () => transport.disconnect());
+    }
+    await attempt("port.setSignals RTS=1 DTR=0", () =>
+      port.setSignals({ requestToSend: true, dataTerminalReady: false }));
+    await new Promise((r) => setTimeout(r, 100));
+    await attempt("port.setSignals RTS=0 DTR=0", () =>
+      port.setSignals({ requestToSend: false, dataTerminalReady: false }));
   }
 
   // main() syncs with the bootloader (asserts EN+GPIO0, reads chip

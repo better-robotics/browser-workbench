@@ -513,7 +513,7 @@ export async function installEsp32() {
   if (result) {
     setFlashProgress(100, "Done.");
     flashDialogState("done");
-    setFlashStatus(`Installed ${result.board}. Chip resetting.`);
+    setFlashStatus(`Installed ${result.board}. If the chip doesn't boot in a few seconds, unplug and replug it — auto-reset isn't reliable on every USB-UART bridge.`);
   } else if (result === null && !$("esp-flash-status").textContent.startsWith("Install failed")) {
     // Cancelled at the picker — close immediately.
     modal.close();
