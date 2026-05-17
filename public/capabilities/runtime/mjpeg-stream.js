@@ -195,19 +195,16 @@ export function makeMjpegStreamCap(schema) {
         ? `http://${entry.wifiStatus.ip}:81/stream` : null;
       const httpsBlocked = typeof location !== "undefined" && location.protocol === "https:";
       const showNewTabLink = transport === "http" && httpsBlocked && httpStreamUrl;
-      // Firmware advertises whether it has the WebRTC code path built in.
-      // Missing field (older firmware) defaults to true for back-compat —
-      // those builds shipped pre-multi-board and always had WebRTC.
-      const webrtcSupported = entry.fwInfo?.webrtc !== false;
-      // Force http when webrtc is unsupported, regardless of saved choice.
-      const effectiveTransport = webrtcSupported ? transport : "http";
-      const transportHint = effectiveTransport === "http"
+      // transport / webrtcSupported are already in scope from the top of
+      // renderSection. transport here already reflects the http override
+      // when webrtc isn't supported, so no second computation needed.
+      const transportHint = transport === "http"
         ? "LAN only, no encryption — fastest"
         : "Encrypted, works cross-network";
       let transportRow = "";
       if (wifi && entry.fwType === "esp32") {
         if (running) {
-          transportRow = `<div class="meta">via ${effectiveTransport === "http" ? "HTTP MJPEG" : "WebRTC"}</div>`;
+          transportRow = `<div class="meta">via ${transport === "http" ? "HTTP MJPEG" : "WebRTC"}</div>`;
         } else if (!webrtcSupported) {
           // Only one option; render as a fixed label, not a dropdown — a
           // single-choice select is dead UI weight.
@@ -218,8 +215,8 @@ export function makeMjpegStreamCap(schema) {
           transportRow = `<div class="cap-profile">
              <label>Transport
                <select data-action="${actionTransport}">
-                 <option value="webrtc" ${effectiveTransport === "webrtc" ? "selected" : ""}>WebRTC</option>
-                 <option value="http" ${effectiveTransport === "http" ? "selected" : ""}>HTTP MJPEG</option>
+                 <option value="webrtc" ${transport === "webrtc" ? "selected" : ""}>WebRTC</option>
+                 <option value="http" ${transport === "http" ? "selected" : ""}>HTTP MJPEG</option>
                </select>
              </label>
              <span class="meta">${transportHint}${showNewTabLink ? ` — <a href="${httpStreamUrl}" target="_blank" rel="noreferrer">open in new tab ↗</a> (HTTPS blocks inline)` : ""}</span>
