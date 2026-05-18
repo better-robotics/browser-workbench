@@ -433,9 +433,16 @@ async function connect(id) {
     // Also subscribe to notifications: ESP32 re-publishes fw-info after
     // deferred camera init (post WiFi-join), so the camera cap only appears
     // mid-session. Old firmware without NOTIFY silently skips the subscribe.
+    //
+    // Retry the read with exponential backoff: BlueZ has a known MTU-race
+    // (bluez/bluez#65) where the first read after connect can return "GATT
+    // operation failed for unknown reason" because the ATT-MTU exchange
+    // hasn't settled. Same shape Google's automatic-reconnect sample uses
+    // (max=3, delay 200/400/800 ms instead of seconds since GATT round-
+    // trips are sub-100 ms, not multi-second like full reconnect).
     try {
       const info = await service.getCharacteristic(FW_INFO_CHAR_UUID);
-      const raw = await info.readValue();
+      const raw = await retryGattRead(() => info.readValue(), "fw-info", entry);
       const rawText = new TextDecoder().decode(raw);
       logFor(entry, `fw-info: ${rawText.slice(0, 200)}`);
       entry.fwInfo = decodeJson(raw);
@@ -554,6 +561,30 @@ async function connect(id) {
     logFor(entry, `connect failed: ${entry.lastConnectError}`);
   }
   renderEntry(entry);
+}
+
+// Wrap a GATT read with exponential-backoff retry. Matches Google's
+// Web Bluetooth automatic-reconnect sample shape (max retries + doubling
+// delay), tuned for intra-session reads instead of full reconnect: 3
+// attempts at 200/400/800 ms absorb the BlueZ MTU-race (bluez/bluez#65)
+// and other "GATT operation failed for unknown reason" transients that
+// the spec doesn't ask the page to surface, but in practice every page
+// has to handle.
+async function retryGattRead(readFn, label, entry, { max = 3, baseDelayMs = 200 } = {}) {
+  let delay = baseDelayMs;
+  let lastErr;
+  for (let attempt = 0; attempt <= max; attempt++) {
+    try {
+      return await readFn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === max) break;
+      logFor(entry, `${label} read failed (try ${attempt + 1}/${max + 1}): ${err.message} — retrying in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
+  throw lastErr;
 }
 
 // Read the heartbeat plane's status char + subscribe to its notifications.
