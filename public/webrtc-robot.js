@@ -36,14 +36,6 @@ const BLE_SIG_CHUNK  = 100;
 // Per-robot peer connections, lazy-built. Keyed by robot id.
 const _peers = new Map();  // robotId → { pc, channels: Map<label, ch> }
 
-// Per-robot transport mode, set when the PC is created. 'all' = direct
-// candidates preferred (host/srflx, with relay as last resort), 'relay'
-// = TURN-only, used after a video watchdog catches "ICE connected but
-// no app bytes" — symptom of hotspot client isolation, captive portals,
-// and other networks that let STUN/DTLS through but block peer media.
-const _transport = new Map();  // robotId → 'all' | 'relay'
-export function getTransportMode(robotId) { return _transport.get(robotId) || null; }
-
 // PCs owned by other modules (e.g. webrtc-installable's Pi camera path)
 // that want to appear in lastRobotWebRTCDiagnostic alongside the channels
 // _peers tracks. Keyed by `${robotId}::${label}`.
@@ -80,17 +72,14 @@ export async function openChannel(robotId, robotName, label, opts = {}) {
 // ── BLE signaling path ──────────────────────────────────────────────────
 
 async function openChannelViaBLE(robotId, label, signalChar, opts) {
-  const { onStatus = () => {}, robotType, iceTransportPolicy } = opts;
+  const { onStatus = () => {}, robotType } = opts;
   closePeer(robotId);
 
   onStatus("Opening peer over BLE…");
   // STUN-only is fine — for LAN both peers' local candidates are enough;
   // STUN as fallback covers any in-house NAT segments.
   const iceServers = await fetchIceServers();
-  const pcConfig = { iceServers };
-  if (iceTransportPolicy) pcConfig.iceTransportPolicy = iceTransportPolicy;
-  const pc = new RTCPeerConnection(pcConfig);
-  _transport.set(robotId, iceTransportPolicy === "relay" ? "relay" : "all");
+  const pc = new RTCPeerConnection({ iceServers });
   const entry = { pc, channels: new Map() };
   _peers.set(robotId, entry);
 
@@ -397,7 +386,6 @@ export function closePeer(robotId) {
   for (const ch of entry.channels.values()) try { ch.close(); } catch {}
   try { entry.pc?.close(); } catch {}
   _peers.delete(robotId);
-  _transport.delete(robotId);
 }
 
 // DevTools / Diagnostics-dialog handle: snapshot every active robot
@@ -411,7 +399,6 @@ if (typeof window !== "undefined") {
     for (const [robotId, entry] of _peers.entries()) {
       const row = {
         robotId,
-        transportMode: _transport.get(robotId) || null,
         state: {
           iceConnection: entry.pc?.iceConnectionState,
           connection: entry.pc?.connectionState,
