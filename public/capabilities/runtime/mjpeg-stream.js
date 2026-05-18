@@ -5,6 +5,7 @@
 import { logFor } from "../../log.js";
 import { capSection } from "./cap-section.js";
 import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
+import { persist } from "../../state.js";
 
 import { renderEntry } from "./render-bus.js";
 
@@ -138,6 +139,7 @@ export function makeMjpegStreamCap(schema) {
   const runningField = `${name}Running`;
   const actionStart = `${name}-start`;
   const actionStop  = `${name}-stop`;
+  const actionFlip  = `${name}-flip`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   const transportField = `${name}Transport`;
@@ -170,18 +172,29 @@ export function makeMjpegStreamCap(schema) {
         // crossOrigin on <img> lets camera-frame.js read pixels; canvas
         // pixels are same-origin by construction.
         const useCanvas = entry.fwType === "esp32" && transport === "webrtc";
+        // CSS rotate(180deg) — GPU-composited, zero CPU. captureStream-to-
+        // phone-mirror sees pre-transform pixels (mirrored phone view stays
+        // un-flipped; same constraint as the Pi camera path). When the
+        // operator needs phone-side flipping too, do it firmware-side.
+        const flipStyle = entry.cameraFlip ? ` style="transform: rotate(180deg)"` : "";
         body = useCanvas
-          ? `<canvas class="robot-camera" data-cam-id="${entry.id}" width="640" height="480" aria-label="webrtc video"></canvas>`
-          : `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" alt="${transport} video">`;
+          ? `<canvas class="robot-camera" data-cam-id="${entry.id}" width="640" height="480" aria-label="webrtc video"${flipStyle}></canvas>`
+          : `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" alt="${transport} video"${flipStyle}>`;
       }
       // Stream URL omitted from idle body — it's debug info that leaked
       // into daily UX. The dashboard log echoes it on connect for anyone
       // who actually needs to copy it.
+      // Flip toggle: same shape as the Pi camera card — persisted per-robot,
+      // reachable whether running or stopped. Hidden when WiFi isn't joined
+      // (the Start button is disabled anyway; nothing useful to do).
+      const flipBtn = wifi
+        ? `<button class="icon sm" data-action="${actionFlip}" aria-pressed="${!!entry.cameraFlip}" aria-label="Flip camera 180°" title="Flip camera 180°"><svg class="icon-svg"><use href="icons.svg#icon-flip-vertical"/></svg></button>`
+        : "";
       const action = !wifi
         ? `<button class="secondary sm" disabled>Start</button>`
         : running
-          ? `<button class="secondary sm" data-action="${actionStop}">Stop</button>`
-          : `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
+          ? `${flipBtn}<button class="secondary sm" data-action="${actionStop}">Stop</button>`
+          : `${flipBtn}<button class="secondary sm" data-action="${actionStart}">Start</button>`;
       // State string only when it adds info beyond the action verb. Action
       // says Start/Stop already; "ready"/"streaming" would just echo it.
       // "Waiting for WiFi" earns its place — the button is disabled and the
@@ -312,6 +325,11 @@ export function makeMjpegStreamCap(schema) {
       if (transportSel) transportSel.addEventListener("change", () => {
         entry[transportField] = transportSel.value;
         logFor(entry, `video transport → ${transportSel.value}`);
+      });
+      node.querySelector(`[data-action="${actionFlip}"]`)?.addEventListener("click", () => {
+        entry.cameraFlip = !entry.cameraFlip;
+        persist();
+        renderEntry(entry);
       });
     },
   };

@@ -264,9 +264,9 @@ async function pickDeviceOrFail(options) {
 
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
-  for (const { id, name, fwType, autoReconnect, lastConnectedAt, arucoMarkerId } of loadKnown()) {
+  for (const { id, name, fwType, autoReconnect, lastConnectedAt, arucoMarkerId, cameraFlip } of loadKnown()) {
     if (!state.devices.has(id)) {
-      state.devices.set(id, makeEntry(id, name, fwType, { autoReconnect, lastConnectedAt, arucoMarkerId }));
+      state.devices.set(id, makeEntry(id, name, fwType, { autoReconnect, lastConnectedAt, arucoMarkerId, cameraFlip }));
     }
   }
   if (navigator.bluetooth.getDevices) {

@@ -242,6 +242,11 @@ button.icon {
   line-height: 1;
 }
 button.icon:hover { background: var(--line); color: var(--ink); }
+/* Pressed icon-button (aria-pressed=true): camera flip, future toggles.
+   Subtle filled look without an extra class — aria-pressed already encodes
+   the state for assistive tech, the visual just reflects it. */
+button.icon[aria-pressed="true"] { background: var(--line); color: var(--ink); }
+button.icon.sm { min-height: 28px; min-width: 28px; padding: 0 6px; font-size: 14px; }
 
 /* SVG icons inherit size from font-size (1em) and color from currentColor. */
 .icon-svg { width: 1em; height: 1em; display: inline-block; vertical-align: middle; }
