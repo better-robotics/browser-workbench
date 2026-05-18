@@ -159,10 +159,31 @@ MOTORS_ENABLED = bool(_config.get("motors_enabled", True))
 # gpiozero Motor() init raise GPIOPinInUse and BOTH motor drivers end up
 # None in the try/except, which silently breaks control while leaving
 # the L298N's floating inputs to run a wheel.
-MOTORS_PINS    = _config.get("motors_pins", {
+def _migrate_motor_pins(pins: dict) -> dict:
+    """pi-robot.conf written before cb6d129 (May 11) used {in1, in2, ena/enb}
+    keys; the new code splats the dict straight into gpiozero's Motor()
+    constructor, which needs {forward, backward, enable}. Without this
+    migration an upgraded Pi crash-loops at Motor.__init__ with "missing
+    positional arguments 'forward' and 'backward'" and the user's wheels
+    silently don't move (commands log, drivers are None). Translate on
+    read so existing configs keep working until the user next saves via
+    the Pinout editor.
+    """
+    if not isinstance(pins, dict):
+        return pins
+    rename = {"in1": "forward", "in2": "backward", "ena": "enable", "enb": "enable"}
+    out: dict = {}
+    for side, side_pins in pins.items():
+        if not isinstance(side_pins, dict):
+            out[side] = side_pins
+            continue
+        out[side] = {rename.get(k, k): v for k, v in side_pins.items()}
+    return out
+
+MOTORS_PINS    = _migrate_motor_pins(_config.get("motors_pins", {
     "left":  {"forward": 5,  "backward": 6},
     "right": {"forward": 13, "backward": 26},
-})
+}))
 # Wheel-speed encoders — single-OUT (Hall / optical) per side, counted as
 # raw ticks. Defaults sit on free GPIOs near 3V3 (pin 17) and GND (pin 20)
 # so VCC/GND/OUT bundles share one header cluster. pull_up=True matches
