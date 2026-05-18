@@ -19,108 +19,20 @@ const OP_COMMIT  = 0x03;
 const OP_STOP    = 0x04;
 const CHUNK_BYTES = 180;
 
-// Same window the ESP32 path uses. If no JPEG frame paints within this
-// budget after pc connects, treat the path as broken (ICE "connected"
-// over an IPv6 host pair that's actually routed through a carrier
-// backbone, hotspot stateful firewall dropping inbound media, etc.) and
-// restart once with iceTransportPolicy='relay'.
-const VIDEO_FIRST_FRAME_MS = 3000;
-
-// Chunked JPEG reassembly + decode → canvas. Wire format matches the ESP32
-// firmware (and now the Pi firmware): [frame_id u16 BE][chunk_idx u8]
-// [total_chunks u8][jpeg]. Decode via WebCodecs ImageDecoder when present
-// (Chrome 94+, Safari 17+, Firefox 133+), createImageBitmap on older
-// browsers. Drops partial frames whose id is older than a newer one in
-// flight. onFirstFrame fires once after the first successful paint so
-// the caller can wire up phone restreaming on a canvas that's now
-// emitting real pixels.
-function attachChunkedJpegDecoder(channel, canvas, onFirstFrame) {
-  const ctrl = { canvas, ctx: canvas.getContext("2d") };
-  const useDecoder = typeof ImageDecoder !== "undefined";
-  const pending = new Map();
-  let first = true;
-
-  async function paint(bytes) {
-    const c = ctrl.canvas, g = ctrl.ctx;
-    if (!c || !g) return;
-    try {
-      if (useDecoder) {
-        const decoder = new ImageDecoder({ data: bytes, type: "image/jpeg" });
-        const { image } = await decoder.decode();
-        if (c.width !== image.codedWidth || c.height !== image.codedHeight) {
-          c.width = image.codedWidth; c.height = image.codedHeight;
-        }
-        g.drawImage(image, 0, 0);
-        image.close(); decoder.close();
-      } else {
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
-        if (c.width !== bitmap.width || c.height !== bitmap.height) {
-          c.width = bitmap.width; c.height = bitmap.height;
-        }
-        g.drawImage(bitmap, 0, 0); bitmap.close();
-      }
-      if (first) { first = false; onFirstFrame?.(); }
-    } catch { /* partial JPEG from out-of-order reassembly — next frame replaces it */ }
-  }
-
-  channel.addEventListener("message", (e) => {
-    if (typeof e.data === "string") return;
-    const data = new Uint8Array(e.data);
-    if (data.length < 4) return;
-    const frameId = (data[0] << 8) | data[1];
-    const chunkIdx = data[2];
-    const totalChunks = data[3];
-    const payload = data.subarray(4);
-    let frame = pending.get(frameId);
-    if (!frame) { frame = { total: totalChunks, parts: new Map() }; pending.set(frameId, frame); }
-    frame.parts.set(chunkIdx, payload);
-    if (frame.parts.size !== frame.total) return;
-    let totalLen = 0;
-    for (let i = 0; i < frame.total; i++) {
-      const p = frame.parts.get(i);
-      if (!p) { pending.delete(frameId); return; }
-      totalLen += p.length;
-    }
-    const merged = new Uint8Array(totalLen);
-    let off = 0;
-    for (let i = 0; i < frame.total; i++) {
-      const p = frame.parts.get(i);
-      merged.set(p, off); off += p.length;
-    }
-    pending.delete(frameId);
-    for (const id of pending.keys()) if (id < frameId) pending.delete(id);
-    paint(merged);
-  });
-
-  // Hand callers a rebind hook so postRender can repoint the decoder
-  // at a freshly-rendered <canvas> after an innerHTML rebuild without
-  // restarting the WebRTC pipeline.
-  ctrl.attachCanvas = (next) => { ctrl.canvas = next; ctrl.ctx = next.getContext("2d"); };
-  return ctrl;
-}
-
 import { renderEntry } from "./render-bus.js";
 
 export function makeWebrtcInstallableCap(schema) {
   const { name } = schema;
   const chars = schema.chars || UUIDS_BY_CAP[name];
-  const signalField  = `${name}SignalChar`;
-  const statusField  = `${name}StatusChar`;
-  const pcField      = `${name}Pc`;
-  const streamField  = `${name}Stream`;
-  const bufField     = `${name}RecvBuf`;
-  const statusState  = `${name}Status`;
-  const decoderField = `${name}Decoder`;
-  // Force-relay state mirrors the ESP32 cap: a user-visible toggle that
-  // skips the direct attempt entirely (when known-hostile network), plus
-  // an internal flag set by the auto-watchdog to cap fallbacks at one per
-  // Start click.
-  const forceRelayField = `${name}ForceRelay`;
-  const relayUsedField  = `_${name}RelayUsed`;
-  const actionStart      = `${name}-start`;
-  const actionStop       = `${name}-stop`;
-  const actionInstall    = `${name}-install`;
-  const actionForceRelay = `${name}-force-relay`;
+  const signalField = `${name}SignalChar`;
+  const statusField = `${name}StatusChar`;
+  const pcField     = `${name}Pc`;
+  const streamField = `${name}Stream`;
+  const bufField    = `${name}RecvBuf`;
+  const statusState = `${name}Status`;
+  const actionStart   = `${name}-start`;
+  const actionStop    = `${name}-stop`;
+  const actionInstall = `${name}-install`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   async function sendSignal(entry, msg) {
@@ -178,63 +90,23 @@ export function makeWebrtcInstallableCap(schema) {
     }
   }
 
-  async function start(entry, opts = {}) {
+  async function start(entry) {
     if (!entry[signalField] || entry[pcField]) return;
-    const { iceTransportPolicy } = opts;
     entry[statusState] = { st: "starting" };
     renderEntry(entry);
     const iceServers = await fetchIceServers();
-    const pcConfig = { iceServers };
-    if (iceTransportPolicy) pcConfig.iceTransportPolicy = iceTransportPolicy;
-    const pc = new RTCPeerConnection(pcConfig);
+    const pc = new RTCPeerConnection({ iceServers });
     entry[pcField] = pc;
     registerExternalPc(entry.id, name, pc);
-    // Re-render with pcField set so the <canvas> appears in the DOM
-    // BEFORE we querySelector it below. Without this second render the
-    // decoder never attaches: frames arrive over the data channel and
-    // hit no listener, the card sits at "pc-connected" forever.
-    renderEntry(entry);
-
-    // Chunked JPEG over data channel — same wire format the ESP32
-    // firmware uses, decoded by the WebCodecs path below. No RTP track
-    // (the Pi's aiortc software VP8 encoder was the throughput ceiling
-    // the chunked-JPEG path exists to bypass). Unreliable + unordered:
-    // a lost chunk is superseded by the next frame, no SCTP head-of-
-    // line stall.
-    const channel = pc.createDataChannel("video", { ordered: false, maxRetransmits: 0 });
-    channel.binaryType = "arraybuffer";
-    let firstFrameSeen = false;
-    let watchdog = null;
-    const canvas = entry.node?.querySelector(`canvas[data-${name}-id="${entry.id}"]`);
-    if (canvas) {
-      entry[decoderField] = attachChunkedJpegDecoder(channel, canvas, () => {
-        firstFrameSeen = true;
-        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
-        // Canvas exposes a synthetic MediaStream via captureStream —
-        // phone mirroring picks this up the same way it does for the
-        // ESP32 path.
-        if (streamField === "cameraStream" && !entry[streamField]) {
-          try {
-            entry[streamField] = canvas.captureStream(30);
-            notifyRobotStreamChange(entry);
-          } catch {}
-        }
-      });
-    }
-
-    // Auto-fallback watchdog. Skipped when we're already on the relay
-    // attempt or when the user pre-checked Force Relay (handled at click).
-    if (!iceTransportPolicy && !entry[relayUsedField]) {
-      watchdog = setTimeout(async () => {
-        watchdog = null;
-        if (entry[pcField] !== pc) return;       // user hit Stop, or already swapped
-        if (firstFrameSeen) return;              // direct path delivered
-        entry[relayUsedField] = true;
-        logFor(entry, `${name} webrtc: no frames in 3s — switching to relay (Cloudflare TURN)`);
-        await stop(entry);
-        await start(entry, { iceTransportPolicy: "relay" });
-      }, VIDEO_FIRST_FRAME_MS);
-    }
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.ontrack = (e) => {
+      entry[streamField] = e.streams[0];
+      const video = entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`);
+      if (video) video.srcObject = entry[streamField];
+      // Forward to paired phones. Camera cap name is "camera", so
+      // entry.cameraStream is what phones.js picks up.
+      if (streamField === "cameraStream") notifyRobotStreamChange(entry);
+    };
     pc.onicecandidate = async (e) => {
       if (!e.candidate) return;
       try {
@@ -276,7 +148,6 @@ export function makeWebrtcInstallableCap(schema) {
       try { entry[pcField].close(); } catch {}
       entry[pcField] = null;
     }
-    entry[decoderField] = null;
     entry[streamField] = null;
     if (streamField === "cameraStream") notifyRobotStreamChange(entry);
     entry[statusState] = { st: "idle" };
@@ -298,7 +169,6 @@ export function makeWebrtcInstallableCap(schema) {
       [signalField]: null, [statusField]: null,
       [pcField]: null, [streamField]: null,
       [bufField]: null, [statusState]: null,
-      [decoderField]: null, [forceRelayField]: false,
     }),
 
     async probe(entry, service) {
@@ -321,7 +191,6 @@ export function makeWebrtcInstallableCap(schema) {
         try { entry[pcField].close(); } catch {}
         entry[pcField] = null;
       }
-      entry[decoderField] = null;
       entry[streamField] = null;
       entry[statusState] = null;
     },
@@ -329,16 +198,9 @@ export function makeWebrtcInstallableCap(schema) {
     renderSection(entry) {
       if (entry.status !== "connected" || !entry[signalField]) return "";
       const s = entry[statusState] || { st: "idle" };
-      // Append a relay-source badge while streaming. Forced beats auto in
-      // the labeling because the user's choice deserves precedence over
-      // the watchdog's recovery (they're both true when forced; the auto
-      // flag only ever flips on direct attempts).
-      let relayBadge = "";
-      if (entry[pcField] && entry[forceRelayField])      relayBadge = " · relay (forced)";
-      else if (entry[pcField] && entry[relayUsedField])  relayBadge = " · relay (auto)";
-      const meta = (s.step
+      const meta = s.step
         ? `${s.st} — ${s.step}`
-        : (s.err ? `${s.st} — ${s.err}` : s.st)) + relayBadge;
+        : (s.err ? `${s.st} — ${s.err}` : s.st);
       // Install needs network (apt-get + pip) but don't gate the button —
       // user may be on Ethernet, about to join WiFi. Surface the dependency
       // as a hint so failure isn't a surprise.
@@ -356,61 +218,25 @@ export function makeWebrtcInstallableCap(schema) {
       } else {
         action = `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
       }
-      // Force-relay toggle only shown when streaming is offered (Start
-       // button visible, no install gate). Hidden while running because the
-       // restart-required semantics would mislead — the badge in the status
-       // meta is the right surface mid-stream.
-      const showForceRelay = !entry[pcField]
-        && s.st !== "uninstalled" && s.st !== "installing"
-        && s.st !== "installed" && s.st !== "install_failed";
-      const forceRelayRow = showForceRelay
-        ? `<label class="meta" style="display:flex; gap:6px; align-items:center; cursor:pointer;">
-             <input type="checkbox" data-action="${actionForceRelay}" ${entry[forceRelayField] ? "checked" : ""}>
-             Force relay <span class="meta">— slower, but works on phone hotspots & locked-down WiFi</span>
-           </label>`
-        : "";
       const body = `
         ${installHint}
         ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
-        ${entry[pcField] ? `<canvas class="robot-camera" data-${name}-id="${entry.id}" width="640" height="480" aria-label="webrtc video"></canvas>` : ""}
-        ${forceRelayRow}
+        ${entry[pcField] ? `<video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted></video>` : ""}
       `;
       return capSection({ name, label, state: meta, action, body, transport: "wifi" });
     },
 
     wireActions(entry, node) {
-      node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", () => {
-        // Fresh Start = fresh transport attempt: reset the auto-fallback
-        // flag so a network change later (e.g., off the hotspot) gives
-        // direct another shot. Forced toggle stays as-is — it's the
-        // user's persistent preference, not an auto-recovery state.
-        entry[relayUsedField] = false;
-        start(entry, { iceTransportPolicy: entry[forceRelayField] ? "relay" : undefined });
-      });
+      node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click",   () => start(entry));
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click",    () => stop(entry));
       node.querySelector(`[data-action="${actionInstall}"]`)?.addEventListener("click", () => install(entry));
-      node.querySelector(`[data-action="${actionForceRelay}"]`)?.addEventListener("change", (e) => {
-        entry[forceRelayField] = e.target.checked;
-        logFor(entry, `${name} force-relay → ${e.target.checked ? "on" : "off"}`);
-      });
     },
 
-    // After an innerHTML rebuild the canvas we were painting into may
-    // be a fresh DOM node. The decoder controller exposes attachCanvas
-    // so we can repoint it at the new element without restarting the
-    // WebRTC pipeline; captureStream regenerates from the new canvas
-    // so paired phones don't lose the feed.
+    // Rebind the live <video> to its MediaStream after innerHTML rebuild.
     postRender(entry) {
-      if (!entry[pcField] || !entry[decoderField]) return;
-      const canvas = entry.node?.querySelector(`canvas[data-${name}-id="${entry.id}"]`);
-      if (!canvas || canvas === entry[decoderField].canvas) return;
-      entry[decoderField].attachCanvas(canvas);
-      if (entry[streamField]) {
-        try {
-          entry[streamField] = canvas.captureStream(30);
-          if (streamField === "cameraStream") notifyRobotStreamChange(entry);
-        } catch {}
-      }
+      if (!entry[streamField]) return;
+      const video = entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`);
+      if (video) video.srcObject = entry[streamField];
     },
   };
 }
