@@ -308,10 +308,16 @@ void motors_pulse(int8_t left, int8_t right, uint16_t dur_ms) {
 void motors_pulse_raw(int motor_idx, int8_t signed_speed, uint16_t dur_ms) {
     if (!s_attached) return;
     if (motor_idx != 0 && motor_idx != 1) return;
-    // Same clamps as the LLM pulse safety rung — calibration runs at the
-    // same low magnitudes (30 typical), brief duration (300 ms typical).
-    if (signed_speed < -LLM_MAX_SPEED) signed_speed = -LLM_MAX_SPEED;
-    if (signed_speed >  LLM_MAX_SPEED) signed_speed =  LLM_MAX_SPEED;
+    // No LLM_MAX_SPEED clamp here. This verb is the calibration wizard, which
+    // a human explicitly clicked "Pulse" on with the robot in a known-safe
+    // spot; its job is to spin the wheel enough that the user can see which
+    // one moved. Clamping to 40 means the PWM whines at ~1 kHz but never
+    // breaks static friction on typical gearmotors — calibration looks
+    // broken. WASD already drives at ±100 via motors_apply, so the chip
+    // and the driver board handle this range fine. Duration cap stays —
+    // brief, bounded, single-motor.
+    if (signed_speed < -100) signed_speed = -100;
+    if (signed_speed >  100) signed_speed =  100;
     if (dur_ms < 50)                   dur_ms = 50;
     if (dur_ms > LLM_MAX_DURATION_MS)  dur_ms = LLM_MAX_DURATION_MS;
 
