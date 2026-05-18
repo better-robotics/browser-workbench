@@ -109,6 +109,18 @@ function warningChips(entry) {
   if (tempSev) chips.push({ sev: tempSev, text: `${t.temp_c.toFixed(1)}°C` });
   const rssiSev = rssiSeverity(t?.rssi_dbm);
   if (rssiSev) chips.push({ sev: rssiSev, text: `${t.rssi_dbm} dBm` });
+  // Recovery-plane chips — only Pi advertises these (heartbeat.py keys).
+  // "weak" sev (yellow), not "bad" (red): BLE is alive when we're reading
+  // this, so a degraded recovery plane is forward-looking ("if this
+  // connection drops you may not be able to recover"), not an active
+  // failure that justifies a red chip on a working card.
+  const hb = entry.heartbeat;
+  if (hb?.usb_gadget && hb.usb_gadget !== "active") {
+    chips.push({ sev: "weak", text: `USB recovery: ${hb.usb_gadget}` });
+  }
+  if (hb?.ssh && hb.ssh !== "active") {
+    chips.push({ sev: "weak", text: `SSH: ${hb.ssh}` });
+  }
   if (!chips.length) return "";
   return `<div class="robot-warnings">${chips.map(c =>
     `<span class="warning-chip warning-${c.sev}">${escapeHtml(c.text)}</span>`,
@@ -481,6 +493,12 @@ async function connect(id) {
       entry.telemetry = null;
     }
 
+    // Recovery-plane heartbeat — best-effort read alongside the main service.
+    // Pi-only: ESP32 doesn't advertise HEARTBEAT_SVC_UUID. Surfaces the state
+    // of usb-gadget + ssh so a degraded recovery path shows as a warning chip
+    // *before* the operator needs it (i.e., before BLE also drops).
+    await readHeartbeatPlane(entry, server);
+
     // ops-response (notify, chunked) — dispatches request/response ops like
     // get-log / get-config to the right handler. Same opcode protocol as OTA
     // and camera: 0x01 begin+u32 len, 0x02 chunk, 0x03 commit.
@@ -538,10 +556,14 @@ async function connect(id) {
   renderEntry(entry);
 }
 
-// Recovery-plane connect. The robot's main GATT service is gone, but
-// heartbeat.py is still advertising. Read its status char so the card can
-// show the IP + a recovery-console shortcut instead of an opaque error.
-async function tryConnectHeartbeatOnly(entry, server) {
+// Read the heartbeat plane's status char + subscribe to its notifications.
+// Best-effort: ESP32 doesn't advertise HEARTBEAT_SVC_UUID and old Pi
+// firmware predates it — both cases leave entry.heartbeat null and the
+// caller keeps going. Returns true if heartbeat is readable, false
+// otherwise. Shared by tryConnectHeartbeatOnly (firmware-down recovery)
+// and the successful main-connect path (surfaces usb-gadget / ssh chips
+// while the main firmware is healthy).
+async function readHeartbeatPlane(entry, server) {
   try {
     const svc = await server.getPrimaryService(HEARTBEAT_SVC_UUID);
     const ch  = await svc.getCharacteristic(HEARTBEAT_CHAR_UUID);
@@ -553,18 +575,27 @@ async function tryConnectHeartbeatOnly(entry, server) {
         renderEntry(entry);
       });
     } catch { /* notify optional */ }
-    entry.status = "firmware-down";
-    entry.staleHandle = false;
-    entry.autoReconnect = true;
-    entry.lastConnectedAt = Date.now();
-    entry.consecutiveFailures = 0;
-    entry.lastConnectError = null;
-    persist();
-    logFor(entry, `firmware down — heartbeat ip=${entry.heartbeat.ip || "?"} pi_robot=${entry.heartbeat.pi_robot || "?"}`);
     return true;
   } catch {
+    entry.heartbeat = null;
     return false;
   }
+}
+
+// Recovery-plane connect. The robot's main GATT service is gone, but
+// heartbeat.py is still advertising. Read its status char so the card can
+// show the IP + a recovery-console shortcut instead of an opaque error.
+async function tryConnectHeartbeatOnly(entry, server) {
+  if (!(await readHeartbeatPlane(entry, server))) return false;
+  entry.status = "firmware-down";
+  entry.staleHandle = false;
+  entry.autoReconnect = true;
+  entry.lastConnectedAt = Date.now();
+  entry.consecutiveFailures = 0;
+  entry.lastConnectError = null;
+  persist();
+  logFor(entry, `firmware down — heartbeat ip=${entry.heartbeat?.ip || "?"} pi_robot=${entry.heartbeat?.pi_robot || "?"}`);
+  return true;
 }
 
 // Build + probe only runtime caps that aren't already live. Used both at
