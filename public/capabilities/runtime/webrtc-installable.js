@@ -6,7 +6,7 @@
 import { UUIDS_BY_CAP, encodeJson, decodeJson } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
-import { state } from "../../state.js";
+import { persist } from "../../state.js";
 import { fetchIceServers } from "../../pairing.js";
 import { registerExternalPc, unregisterExternalPc } from "../../webrtc-robot.js";
 import { installPackage } from "./command.js";
@@ -33,6 +33,7 @@ export function makeWebrtcInstallableCap(schema) {
   const actionStart   = `${name}-start`;
   const actionStop    = `${name}-stop`;
   const actionInstall = `${name}-install`;
+  const actionFlip    = `${name}-flip`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   async function sendSignal(entry, msg) {
@@ -208,20 +209,34 @@ export function makeWebrtcInstallableCap(schema) {
       const installHint = (s.st === "uninstalled" || s.st === "install_failed") && !wifiOk
         ? `<div class="meta">Needs WiFi (~150 MB from Debian + PyPI). Join a network first or be ready to retry.</div>`
         : "";
+      // Flip toggle: persistent per-robot, lives alongside the primary
+      // action so it's reachable whether the stream is running or stopped
+      // (pre-configure before Start; correct mid-session if you just
+      // remounted the camera). aria-pressed encodes the state for assistive
+      // tech + lets CSS style the pressed look without extra classes.
+      const flipBtn = (s.st === "uninstalled" || s.st === "installing" || s.st === "installed" || s.st === "install_failed")
+        ? ""
+        : `<button class="icon sm" data-action="${actionFlip}" aria-pressed="${!!entry.cameraFlip}" aria-label="Flip camera 180°" title="Flip camera 180°"><svg class="icon-svg"><use href="icons.svg#icon-flip-vertical"/></svg></button>`;
       let action = "";
       if (s.st === "uninstalled" || s.st === "install_failed") {
         action = `<button class="secondary sm" data-action="${actionInstall}">Install ${name} support</button>`;
       } else if (s.st === "installing" || s.st === "installed") {
         action = `<button class="secondary sm" disabled>Installing…</button>`;
       } else if (entry[pcField]) {
-        action = `<button class="secondary sm" data-action="${actionStop}">Stop</button>`;
+        action = `${flipBtn}<button class="secondary sm" data-action="${actionStop}">Stop</button>`;
       } else {
-        action = `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
+        action = `${flipBtn}<button class="secondary sm" data-action="${actionStart}">Start</button>`;
       }
+      // CSS rotate(180deg) is GPU-composited — zero CPU cost vs a per-frame
+      // canvas redraw. captureStream() on the <video> for phone mirroring
+      // captures pre-transform pixels (the phone sees un-flipped). Document
+      // the constraint; firmware-side libcamera transform is the fix if
+      // upside-down phone mirroring becomes a real ask.
+      const videoStyle = entry.cameraFlip ? ` style="transform: rotate(180deg)"` : "";
       const body = `
         ${installHint}
         ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
-        ${entry[pcField] ? `<video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted></video>` : ""}
+        ${entry[pcField] ? `<video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted${videoStyle}></video>` : ""}
       `;
       return capSection({ name, label, state: meta, action, body, transport: "wifi" });
     },
@@ -230,6 +245,11 @@ export function makeWebrtcInstallableCap(schema) {
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click",   () => start(entry));
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click",    () => stop(entry));
       node.querySelector(`[data-action="${actionInstall}"]`)?.addEventListener("click", () => install(entry));
+      node.querySelector(`[data-action="${actionFlip}"]`)?.addEventListener("click", () => {
+        entry.cameraFlip = !entry.cameraFlip;
+        persist();
+        renderEntry(entry);
+      });
     },
 
     // Rebind the live <video> to its MediaStream after innerHTML rebuild.
