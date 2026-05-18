@@ -10,10 +10,14 @@ Type=simple
 # (which still runs as root for BLE), so a crash here doesn't touch
 # motors / LEDs.
 User=robot
-# Phase 2.F.1: BLE-signaled WebRTC offers arrive over /run/pi-robot-rtc.sock,
-# bridged here from pi_robot.py (which owns the BLE GATT). RuntimeDirectory
-# guarantees /run/pi-robot-rtc/ exists; the daemon places the socket there.
-# Mode 0755 so root (pi_robot.py) can traverse, robot (us) can write.
+# Phase 2.F.1: BLE-signaled WebRTC offers arrive over the Unix socket at
+# /run/pi-robot-rtc/sock, bridged here from pi_robot.py (which owns the
+# BLE GATT). The robot user can't write to /run/ directly, so let
+# systemd create the per-service runtime directory as robot:robot — the
+# socket lives inside, 0o666 set by the daemon so root (pi_robot.py)
+# can connect from outside.
+RuntimeDirectory=pi-robot-rtc
+RuntimeDirectoryMode=0755
 WorkingDirectory=__HOME__/better-robotics/firmware/pi_robot
 ExecStart=__HOME__/better-robotics/firmware/pi_robot/.venv/bin/python pi_robot_rtc.py
 Restart=always
