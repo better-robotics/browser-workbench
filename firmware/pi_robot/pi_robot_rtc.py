@@ -2,7 +2,7 @@
 """
 pi-robot-rtc — local aiortc daemon for one Pi.
 
-Listens on /run/pi-robot-rtc.sock for offers forwarded by pi_robot.py.
+Listens on /run/pi-robot-rtc/sock for offers forwarded by pi_robot.py.
 The dashboard writes a chunked SDP offer to the BLE SIGNAL char;
 pi_robot.py (root, owns the GATT server) reassembles and RPCs us
 non-trickle over the Unix socket:
@@ -41,7 +41,7 @@ except ImportError as e:
     sys.stderr.write(f"[rtc] missing dependency: {e}. Run `pip install aiortc aiohttp`.\n")
     sys.exit(2)
 
-LOCAL_SOCK_PATH = "/run/pi-robot-rtc.sock"
+LOCAL_SOCK_PATH = "/run/pi-robot-rtc/sock"
 TURN_ENDPOINT = "https://proxy.neevs.io/cloudflare/turn"
 STUN_FALLBACK = [
     RTCIceServer(urls="stun:stun.l.google.com:19302"),
@@ -452,7 +452,7 @@ async def handle_local_offer(reader, writer):
 
 
 async def run_unix_server():
-    """Listen on /run/pi-robot-rtc.sock for offers from pi_robot.py. 0o666
+    """Listen on /run/pi-robot-rtc/sock for offers from pi_robot.py. 0o666
     perms so pi_robot.py (root) can connect to a `robot`-owned socket."""
     try:
         os.unlink(LOCAL_SOCK_PATH)

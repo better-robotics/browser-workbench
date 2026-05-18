@@ -461,7 +461,7 @@ def _publish(char_uuid: str, value: bytearray) -> None:
 # ── BLE-signaled WebRTC ───────────────────────────────────────────────────
 #
 # Dashboard writes a chunked SDP offer to SIGNAL_CHAR_UUID. We reassemble,
-# forward to pi-robot-rtc.service over /run/pi-robot-rtc.sock, get a
+# forward to pi-robot-rtc.service over /run/pi-robot-rtc/sock, get a
 # non-trickle answer back, notify it to the dashboard chunked. The actual
 # WebRTC peer lives in pi_robot_rtc.py (low-priv `robot` user); this
 # process (root) just shuttles SDP between BLE and the local socket.
@@ -472,7 +472,7 @@ def _publish(char_uuid: str, value: bytearray) -> None:
 #   0x03                  commit
 #   0xFF [utf8 msg]       error (notify-only)
 
-_LOCAL_RTC_SOCK = "/run/pi-robot-rtc.sock"
+_LOCAL_RTC_SOCK = "/run/pi-robot-rtc/sock"
 _SIG_BLE_CHUNK = 100
 _SIG_MAX_OFFER = 8192
 
@@ -1777,7 +1777,7 @@ async def main() -> None:
         GATTAttributePermissions.readable,
     )
     # Chunked SDP for WebRTC signaling. Bridges to pi-robot-rtc.service
-    # over /run/pi-robot-rtc.sock; that service runs aiortc and produces
+    # over /run/pi-robot-rtc/sock; that service runs aiortc and produces
     # the answer. See _signal_handle_write.
     await _server.add_new_characteristic(
         SERVICE_UUID, SIGNAL_CHAR_UUID,
