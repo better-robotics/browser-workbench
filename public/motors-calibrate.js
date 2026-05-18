@@ -54,9 +54,13 @@ async function pulseRaw(entry, motor) {
     logFor(entry, "calibration: this firmware doesn't expose the ops channel — re-flash to use the wizard, or swap the forward/backward pin numbers manually");
     return false;
   }
+  // Speed 100 matches WASD — calibration's job is "spin enough that the
+  // user sees which wheel turned." Lower magnitudes (we tried 30) get
+  // clamped through audible PWM whine without breaking static friction on
+  // typical gearmotors. Duration stays at 300 ms, firmware still bounds it.
   return await sendCommand(entry, "ops", {
     op: "motors-pulse-raw",
-    args: { motor, direction: "forward", duration_ms: 300, speed: 30 },
+    args: { motor, direction: "forward", duration_ms: 300, speed: 100 },
   });
 }
 
