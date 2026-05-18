@@ -2,20 +2,39 @@
 # USB composite gadget (ECM ethernet + ACM serial) via ConfigFS. Runs
 # independently of pi-robot.service so a crashed firmware still exposes
 # `ssh pi@10.55.0.1` (ECM) and a serial console at /dev/ttyGS0 (ACM).
-set -euo pipefail
+
+# Diagnostic logging block runs WITHOUT `set -e` — its failure must not
+# prevent the gadget setup. The previous version coupled them, so a
+# transient /boot/firmware-not-yet-mounted at unit-start time silently
+# aborted the entire script before any ConfigFS work happened. Gadget
+# setup re-enables -e at the marker below.
+set -uo pipefail
 
 # Append every boot's outcome to a log on the boot partition. The whole
 # point of USB-CDC is being reachable when SSH/BLE/journal aren't — so
 # the log goes somewhere recoverable WITHOUT the Pi (pop the SD into any
 # host). Append, not overwrite, so multi-boot failure patterns stay
-# visible.
+# visible. Only redirect when /boot/firmware looks writable — otherwise
+# let stdout/stderr fall through to systemd's journal.
 LOG=/boot/firmware/usb-gadget.log
-exec >> "$LOG" 2>&1
+if [ -d "$(dirname "$LOG")" ] && touch "$LOG" 2>/dev/null; then
+  exec >> "$LOG" 2>&1
+  _log_path="$LOG"
+else
+  _log_path="(journal only — /boot/firmware not writable)"
+fi
 echo "=== usb-gadget-setup $(date -Iseconds) ==="
+echo "logging to: $_log_path"
 echo "kernel: $(uname -r)"
 echo "cmdline: $(cat /proc/cmdline 2>/dev/null)"
 echo "dtoverlay/dwc2 + modules:"
 lsmod 2>/dev/null | grep -E "^(dwc2|libcomposite|usb_f_)" || echo "  (none loaded yet)"
+# Force a sync now so the boot-time breadcrumb survives an unclean SD pull.
+# FAT32 has no journal — without an explicit sync, writes can sit in the
+# OS buffer cache for tens of seconds and disappear on yank.
+sync 2>/dev/null || true
+
+set -e  # Real failure path begins here.
 
 GADGET=/sys/kernel/config/usb_gadget/g1
 if [ -d "$GADGET" ]; then
@@ -78,3 +97,4 @@ UDC=$(ls /sys/class/udc | head -n 1)
 echo "binding gadget to UDC: $UDC"
 echo "$UDC" > UDC
 echo "bind OK — gadget live at $GADGET, UDC=$UDC"
+sync 2>/dev/null || true
