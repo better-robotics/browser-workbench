@@ -50,23 +50,42 @@ def _ip() -> str | None:
         return None
 
 
-def _pi_robot_state() -> str:
+# Recovery-plane units the dashboard wants visibility into even when
+# pi-robot.service itself is healthy. usb_gadget = the CDC console + ECM
+# ethernet stay reachable when WiFi + BLE drop. ssh = the WiFi recovery
+# rung. Reporting them through heartbeat means a chip can surface "your
+# recovery is degraded" *before* the operator needs it — they won't
+# discover it's broken at the moment they need it most.
+_WATCHED_UNITS = ("pi-robot.service", "usb-gadget.service", "ssh.service")
+
+
+def _svc_states() -> dict[str, str]:
+    # `systemctl is-active a b c` writes one state per line in the same order.
+    # Non-zero exit (any unit not active) is normal — don't raise on it.
     try:
         rc = subprocess.run(
-            ["systemctl", "is-active", "pi-robot.service"],
+            ["systemctl", "is-active", *_WATCHED_UNITS],
             capture_output=True, text=True, timeout=2,
         )
-        return (rc.stdout.strip() or "unknown")
+        lines = rc.stdout.strip().split("\n")
     except Exception:
-        return "unknown"
+        lines = []
+    out = {}
+    for i, unit in enumerate(_WATCHED_UNITS):
+        state = lines[i].strip() if i < len(lines) else ""
+        out[unit] = state or "unknown"
+    return out
 
 
 def _payload() -> bytearray:
+    svc = _svc_states()
     return bytearray(json.dumps({
         "ip": _ip(),
         "host": socket.gethostname(),
         "uptime_s": int(time.monotonic() - _started_at),
-        "pi_robot": _pi_robot_state(),
+        "pi_robot": svc["pi-robot.service"],
+        "usb_gadget": svc["usb-gadget.service"],
+        "ssh": svc["ssh.service"],
     }, separators=(",", ":")).encode("utf-8"))
 
 
