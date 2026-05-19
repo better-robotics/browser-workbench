@@ -2016,6 +2016,12 @@ dialog[open]::backdrop { opacity: 1; }
 /* Extra right-padding so typed text doesn't slide under the mic. Send is
    at 4..28px from the right edge, mic at 32..56px — 64px clears both. */
 .pip-form--mic .pip-input { padding-right: 64px; }
+/* Pip chat panel — pip-core defaults to 320px, below the 45-75-character
+   reading sweet spot for 14px body. 420px puts a line at ~55ch and gives
+   code blocks + tool pills room to breathe without dominating the
+   dashboard underneath. */
+.pip-panel { width: min(420px, calc(100vw - 40px)); }
+
 /* Per-iteration reply bubble. Multiple of these can stack inside one
    .pip-turn, interleaved with .pip-step pills when Claude uses tools.
    Element class is `pip-iter-reply pip-reply ai-generated` so pip-core's
