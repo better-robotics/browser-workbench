@@ -23,8 +23,20 @@
 // the same "external observer" model — what every RC car / video game
 // uses. Tank-drive purists can mentally undo the flip; for the toy-scale
 // scope this project targets, operator clarity wins.
+//
+// Throttle deadband: WPILib's `DifferentialDrive.arcadeDrive` documents
+// this exact failure mode as "discontinuity at zero throttle" — small Y
+// noise around the pad center flickers `throttle` across 0, and the
+// sign-flip turns that into non-deterministic turn direction
+// frame-to-frame. (FRC Team 254's 2014 mixer post-mortem called swap-on-
+// reverse "the worst footgun in our drivebase code.") Snapping `throttle`
+// to exactly 0 inside the deadband kills the flicker AND removes the
+// small L/R asymmetry during pure-turn (stick pushed sideways with
+// minimal Y deflection).
+const THROTTLE_DEADBAND = 10;
 export function mix(throttle, turn) {
   const c = (v) => Math.max(-100, Math.min(100, Math.round(v)));
+  if (Math.abs(throttle) < THROTTLE_DEADBAND) throttle = 0;
   if (throttle < 0) turn = -turn;
   return [c(throttle + turn), c(throttle - turn)];
 }
