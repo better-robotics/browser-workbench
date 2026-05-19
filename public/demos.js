@@ -254,11 +254,16 @@ async function stopsignPatrol(ctx) {
     action: "halt",
   });
 
-  let caught = false;
+  // Per-cycle latch — fires when the watcher catches "stop sign" this
+  // lap; cleared after the announce+wait+resume sequence so the next
+  // sighting fires the announcement again. Outer demo only ends on
+  // ctx.shouldAbort (Stop button) so the patrol runs indefinitely with
+  // a pause-and-resume at every stop sign.
+  let firedThisCycle = false;
   const unsub = ctx.onWatcherFire?.((entry, det) => {
-    if (entry?.id === ctx.id && det?.label === "stop sign") caught = true;
+    if (entry?.id === ctx.id && det?.label === "stop sign") firedThisCycle = true;
   });
-  const shouldStop = () => caught || ctx.shouldAbort?.();
+  const breakLeg = () => firedThisCycle || ctx.shouldAbort?.();
 
   // Wavy forward — alternating slight-right and slight-left arcs feels
   // organic, like a vehicle gently changing lanes. Each segment is a
@@ -267,13 +272,10 @@ async function stopsignPatrol(ctx) {
   // Tuned for "real patrol" feel: 12 segments × 2000ms ≈ 24s of forward
   // motion per leg ≈ 7-8m at 35 cm/s. Firmware caps speed at 40 and
   // pulse duration at 2000ms so this is as fast as a single leg can go
-  // without changing the firmware floor. Bumped from 6 → 12 segments
-  // (double the pulses per leg) and widened the arc from 0.65 → 0.75
-  // so each segment covers more straight-line distance — the patrol
-  // reads as "covering ground" instead of "twitching back and forth."
+  // without changing the firmware floor.
   const wavyForward = async (segments = 12) => {
     for (let i = 0; i < segments; i++) {
-      if (shouldStop()) return;
+      if (breakLeg()) return;
       const arc = i % 2 === 0
         ? [SPEED,         SPEED * 0.75]
         : [SPEED * 0.75,  SPEED       ];
@@ -285,17 +287,39 @@ async function stopsignPatrol(ctx) {
   // half rotation at speed 40; tune the count if the robot under-turns.
   const turnAround = async () => {
     for (let i = 0; i < 2; i++) {
-      if (shouldStop()) return;
+      if (breakLeg()) return;
       await pulse(ctx, -SPEED, SPEED, MAX);
     }
   };
 
   try {
     let lap = 0;
-    while (!shouldStop()) {
+    while (!ctx.shouldAbort?.()) {
       lap++;
-      await wavyForward();  // default 12 segments — see helper comment
-      if (shouldStop()) break;
+      await wavyForward();
+      if (ctx.shouldAbort?.()) break;
+
+      // Reflex caught mid-leg? Announce, wait for the gate to clear
+      // (operator removes the sign), then resume the patrol without
+      // turning around — we picked up where we left off.
+      if (firedThisCycle) {
+        await ctx.exec("speak", { text: "Stop sign detected. Standing by." });
+        if (ctx.awaitReflexGate) {
+          await ctx.awaitReflexGate(ctx.id, {
+            maxMs: 60000,
+            isAborted: () => !!ctx.shouldAbort?.(),
+          });
+        } else {
+          // Fallback when the gate API isn't wired — short pause so the
+          // operator has a beat to move the sign.
+          await ctx.sleep(3000);
+        }
+        if (ctx.shouldAbort?.()) break;
+        await ctx.exec("speak", { text: "Resuming patrol." });
+        firedThisCycle = false;
+        continue;  // skip the turn-around; just keep going forward
+      }
+
       await ctx.exec("speak", { text: `Lap ${lap}, turning around.` });
       await turnAround();
     }
@@ -303,11 +327,7 @@ async function stopsignPatrol(ctx) {
     unsub?.();
   }
 
-  if (caught) {
-    // Halt is firmware-level; this is just the spoken announcement.
-    // The watcher stays armed so it'll keep guarding after the demo.
-    await ctx.exec("speak", { text: "Stop sign detected. Patrol halted." });
-  } else if (ctx.shouldAbort?.()) {
+  if (ctx.shouldAbort?.()) {
     await ctx.exec("speak", { text: "Patrol stopped." });
   }
 }

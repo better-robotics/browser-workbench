@@ -6,7 +6,7 @@ import { state } from "./state.js";
 import { isSupported as voiceInputSupported, startDictation } from "./voice-input.js";
 import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
 import { tryMatchDemo, DEMO_NAMES } from "./demos.js";
-import { onWatcherFire, releaseAllGates } from "./watcher.js";
+import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
 import { AUTH_URL } from "./endpoints.js";
 import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
 
@@ -396,6 +396,11 @@ async function onSubmit(text, { turnEl }) {
       // from what the robot actually saw. Null on non-Claude backends
       // or any failure — caller falls back to a canned line.
       askAboutFrame,
+      // Wait until the reflex motor-gate is released (the operator
+      // moves the trigger out of view, or the watcher's cool-down
+      // expires). Lets demos pause-and-resume around reflex halts
+      // instead of bailing out of the loop.
+      awaitReflexGate,
     };
     try { await demo.run(ctx); }
     catch (err) {
