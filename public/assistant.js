@@ -5,6 +5,7 @@ import { settings, saveSettings } from "./settings.js";
 import { state } from "./state.js";
 import { isSupported as voiceInputSupported, startDictation } from "./voice-input.js";
 import { tryMatchCommand } from "./voice-commands.js";
+import { tryMatchDemo, DEMO_NAMES } from "./demos.js";
 import { onWatcherFire } from "./watcher.js";
 import { AUTH_URL } from "./endpoints.js";
 import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
@@ -270,30 +271,62 @@ async function onSubmit(text, { turnEl }) {
     return el;
   };
 
-  // Direct-command path: if the input matches a recognized command
-  // verb (drive, turn, stop…), dispatch the corresponding tool call
+  // Direct-command + demo paths: if the input matches a recognized
+  // command verb (drive, turn, stop…) or a demo name, dispatch
   // immediately and skip the LLM round-trip. Mycroft / OpenVoiceOS
-  // pattern: regex intent gate first, LLM fallback for everything
-  // else. Saves 2-3s for the things that should be instant.
-  const cmd = tryMatchCommand(text);
-  if (cmd) {
-    const robotId = [...state.devices.values()]
-      .find(e => e.status === "connected")?.id;
-    if (!robotId) {
-      const el = appendReplyEl();
-      el.textContent = "No robot connected — pair one first.";
-      scrollPanelToBottom();
-      return "";
-    }
-    const input = { id: robotId, ...cmd.partialInput };
-    const pill = appendStepPill(turnEl, cmd.tool);
+  // pattern: regex intent gate first, LLM fallback for everything else.
+  const pickRobot = () =>
+    [...state.devices.values()].find(e => e.status === "connected")?.id;
+  // Shared step-executor that renders a pill per tool call — same
+  // affordance as LLM-driven tool calls, so direct commands and demo
+  // sequences are visually indistinguishable from agent work.
+  const runStep = async (tool, input) => {
+    const pill = appendStepPill(turnEl, tool);
     const startedAt = performance.now();
     try {
-      const result = await executor(cmd.tool, input);
+      const result = await executor(tool, input);
       const isErr = result && (result.error || result.ok === false);
-      finishStepPill(pill, cmd.tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
+      finishStepPill(pill, tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
+      return result;
     } catch (err) {
-      finishStepPill(pill, cmd.tool, input, null, err, performance.now() - startedAt);
+      finishStepPill(pill, tool, input, null, err, performance.now() - startedAt);
+      throw err;
+    }
+  };
+  const noRobot = () => {
+    const el = appendReplyEl();
+    el.textContent = "No robot connected — pair one first.";
+    scrollPanelToBottom();
+    return "";
+  };
+
+  const cmd = tryMatchCommand(text);
+  if (cmd) {
+    const robotId = pickRobot();
+    if (!robotId) return noRobot();
+    await runStep(cmd.tool, { id: robotId, ...cmd.partialInput }).catch(() => {});
+    return "";
+  }
+
+  // Demo path. Each routine orchestrates a sequence of tool calls via
+  // runStep, so the whole choreography renders in the chat as pills the
+  // user can audit / replay through Details. shouldAbort lets the Stop
+  // button cut a long demo (follow especially) mid-sequence.
+  const demo = tryMatchDemo(text);
+  if (demo) {
+    const robotId = pickRobot();
+    if (!robotId) return noRobot();
+    const ctx = {
+      id: robotId,
+      exec: runStep,
+      sleep: (ms) => new Promise(r => setTimeout(r, ms)),
+      shouldAbort: () => _abort,
+    };
+    try { await demo.run(ctx); }
+    catch (err) {
+      const el = appendReplyEl();
+      el.textContent = `Demo "${demo.label}" failed: ${err?.message || err}`;
+      scrollPanelToBottom();
     }
     return "";
   }
@@ -516,6 +549,31 @@ function registerInitialSlashCommands() {
   // /vision on|off — toggle whether Pip can see camera frames directly.
   // Tool wires the Anthropic image-in-tool_result content shape; only the
   // bridge + anthropic backends ship the right content-block packing.
+  // /demo — scripted choreographies. Slash exists for tab-completion +
+  // /help discoverability. The actual execution runs through onSubmit
+  // (because demos need turn-scoped pill rendering, and slash handlers
+  // don't get turnEl), so we synthesize `demo <name>` into the input
+  // and requestSubmit. clearedUI:true keeps pip from also creating an
+  // empty slash-response turn next to the real one.
+  _pip.registerSlash({
+    name: "demo",
+    description: `run a scripted demo (${DEMO_NAMES.join(", ")})`,
+    complete: (partial) => DEMO_NAMES.filter(n => n.startsWith(partial.toLowerCase())),
+    handler: (argsString) => {
+      const arg = argsString.trim();
+      if (!arg) {
+        return { reply: `Demos: ${DEMO_NAMES.map(n => `\`${n}\``).join(", ")}. Try \`/demo figure8\`.` };
+      }
+      const input = document.querySelector(".pip-input");
+      const form  = input?.form || document.querySelector(".pip-form");
+      if (!input || !form) return { reply: "Demo input not available." };
+      input.value = `demo ${arg}`;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      requestAnimationFrame(() => form.requestSubmit?.());
+      return { clearedUI: true };
+    },
+  });
+
   _pip.registerSlash({
     name: "vision",
     description: "let Pip see camera frames directly (on/off)",
