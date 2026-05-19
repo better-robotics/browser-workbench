@@ -51,8 +51,21 @@ export function drawFrameToCanvas(entry, maxDim, source = null) {
   }
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
+  // The card preview's "Flip 180°" toggle is a CSS transform on the <video>;
+  // drawImage reads raw pixels and ignores it, so Pip / mediapipe / grounding
+  // would see un-flipped frames. Re-apply the rotation at capture time so
+  // every downstream consumer sees the same orientation the operator sees.
+  // Only for the robot's own camera, not phone-attached helpers — those
+  // carry their own orientation independent of the chassis mount.
+  const isAttachedPhone = el.hasAttribute?.("data-attached-camera-id");
+  const flip = !!entry.cameraFlip && !isAttachedPhone;
   try {
-    canvas.getContext("2d").drawImage(el, 0, 0, w, h);
+    const ctx = canvas.getContext("2d");
+    if (flip) {
+      ctx.translate(w, h);
+      ctx.rotate(Math.PI);
+    }
+    ctx.drawImage(el, 0, 0, w, h);
     return canvas;
   } catch {
     // Tainted canvas → firmware didn't serve CORS + the <img> is missing
