@@ -40,7 +40,7 @@ from bless import (
     GATTCharacteristicProperties,
     GATTAttributePermissions,
 )
-from gpiozero import LED, Motor, DigitalInputDevice
+from gpiozero import LED, Motor, DigitalInputDevice, DistanceSensor
 
 # UUIDs generated from protocol/uuids.json (tools/gen-uuids.py). Edit the
 # JSON + `make gen-uuids` to add a characteristic; ESP32 firmware AND the
@@ -86,6 +86,10 @@ def _build_caps() -> list:
         # No dashboard runtime for "tick-count" yet — RUNTIMES[capSchema.type]
         # falls through to no-op. Ticks reach the dashboard via telemetry.
         caps.append({"name": "encoders", "type": "tick-count"})
+    if ULTRASONIC_ENABLED:
+        # Same pattern as encoders — distance reaches the dashboard via
+        # telemetry (dist_cm), no runtime renderer needed.
+        caps.append({"name": "ultrasonic", "type": "distance"})
     caps.append({"name": "wifi", "type": "wifi-scan"})
     caps.append({"name": "ota", "type": "bundle-ota"})
     if CAMERA_ENABLED is not False:
@@ -194,6 +198,12 @@ MOTORS_PINS    = _migrate_motor_pins(_config.get("motors_pins", {
 # UI knob.
 ENCODERS_ENABLED = bool(_config.get("encoders_enabled", True))
 ENCODERS_PINS    = _config.get("encoders_pins", {"left": 22, "right": 24})
+# HC-SR04-style ultrasonic. Default-off because a misconfigured ECHO pin
+# (no level divider) eventually burns the GPIO — opt-in protects Pis that
+# don't have the sensor wired. Defaults sit on free GPIOs clear of LED
+# (17), motors (5/6/13/26), and encoders (22/24).
+ULTRASONIC_ENABLED = bool(_config.get("ultrasonic_enabled", False))
+ULTRASONIC_PINS    = _config.get("ultrasonic_pins", {"trig": 23, "echo": 27})
 # Per-robot motor orientation — derived from the dashboard's calibration
 # flow, persisted here. The dashboard sends (L, R) in operator-frame
 # ("L drives the wheel on the operator's left, forward = wheel rolls
@@ -326,6 +336,9 @@ def _pin_conflicts() -> list[tuple[int, list[str]]]:
     if ENCODERS_ENABLED:
         for side, pin in ENCODERS_PINS.items():
             claimed.setdefault(int(pin), []).append(f"encoders.{side}")
+    if ULTRASONIC_ENABLED:
+        for role, pin in ULTRASONIC_PINS.items():
+            claimed.setdefault(int(pin), []).append(f"ultrasonic.{role}")
     return [(pin, tags) for pin, tags in claimed.items() if len(tags) > 1]
 
 _conflicts = _pin_conflicts()
@@ -337,9 +350,10 @@ if _conflicts:
     # undefined state — gpiozero would raise GPIOPinInUse on the second
     # claim and the try/except would null-out one driver silently. LED
     # still goes through (it's usually the one the user meant to keep).
-    log.error("motors + encoders disabled due to pin conflict(s)")
+    log.error("motors + encoders + ultrasonic disabled due to pin conflict(s)")
     MOTORS_ENABLED = False
     ENCODERS_ENABLED = False
+    ULTRASONIC_ENABLED = False
 
 led = LED(LED_PIN) if LED_ENABLED else None
 
