@@ -33,6 +33,7 @@ export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
 import { isMediapipeFailed } from "./mediapipe.js";
 import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus } from "./watcher.js";
+import { speak as voiceSpeak } from "./voice.js";
 
 const ALL_TOOLS = [
   {
@@ -204,6 +205,18 @@ const ALL_TOOLS = [
       required: ["id"],
     },
     annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "speak",
+    description: "Say a short message aloud via browser TTS — ambient voice for the human without making them check the chat. Use for findings ('I see a stop sign'), completion signals ('done — three loops'), or important asks. Don't narrate tool calls or restate chat replies. Keep utterances under ~15 words. Returns immediately; audio plays asynchronously and cancels any prior utterance still speaking.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "What to say. Short, declarative, no markdown." },
+      },
+      required: ["text"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
     name: "ask_human",
@@ -430,6 +443,12 @@ async function dispatch(name, input) {
         };
       }
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
+    }
+    case "speak": {
+      const text = String(input.text || "").trim();
+      if (!text) return { error: "text is required" };
+      voiceSpeak(text);
+      return { ok: true };
     }
     case "ask_human": {
       const question = String(input.question || "").trim();

@@ -11,6 +11,7 @@ import { captureFrameDataUrl } from "./camera-frame.js";
 import { detectOnce as mpDetectOnce, startDetection as mpStartDetection } from "./mediapipe.js";
 import { listPhones, askHuman } from "./phones.js";
 import { ask as claudeAsk } from "./claude.js";
+import { speak as voiceSpeak } from "./voice.js";
 
 // pip.ask(prompt, opts?) — routes through whichever Pip backend the user
 // picked in Settings (GitHub Models / Anthropic / OpenAI / Bridge / local).
@@ -321,12 +322,9 @@ async function runScript() {
     typeof a === "string" ? a : JSON.stringify(a)
   ).join(" "));
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  // Browser-native Web Speech, no deps. Ambient feedback for demos where
-  // staring at the laptop pulls focus from the robot.
-  const speak = (text) => {
-    try { speechSynthesis.speak(new SpeechSynthesisUtterance(String(text))); }
-    catch {}
-  };
+  // Shared voice.js — picks a natural male voice and cancels prior speech
+  // so user scripts, the watcher, and Pip all sound the same.
+  const speak = voiceSpeak;
   const robots = connectedRobots();
   const robot = robots[0] || null;
   const phones = listPhones().map(makePhoneApi);

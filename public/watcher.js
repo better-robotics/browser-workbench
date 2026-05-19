@@ -15,15 +15,14 @@ import { listCameraSources } from "./camera-frame.js";
 import { capSection } from "./capabilities/runtime/cap-section.js";
 import { renderEntry } from "./capabilities/runtime/render-bus.js";
 import { escapeHtml } from "./dom.js";
+import { speak as ttsSpeak } from "./voice.js";
 
 // id → { stop }
 const _running = new Map();
 
 const ACTIONS = {
   halt:   async (entry)      => { await pulseMotors(entry.id, 0, 0, 200); },
-  speak:  async (_entry, det) => {
-    try { speechSynthesis.speak(new SpeechSynthesisUtterance(`saw ${det.label}`)); } catch {}
-  },
+  speak:  async (_entry, det) => { ttsSpeak(`saw ${det.label}`); },
   notify: async (entry, det) => {
     console.log(`[watcher] ${entry.name} saw ${det.label} (${(det.score * 100 | 0)}%)`);
   },
