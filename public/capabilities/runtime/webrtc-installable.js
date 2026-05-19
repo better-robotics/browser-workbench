@@ -97,43 +97,56 @@ export function makeWebrtcInstallableCap(schema) {
   // hand phones the *source* track — CSS transforms only affect the
   // local render, not the bytes. The canvas detour gets phones the same
   // orientation the operator sees. Cleanup handle on entry._forwardPump.
-  function setupForwardPump(entry, videoEl) {
+  //
+  // The pump takes a LOOKUP function, not a cached reference. Two reasons:
+  //   (a) Race at start: pc.ontrack may fire before renderEntry has put
+  //       the <video> in the DOM. The lookup retries every tick until
+  //       it finds one, no fallback-to-raw-stream needed.
+  //   (b) Stale reference after re-render: every renderEntry rebuilds
+  //       the card and creates a new <video>. The OLD video gets detached;
+  //       Chrome pauses decoding on detached media elements, so drawImage
+  //       freezes the canvas (and the phone's view). Re-looking-up each
+  //       tick keeps the pump pointed at whichever <video> is currently
+  //       live in the DOM.
+  function setupForwardPump(entry, lookupVideo) {
     teardownForwardPump(entry);
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     let stopped = false;
     const draw = () => {
       if (stopped) return;
-      const w = videoEl.videoWidth, h = videoEl.videoHeight;
-      if (w && h) {
-        if (canvas.width !== w || canvas.height !== h) {
-          canvas.width = w; canvas.height = h;
-        }
-        try {
-          if (entry.cameraFlip) {
-            ctx.save();
-            ctx.translate(w / 2, h / 2);
-            ctx.rotate(Math.PI);
-            ctx.drawImage(videoEl, -w / 2, -h / 2, w, h);
-            ctx.restore();
-          } else {
-            ctx.drawImage(videoEl, 0, 0, w, h);
+      const videoEl = lookupVideo();
+      if (videoEl) {
+        const w = videoEl.videoWidth, h = videoEl.videoHeight;
+        if (w && h) {
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w; canvas.height = h;
           }
-        } catch { /* video not ready yet — next tick */ }
+          try {
+            if (entry.cameraFlip) {
+              ctx.save();
+              ctx.translate(w / 2, h / 2);
+              ctx.rotate(Math.PI);
+              ctx.drawImage(videoEl, -w / 2, -h / 2, w, h);
+              ctx.restore();
+            } else {
+              ctx.drawImage(videoEl, 0, 0, w, h);
+            }
+          } catch { /* video not ready yet — next tick */ }
+        }
+        // rVFC drives at native video FPS without burning rAF cycles; the
+        // rAF fallback runs ~60 Hz which oversamples but still works.
+        if ("requestVideoFrameCallback" in videoEl) {
+          videoEl.requestVideoFrameCallback(draw);
+          return;
+        }
       }
-      // rVFC drives at native video FPS without burning rAF cycles; the
-      // rAF fallback runs ~60 Hz which oversamples but still works.
-      if ("requestVideoFrameCallback" in videoEl) {
-        videoEl.requestVideoFrameCallback(draw);
-      } else {
-        requestAnimationFrame(draw);
-      }
-    };
-    if ("requestVideoFrameCallback" in videoEl) {
-      videoEl.requestVideoFrameCallback(draw);
-    } else {
+      // No live video this tick (race at start, or briefly between renders).
+      // rAF schedules the retry; once lookupVideo() returns a fresh element
+      // we'll switch back to rVFC for the next frame.
       requestAnimationFrame(draw);
-    }
+    };
+    requestAnimationFrame(draw);
     const stream = canvas.captureStream(30);
     entry._forwardPump = { canvas, stream, stop: () => { stopped = true; } };
     return stream;
@@ -164,15 +177,22 @@ export function makeWebrtcInstallableCap(schema) {
       entry[`${name}RawTrack`] = rawTrack;
       const video = entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`);
       if (video) video.srcObject = rawTrack;
-      // For phone forwarding: pump the visible <video> into an offscreen
-      // canvas (rotated when cameraFlip is on), captureStream the canvas,
-      // and hand THAT to phones via entry.cameraStream. videoEl.
-      // captureStream() would forward the source track, ignoring CSS
-      // rotation — phones would see un-flipped pixels. The canvas detour
-      // gives phones the same orientation the operator sees. One drawImage
-      // per video frame (rVFC / rAF fallback) — GPU-composited, ~1 ms.
-      if (streamField === "cameraStream" && video) {
-        entry[streamField] = setupForwardPump(entry, video);
+      // For phone forwarding: pump the live <video> (whichever is currently
+      // in the DOM — re-looked-up each tick to survive renderEntry rebuilds)
+      // into an offscreen canvas, rotated when cameraFlip is on, then
+      // captureStream the canvas and hand THAT to phones via
+      // entry.cameraStream. videoEl.captureStream() would forward the
+      // source track ignoring CSS rotation; the canvas detour gives phones
+      // the same orientation the operator sees. ~1 ms per frame.
+      //
+      // No `if (video)` gate: if ontrack races ahead of the first render
+      // with pcField set, the pump's lookup retries each tick until the
+      // <video> shows up. Fallback-to-raw-stream would forward un-rotated
+      // pixels — strictly worse than waiting one rAF.
+      if (streamField === "cameraStream") {
+        entry[streamField] = setupForwardPump(entry, () =>
+          entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`)
+        );
       } else {
         entry[streamField] = rawTrack;
       }
