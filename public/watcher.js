@@ -1,9 +1,12 @@
 // Persistent reflex watcher. Lifts the "show sign → robot reacts" demo
 // out of the script lifecycle and into the robot's capability surface so
 // it works without a script open, and Pip can compose it ("watch for X,
-// then ask_human"). Mirrors openpilot-panda's terminal-rung pattern —
-// fire once and stand down so the action is a single, reviewable event
-// rather than a forever-on edge that re-fires every frame.
+// then ask_human").
+//
+// Continuous-fire: the watcher stays armed after each detection. To
+// avoid re-triggering on every ~100ms detector tick while the target
+// stays in frame, a REARM_DEBOUNCE_MS cool-down gates the next round.
+// Operator (or Pip) explicitly stops it via stopWatcher.
 //
 // Actions are a closed set (halt / speak / notify). Same containment
 // principle as ask_human being the bottom rung: a hallucinated Pip call
@@ -20,10 +23,17 @@ import { speak as ttsSpeak } from "./voice.js";
 // id → { stop }
 const _running = new Map();
 
+// Cool-down after a fire before re-entering the detect loop. Long enough
+// that the same object lingering in frame doesn't re-fire every detector
+// tick (~100ms); short enough that a re-appearing target is caught
+// promptly. 3s lands between speak-action audio overlap (annoying below
+// ~2s) and "missed a re-appearance" (annoying above ~5s).
+const REARM_DEBOUNCE_MS = 3000;
+
 // Fire-event listeners — assistant.js subscribes so it can inject a
 // synthetic observation into Pip's active turn (L2 "harness pushes state
-// to planner" pattern from Butter-Bench / ExploreVLM). Fire-once-disable
-// means at most one event per arm cycle, so this can't spam the chat.
+// to planner" pattern from Butter-Bench / ExploreVLM). Continuous-fire +
+// debounce caps the rate at ~1 event / REARM_DEBOUNCE_MS per watcher.
 const _fireListeners = new Set();
 export function onWatcherFire(fn) {
   _fireListeners.add(fn);
@@ -69,6 +79,37 @@ function ensureConfig(entry) {
   return entry.watcher;
 }
 
+// One iteration of the detect→fire→cool-down loop. Pulled out so the
+// post-fire path can recursively start the next iteration without
+// re-running startWatcher's config + UI bookkeeping.
+function runDetectIteration(entry, cfg) {
+  const { promise, stop } = startDetection(entry, { classes: cfg.classes });
+  _running.set(entry.id, { stop });
+  promise.then(async (det) => {
+    _running.delete(entry.id);
+    // null = manually stopped, timed out, or detector permanently failed.
+    // Either way, exit the loop and reflect disarmed in the UI.
+    if (!det || !cfg.enabled) {
+      cfg.enabled = false;
+      renderEntry(entry);
+      return;
+    }
+    cfg.lastDetection = { label: det.label, score: det.score, ts: Date.now() };
+    renderEntry(entry);
+    try { await ACTIONS[cfg.action]?.(entry, det); }
+    catch (err) { console.warn(`[watcher] action ${cfg.action} failed:`, err); }
+    // Notify subscribers AFTER the action ran so the observation reads
+    // "saw X, action Y executed" rather than "saw X, about to act."
+    emitFire(entry, det);
+    // Cool-down, then re-enter the loop unless the watcher was stopped
+    // (manual stop, disconnect, or detector hard-failed) during the wait.
+    setTimeout(() => {
+      if (!cfg.enabled || entry.status !== "connected") return;
+      runDetectIteration(entry, cfg);
+    }, REARM_DEBOUNCE_MS);
+  });
+}
+
 export function startWatcher(entry, opts = {}) {
   const cfg = ensureConfig(entry);
   if (opts.classes) {
@@ -79,25 +120,7 @@ export function startWatcher(entry, opts = {}) {
   if (opts.action && ACTIONS[opts.action]) cfg.action = opts.action;
   stopWatcher(entry, { silent: true });
   cfg.enabled = true;
-  const { promise, stop } = startDetection(entry, { classes: cfg.classes });
-  _running.set(entry.id, { stop });
-  promise.then(async (det) => {
-    _running.delete(entry.id);
-    if (!det) {
-      // null = manually stopped, timed out, or detector permanently failed
-      cfg.enabled = false;
-      renderEntry(entry);
-      return;
-    }
-    cfg.lastDetection = { label: det.label, score: det.score, ts: Date.now() };
-    cfg.enabled = false;
-    renderEntry(entry);
-    try { await ACTIONS[cfg.action]?.(entry, det); }
-    catch (err) { console.warn(`[watcher] action ${cfg.action} failed:`, err); }
-    // Notify subscribers AFTER the action ran so the observation reads
-    // "saw X, action Y executed" rather than "saw X, about to act."
-    emitFire(entry, det);
-  });
+  runDetectIteration(entry, cfg);
   renderEntry(entry);
   return cfg;
 }
@@ -138,8 +161,13 @@ function renderSection(entry) {
   const cfg = ensureConfig(entry);
   const enabled = !!cfg.enabled;
   const last = cfg.lastDetection;
+  // Continuous-fire: when enabled AND we've seen a hit, surface both the
+  // active vocabulary and the most recent sighting so the operator knows
+  // (a) it's still watching and (b) what it last caught.
   const state = enabled
-    ? `watching: ${cfg.classes.join(", ")}`
+    ? last
+      ? `watching ${cfg.classes.join(", ")} · last saw ${last.label} at ${fmtClock(last.ts)}`
+      : `watching: ${cfg.classes.join(", ")}`
     : last ? `saw ${last.label} at ${fmtClock(last.ts)}` : "off";
   const action = enabled
     ? `<button class="secondary sm" data-action="watcher-stop">Stop</button>`
