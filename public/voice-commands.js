@@ -69,6 +69,13 @@ const PATTERNS = [
 const SKIP_RX = /\b(?:and|then|but|while|after|because|why|how|what|when|where|if|please|could|would|should)\b/i;
 const MAX_WORDS = 8;
 
+// Intents that should fire INSTANTLY (on the first final-chunk match,
+// before the silence-commit timer) and also interrupt any running
+// agent loop. Tesla "cancel", Spot tablet "stop" — the safety-override
+// pattern. Keep the set conservative: false positives here cancel
+// long-running work, so only verbs whose meaning is unambiguous.
+export const SAFETY_INTENTS = new Set(["stop"]);
+
 export function tryMatchCommand(text) {
   const trimmed = (text || "").trim();
   if (!trimmed) return null;

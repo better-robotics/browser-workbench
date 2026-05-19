@@ -4,7 +4,7 @@ import { labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
 import { state } from "./state.js";
 import { isSupported as voiceInputSupported, startDictation } from "./voice-input.js";
-import { tryMatchCommand } from "./voice-commands.js";
+import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
 import { tryMatchDemo, DEMO_NAMES } from "./demos.js";
 import { onWatcherFire } from "./watcher.js";
 import { AUTH_URL } from "./endpoints.js";
@@ -31,6 +31,10 @@ const PIP_SYSTEM = [
   "If you say you will call a tool, call it in the SAME turn. Don't promise tool calls for future turns. Don't describe actions you didn't take.",
   // Sensor freshness (arxiv 2510.23853 "Temporally Blind").
   "When get_robot_state returns motion_invalidated: true, telemetry was captured BEFORE the last motor action — re-read state or take a frame before trusting dist_cm.",
+  // Loop anti-pattern guard — Nav2 recovery BTs reset on preempt, ours
+  // doesn't, so otherwise the planner can keep retrying the same plan
+  // against a continuous reflex (drive toward sign → halt → drive → halt).
+  "If a [reflex-fire] reports the same class halting your motion twice in one turn, the floor is rejecting your plan — stop or call ask_human; don't retry the same approach.",
   // Reply shape constraints (the chat bubble's markdown subset).
   "REPLY FORMAT: concise plain-text summary. One short sentence is the default; never more than three lines unless the user asks for detail. No preamble, no recap, no narrating what you're about to do.",
   "Supported markdown: **bold**, *italic*, `code`, - bullets, 1. numbered lists, ```code blocks```. Do NOT use headers (#, ##, ###), horizontal rules (---), tables, or decorative section emojis — those render as raw text.",
@@ -166,6 +170,68 @@ function finishStepPill(el, name, input, result, error, durationMs) {
 
 function scrollPanelToBottom() {
   _pip.scroll.scrollTop = _pip.scroll.scrollHeight;
+}
+
+function pickRobotId() {
+  return [...state.devices.values()].find(e => e.status === "connected")?.id;
+}
+
+// Voice-as-sensor injection: when a voice command (or any utterance)
+// arrives mid-turn (Claude is in the askWithTools loop), we don't open
+// a new turn — pip's input is disabled and a parallel turn would split
+// the conversation. Instead we:
+//   - render any tool we directly dispatch as a .pip-step pill in the
+//     active turn so the operator sees the side-channel intervention
+//   - push an observation into _pendingObservations so claude.js drains
+//     it on the next iteration alongside the tool_results, making the
+//     intervention visible to the planner
+//   - on safety verbs (stop), also flip _abort so the loop yields after
+//     the current iteration instead of continuing to plan around the
+//     interrupt
+//
+// Match → direct dispatch. No-match utterances are still injected as
+// informational observations ("user said: ...") so the user knows
+// they were heard even when there's no actionable verb.
+async function injectVoiceMidTurn(text) {
+  if (!_activeTurnEl) return false;
+  const cmd = tryMatchCommand(text);
+  if (cmd) {
+    const robotId = pickRobotId();
+    if (!robotId) {
+      _pendingObservations.push(`[user-voice] User said "${text}" — no robot connected.`);
+      return true;
+    }
+    const input = { id: robotId, ...cmd.partialInput };
+    const pill = appendStepPill(_activeTurnEl, cmd.tool);
+    const startedAt = performance.now();
+    let resultStr;
+    try {
+      const result = await executor(cmd.tool, input);
+      const isErr = result && (result.error || result.ok === false);
+      finishStepPill(pill, cmd.tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
+      resultStr = isErr ? `error: ${result.error || "failed"}` : "ok";
+    } catch (err) {
+      finishStepPill(pill, cmd.tool, input, null, err, performance.now() - startedAt);
+      resultStr = `error: ${err?.message || err}`;
+    }
+    const ts = new Date().toISOString();
+    _pendingObservations.push(
+      `[user-voice ${ts}] User said "${text}" — direct-dispatched ${cmd.tool}(${JSON.stringify(input)}) → ${resultStr}. ` +
+      (SAFETY_INTENTS.has(cmd.intent)
+        ? "This is a safety override; stop your current plan."
+        : "Adjust your plan if this affects what you were about to do.")
+    );
+    if (SAFETY_INTENTS.has(cmd.intent)) _abort = true;
+    scrollPanelToBottom();
+    return true;
+  }
+  // Non-command utterance: just inform the planner. Cheap and useful —
+  // lets the user nudge Claude ("slow down", "head to the kitchen")
+  // without taking over.
+  _pendingObservations.push(
+    `[user-voice ${new Date().toISOString()}] User said "${text}". Treat as live guidance; adjust your plan if relevant.`
+  );
+  return true;
 }
 
 // Stop button while askWithTools iterates. Click sets abort flag the loop
@@ -740,13 +806,40 @@ function wireMicButton() {
     _dictation = startDictation({
       onInterim: writeTranscript,
       onFinal: (final) => { if (final) writeTranscript(final); },
+      // Instant-fire for safety verbs. When Web Speech promotes a chunk
+      // to final (typically at a natural pause), try the matcher. If
+      // it's a safety intent (stop/halt), execute immediately without
+      // waiting for the silence-commit window. Mid-turn injection
+      // handles rendering + observation queueing.
+      onFinalChunk: async (chunkedFinal) => {
+        const m = tryMatchCommand(chunkedFinal);
+        if (!m || !SAFETY_INTENTS.has(m.intent)) return;
+        // Stop dictation immediately and clear the input — otherwise the
+        // onEnd handler about to fire would re-dispatch the same command.
+        // The empty-text short-circuit in onEnd (`if (!text) return`) is
+        // what guards against the double-fire.
+        stop();
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        if (_activeTurnEl) {
+          await injectVoiceMidTurn(chunkedFinal);
+        } else {
+          // No active turn — open one ourselves via synth-submit so the
+          // safety action still renders as a turn the user can audit.
+          // We restore the transcript so the onSubmit matcher path can
+          // dispatch it cleanly.
+          input.value = chunkedFinal;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          requestAnimationFrame(() => form.requestSubmit?.());
+        }
+      },
       onError: (err) => {
         console.warn("[voice-input]", err);
         if (err === "not-allowed") {
           input.placeholder = "Microphone permission denied — check Site settings.";
         }
       },
-      onEnd: ({ reason }) => {
+      onEnd: async ({ reason }) => {
         // Chrome can fire onend on idle even with continuous=true — flip
         // the button back so the user can re-engage with one click instead
         // of two.
@@ -760,16 +853,25 @@ function wireMicButton() {
           input.focus();
           return;
         }
-        // Commit: tap-mic-again ("user") or silence-timeout ("auto") both
-        // ship the transcript. requestSubmit fires pip-core's submit
-        // handler — same path the send button uses.
-        if (input.value.trim()) {
-          // Let the input event flush + render before submit, so the user
-          // sees the final transcript flash in the field for a beat.
-          requestAnimationFrame(() => form.requestSubmit?.());
-        } else {
+        const text = input.value.trim();
+        if (!text) { input.focus(); return; }
+
+        // Mid-turn voice: don't go through pip-core's submit (input is
+        // disabled during a running turn anyway). Inject as observation
+        // — if it's a command, also execute it directly; either way the
+        // planner sees it on its next iteration.
+        if (_activeTurnEl) {
+          await injectVoiceMidTurn(text);
+          input.value = "";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
           input.focus();
+          return;
         }
+
+        // Idle path: normal submit through pip. Let the input event
+        // flush + render before submit, so the user sees the final
+        // transcript flash in the field for a beat.
+        requestAnimationFrame(() => form.requestSubmit?.());
       },
     });
   };

@@ -22,7 +22,12 @@ const SR = typeof window !== "undefined"
 
 export function isSupported() { return !!SR; }
 
-export function startDictation({ onInterim, onFinal, onError, onEnd, lang = "en-US", silenceMs = 1200 } = {}) {
+// onFinalChunk fires every time Web Speech promotes a chunk from interim
+// to final (typically at a natural pause / breath). Lets the caller try
+// pattern-matching against high-confidence text WITHOUT waiting for the
+// silence-commit timer — used for "instant-fire" safety verbs like
+// "stop" that need sub-second response while the user keeps talking.
+export function startDictation({ onInterim, onFinal, onFinalChunk, onError, onEnd, lang = "en-US", silenceMs = 1200 } = {}) {
   if (!SR) {
     onError?.("not-supported");
     onEnd?.();
@@ -54,15 +59,17 @@ export function startDictation({ onInterim, onFinal, onError, onEnd, lang = "en-
 
   rec.onresult = (e) => {
     let interim = "";
+    let promoted = false;
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i];
-      if (r.isFinal) finalText += r[0].transcript;
+      if (r.isFinal) { finalText += r[0].transcript; promoted = true; }
       else interim += r[0].transcript;
     }
     // Caller sees the running concatenation (finalized so far + current
     // interim) — same model used by Gboard/iOS dictation, lets the input
     // field grow smoothly instead of flickering.
     onInterim?.(finalText + interim);
+    if (promoted) onFinalChunk?.(finalText.trim());
     armSilenceTimer();
   };
 
@@ -91,10 +98,11 @@ export function startDictation({ onInterim, onFinal, onError, onEnd, lang = "en-
     return { stop: () => {} };
   }
 
-  // Arm immediately so a long silence before any speech (mic clicked by
-  // mistake) auto-ends with empty transcript — caller's onEnd will see
-  // no finalText and focus the input instead of submitting empty.
-  armSilenceTimer();
+  // Don't arm the silence timer at start — that punishes the natural
+  // pause between clicking the mic and beginning to speak (the user
+  // formulating, finding the right phrase). Chrome's own ~10s idle
+  // timeout handles a stray click. The timer only starts running once
+  // the first transcript chunk arrives in onresult.
 
   return {
     stop: ({ cancel = false } = {}) => {
