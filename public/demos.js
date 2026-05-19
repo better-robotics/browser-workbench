@@ -36,6 +36,21 @@ async function pulse(ctx, l, r, ms) {
   await ctx.sleep(ms + 30);
 }
 
+// speak() returns immediately and TTS plays async; the NEXT speak
+// cancels any prior utterance still speaking (see pip-tools.js speak
+// case). So calling speak then immediately doing motion (or another
+// speak) cuts off the audio mid-word. speakAndWait pads with a sleep
+// based on a rough TTS-rate estimate (~70ms/char + small fixed tail)
+// so the words actually land before the next action. Cap at 6s so a
+// runaway long line can't stall a demo forever.
+async function speakAndWait(ctx, text, paddingMs = 250) {
+  const t = String(text || "").trim();
+  if (!t) return;
+  await ctx.exec("speak", { text: t });
+  const estMs = Math.min(6000, t.length * 70 + paddingMs);
+  await ctx.sleep(estMs);
+}
+
 // chain forward — N consecutive max-duration drives. Each ~2s pulse
 // has a brief firmware-stop between, but the visual is "sustained drive
 // across the floor" rather than a single brief lunge. Forward only
@@ -48,7 +63,7 @@ async function sustainedDrive(ctx, l, r, count = 2) {
 //     diameter than the v1 (which was a tiny tight figure). Speaks at
 //     start so the viewer knows what they're about to see.
 async function figure8(ctx) {
-  await ctx.exec("speak", { text: "Figure eight." });
+  await ctx.exec("speak", { text: "Figure eight. Here we go." });
   await ctx.sleep(500);
   // Right-arc forward (left wheel faster) — traces left lobe of the 8
   for (let i = 0; i < 3; i++) await pulse(ctx, SPEED, SPEED * 0.35, MAX);
@@ -59,13 +74,13 @@ async function figure8(ctx) {
 // 2 — Zigzag sweep. Wide alternating arcs forward — like a search
 //     pattern. ~10s total. Vocal mid-sweep so the demo feels narrated.
 async function zigzag(ctx) {
-  await ctx.exec("speak", { text: "Scanning the area." });
+  await ctx.exec("speak", { text: "Hmm... scanning around." });
   await ctx.sleep(400);
   for (let i = 0; i < 3; i++) {
     await pulse(ctx, SPEED, SPEED * 0.3, MAX);
     await pulse(ctx, SPEED * 0.3, SPEED, MAX);
   }
-  await ctx.exec("speak", { text: "Sweep complete." });
+  await ctx.exec("speak", { text: "All clear." });
 }
 
 // 3 — Dance. Multi-section: intro → spin sequence → shimmy → charge →
@@ -88,14 +103,14 @@ async function dance(ctx) {
   await pulse(ctx, -SPEED, -SPEED, MAX);
   // Section 4 — finale full spin + reveal
   await pulse(ctx, -SPEED,  SPEED, MAX);
-  await ctx.exec("speak", { text: "Ta-da!" });
+  await ctx.exec("speak", { text: "Boom." });
 }
 
 // 4 — Patrol. Sustained drive segments + big spin-and-look between
 //     them. Reads as "alive and checking" because the look-around is
 //     full-rotation, not a quick tic. ~18s total.
 async function patrol(ctx) {
-  await ctx.exec("speak", { text: "Patrolling." });
+  await ctx.exec("speak", { text: "Patrolling. Keep an eye out." });
   for (let i = 0; i < 2; i++) {
     await sustainedDrive(ctx, SPEED, SPEED, 2);  // ~4s straight
     await ctx.sleep(300);
@@ -104,7 +119,7 @@ async function patrol(ctx) {
     await pulse(ctx,  SPEED, -SPEED, MAX);       // big spin back
     await ctx.sleep(200);
   }
-  await ctx.exec("speak", { text: "Patrol complete." });
+  await ctx.exec("speak", { text: "Sweep done." });
 }
 
 // 5 — React. Active scan loop: spin a bit, check for a person, repeat
@@ -121,7 +136,7 @@ async function patrol(ctx) {
 //     demo. This version makes the reactive moment BE the demo.
 async function react(ctx) {
   await ctx.exec("start_robot_camera", { id: ctx.id });
-  await ctx.exec("speak", { text: "Looking around." });
+  await ctx.exec("speak", { text: "Hmm, who's around..." });
 
   // Scan-and-check loop. 8 ticks × ~700ms spin = ~5.5s of motion + ~8
   // detections = ~16s wall clock. Stops as soon as a person is found.
@@ -136,7 +151,7 @@ async function react(ctx) {
   }
 
   if (!found) {
-    await ctx.exec("speak", { text: "I don't see anyone. I'll keep watching." });
+    await ctx.exec("speak", { text: "Nobody around. I'll keep an eye out." });
     // Backstop: arm the watcher so a later visitor still gets caught.
     await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["person"], action: "halt" });
     return;
@@ -185,15 +200,49 @@ async function follow(ctx, target = "person") {
   }
 }
 
-// 7 — Introduce. Self-introduction routine for first-time viewers.
-//     Slow 360 spin while narrating what's on the platform. Great
-//     opener; sets context for everything else. ~12s.
+// 7 — Introduce. Multi-section self-introduction with audience
+//     engagement. Previously the lines were getting truncated because
+//     speak() returns immediately but TTS plays async and the next
+//     speak cancels it — now uses speakAndWait so each phrase lands
+//     fully before the next motion. Also reframed as Disney/Spot-
+//     style "engage the room": small forward step + alternating
+//     side-turns so the robot reads as addressing different parts of
+//     the audience between phrases, then a forward-facing finale.
+//
+//     Phrases are short + contraction-heavy to make the Web Speech
+//     voice feel less recital-stiff. Each motion segment is sized
+//     against the TTS line that just played so the choreography
+//     stays in sync: short line → short move, long line → bigger move.
 async function introduce(ctx) {
-  await ctx.exec("speak", { text: "Hi there. I'm a small wheeled robot." });
-  await pulse(ctx, -SPEED, SPEED, MAX);
-  await ctx.exec("speak", { text: "I have two motors, a camera, and an ultrasonic sensor." });
-  await pulse(ctx, -SPEED, SPEED, MAX);
-  await ctx.exec("speak", { text: "I can drive, detect objects, react, and follow you. What should we try?" });
+  // Opening — a small "lean in" forward as we greet, like a person
+  // taking a small step toward the audience to start a presentation.
+  await ctx.exec("speak", { text: "Hey." });
+  await pulse(ctx, SPEED, SPEED, 250);  // small lean-forward
+  await ctx.sleep(550);  // beat for the "Hey" to land + dramatic pause
+
+  // First line + face left side of the room
+  await speakAndWait(ctx, "I'm a little wheeled robot.");
+  await pulse(ctx, -SPEED, SPEED, 700);   // ~90° left to "address" that side
+  await ctx.sleep(150);
+
+  // Second line + sweep across to the right side
+  await speakAndWait(ctx, "I've got a camera, two motors, and a distance sensor.");
+  await pulse(ctx,  SPEED, -SPEED, 1400); // ~180° spin to address the other side
+  await ctx.sleep(150);
+
+  // Third line + return to facing forward
+  await speakAndWait(ctx, "I can drive...");
+  await pulse(ctx, SPEED, SPEED, 700);    // quick forward burst to punctuate "drive"
+
+  await speakAndWait(ctx, "spin...");
+  await pulse(ctx, -SPEED, SPEED, MAX);   // full 360 to literally spin
+
+  await speakAndWait(ctx, "and follow you around.");
+  await pulse(ctx,  SPEED, -SPEED, 700);  // settle back to facing forward
+  await ctx.sleep(200);
+
+  // Closing — open invitation, brief pause for emphasis
+  await speakAndWait(ctx, "So... what should we try?");
 }
 
 // 8 — Wiggle. Quick "tail-wag" emote — Cozmo-grade personality. 3
@@ -213,7 +262,7 @@ async function wiggle(ctx) {
 //     disabled); the 5-query cap matches the tool schema.
 async function selfie(ctx) {
   await ctx.exec("start_robot_camera", { id: ctx.id });
-  await ctx.exec("speak", { text: "Let me take a look around." });
+  await ctx.exec("speak", { text: "One sec, let me look around..." });
   await ctx.sleep(800);
   const probes = ["person", "laptop", "cup", "cell phone", "chair"];
   const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: probes });
@@ -246,7 +295,7 @@ async function stopsignPatrol(ctx) {
   // Intentionally do NOT announce what we're watching for — the demo's
   // wow moment is the unexpected halt when the watcher catches the sign.
   // Spoiling it up front ("looking for a stop sign") kills the reveal.
-  await ctx.exec("speak", { text: "Patrol mode." });
+  await ctx.exec("speak", { text: "Patrolling. Watch this." });
   await ctx.exec("start_robot_camera", { id: ctx.id });
   await ctx.exec("start_robot_watcher", {
     id: ctx.id,
@@ -260,6 +309,12 @@ async function stopsignPatrol(ctx) {
   // ctx.shouldAbort (Stop button) so the patrol runs indefinitely with
   // a pause-and-resume at every stop sign.
   let firedThisCycle = false;
+  // Debounce + escalation state for the announcement: catchCount drives
+  // the line variation (1st = wow, 2nd = neutral, 3rd+ = sassy);
+  // lastAnnounceTs gates re-announces inside a 10s window (operator
+  // still holding the sign while the watcher cool-down re-fires).
+  let catchCount = 0;
+  let lastAnnounceTs = 0;
   const unsub = ctx.onWatcherFire?.((entry, det) => {
     if (entry?.id === ctx.id && det?.label === "stop sign") firedThisCycle = true;
   });
@@ -299,28 +354,49 @@ async function stopsignPatrol(ctx) {
       await wavyForward();
       if (ctx.shouldAbort?.()) break;
 
-      // Reflex caught mid-leg? Announce, wait for the gate to clear
-      // (operator removes the sign), then resume the patrol without
+      // Reflex caught mid-leg? Announce (debounced), wait for the gate
+      // to clear (operator removes the sign), then resume without
       // turning around — we picked up where we left off.
+      //
+      // catchCount tracks repeat halts to enable a "I get it" escalation:
+      // 1st catch is the wow moment, 2nd is normal, 3rd+ gets a sassy
+      // line and silent resume. Sub-10s repeat catches are debounced
+      // entirely — they're the operator holding the sign in view while
+      // the watcher cool-down keeps re-firing; surfacing every one as
+      // a fresh "Stop sign detected" reads as stuttering, not as
+      // attention.
       if (firedThisCycle) {
-        await ctx.exec("speak", { text: "Stop sign detected. Standing by." });
+        const now = Date.now();
+        const sinceLast = now - (lastAnnounceTs || 0);
+        if (sinceLast > 10000) {
+          // Fresh catch: announce.
+          catchCount++;
+          const line = catchCount === 1 ? "Whoa — stop sign. Holding."
+                     : catchCount === 2 ? "Stop sign again. Pausing."
+                     :                    "Alright, I see it. Holding here.";
+          await ctx.exec("speak", { text: line });
+          lastAnnounceTs = now;
+        }
+        // Else: silent debounce — the operator's still holding the sign
+        // from the last catch; the firmware halt already stopped us.
+
         if (ctx.awaitReflexGate) {
           await ctx.awaitReflexGate(ctx.id, {
             maxMs: 60000,
             isAborted: () => !!ctx.shouldAbort?.(),
           });
         } else {
-          // Fallback when the gate API isn't wired — short pause so the
-          // operator has a beat to move the sign.
           await ctx.sleep(3000);
         }
         if (ctx.shouldAbort?.()) break;
-        await ctx.exec("speak", { text: "Resuming patrol." });
+        // Only narrate the resume on the first 1-2 catches; after that
+        // the operator knows the loop.
+        if (catchCount <= 2) await ctx.exec("speak", { text: "Off again." });
         firedThisCycle = false;
-        continue;  // skip the turn-around; just keep going forward
+        continue;
       }
 
-      await ctx.exec("speak", { text: `Lap ${lap}, turning around.` });
+      await ctx.exec("speak", { text: "Around we go." });
       await turnAround();
     }
   } finally {
@@ -336,7 +412,7 @@ async function stopsignPatrol(ctx) {
 //      dance. ~45s. Use this as the "full pitch" — every capability,
 //      back to back, with vocal narration tying them together.
 async function showOff(ctx) {
-  await ctx.exec("speak", { text: "Demo reel, here we go." });
+  await ctx.exec("speak", { text: "Alright. Showtime." });
   await ctx.sleep(600);
   await introduce(ctx);
   await ctx.sleep(400);
@@ -347,7 +423,7 @@ async function showOff(ctx) {
   await wiggle(ctx);
   await ctx.sleep(400);
   await dance(ctx);
-  await ctx.exec("speak", { text: "End of reel. Thanks for watching." });
+  await ctx.exec("speak", { text: "That's a wrap. Thanks for watching." });
 }
 
 const DEMOS = {
