@@ -297,6 +297,98 @@ const ENC_GND_LEFT_PHYS  = 25;                  // GND (left col, row 12)
 const ENC_GND_RIGHT_PHYS = 20;                  // GND (right col, row 9)
 const ENCODER_TO_PATH = { left: "encoders_pins.left", right: "encoders_pins.right" };
 
+// Ultrasonic breakout module — single PCB centered above the Pi header.
+// ViewBox extends upward (negative Y) only when the cap is claimed,
+// keeping the layout unchanged for robots without the sensor. 4 pin dots
+// (VCC, TRIG, ECHO, GND) drop wires down to fixed 5V/GND pins + the
+// configured GPIO claims. Edit mode puts inputs on TRIG/ECHO only.
+const US_PCB_W    = 230;
+const US_PCB_H    = 80;
+const US_DOT_R    = 6;
+const US_PIN_DX   = 38;
+const US_CX       = PI_W / 2;
+const US_CY       = -55;
+const US_DOT_Y    = US_CY;
+const US_PCB_TOP  = US_CY - US_PCB_H / 2;     // -95
+const US_REGION_H = 105;                       // viewBox top extension
+const US_VCC_PHYS = 2;                         // 5V (row 0, right col)
+const US_GND_PHYS = 6;                         // GND (row 2, right col)
+const ULTRA_LAYOUT = [
+  { role: "vcc",  kind: "5v",   label: "5V",   path: null,                   dx: -1.5 },
+  { role: "trig", kind: "gpio", label: "TRIG", path: "ultrasonic_pins.trig", dx: -0.5 },
+  { role: "echo", kind: "gpio", label: "ECHO", path: "ultrasonic_pins.echo", dx:  0.5 },
+  { role: "gnd",  kind: "gnd",  label: "GND",  path: null,                   dx:  1.5 },
+];
+
+function ultrasonicModuleFragment(opts) {
+  const { editable, editConfig, flagged } = opts || {};
+  const dots = ULTRA_LAYOUT.map((p) => {
+    const x = US_CX + p.dx * US_PIN_DX;
+    const wireAttr = p.path ? ` data-wire="${escapeHtml(`ultrasonic.${p.role}`)}"` : "";
+    let inputFrag = "";
+    if (editable && p.path) {
+      const keys = p.path.split(".");
+      let v = editConfig;
+      for (const k of keys) v = v?.[k];
+      if (v == null) v = PI_DEFAULTS.ultrasonic_pins[p.role];
+      const conflictCls = flagged.has(v) ? " conflict" : "";
+      inputFrag = `
+        <foreignObject x="${x - 22}" y="${US_DOT_Y + 12}" width="44" height="22">
+          <input xmlns="http://www.w3.org/1999/xhtml" type="text" inputmode="numeric" maxlength="2"
+                 class="terminal-input${conflictCls}" data-path="${p.path}"${wireAttr}
+                 value="${escapeHtml(String(v))}" />
+        </foreignObject>
+      `;
+    }
+    return `
+      <text class="enc-pin-label" x="${x}" y="${US_DOT_Y - 11}" text-anchor="middle">${escapeHtml(p.label)}</text>
+      <circle class="pin-dot enc-pin kind-${p.kind}" cx="${x}" cy="${US_DOT_Y}" r="${US_DOT_R}"${wireAttr}/>
+      ${inputFrag}
+    `;
+  }).join("");
+  return `
+    <rect class="enc-pcb" x="${US_CX - US_PCB_W / 2}" y="${US_PCB_TOP}" width="${US_PCB_W}" height="${US_PCB_H}" rx="6"/>
+    <text class="enc-title" x="${US_CX}" y="${US_PCB_TOP + 16}" text-anchor="middle">ultrasonic · HC-SR04</text>
+    ${dots}
+  `;
+}
+
+// VCC + GND always draw (infrastructure hint); TRIG/ECHO draw only when
+// a live claim exists. Same convention as the encoder module wires.
+function ultrasonicWiresFragment(claims) {
+  const out = [];
+  const vccX  = US_CX + ULTRA_LAYOUT[0].dx * US_PIN_DX;
+  const trigX = US_CX + ULTRA_LAYOUT[1].dx * US_PIN_DX;
+  const echoX = US_CX + ULTRA_LAYOUT[2].dx * US_PIN_DX;
+  const gndX  = US_CX + ULTRA_LAYOUT[3].dx * US_PIN_DX;
+  const vccPt = piPinCenter(US_VCC_PHYS);
+  if (vccPt) out.push(usWirePath(vccX, US_DOT_Y, vccPt.cx, vccPt.cy, "wire-vcc"));
+  const gndPt = piPinCenter(US_GND_PHYS);
+  if (gndPt) out.push(usWirePath(gndX, US_DOT_Y, gndPt.cx, gndPt.cy, "wire-gnd"));
+  const roleToX = { trig: trigX, echo: echoX };
+  for (const [physStr, info] of Object.entries(claims)) {
+    if (info?.cap !== "ultrasonic") continue;
+    const x = roleToX[info.role];
+    if (x == null) continue;
+    const pt = piPinCenter(parseInt(physStr, 10));
+    if (!pt) continue;
+    out.push(usWirePath(x, US_DOT_Y, pt.cx, pt.cy, "wire-out", `ultrasonic.${info.role}`));
+  }
+  return out.join("");
+}
+
+function usWirePath(modX, modY, piX, piY, cls, wireRole) {
+  // Drop from the bottom edge of the module's pin dot to the top edge
+  // of the Pi pin. Cubic Bézier with control points at midY gives a
+  // smooth vertical-dominant S even when the Pi pin is offset
+  // horizontally — same shape language as the encoder wires.
+  const sy = modY + US_DOT_R;
+  const ey = piY - PI_PIN_R;
+  const midY = (sy + ey) / 2;
+  const dataAttr = wireRole ? ` data-wire="${escapeHtml(wireRole)}"` : "";
+  return `<path class="enc-wire ${cls}" d="M${modX},${sy} C${modX},${midY} ${piX},${midY} ${piX},${ey}"${dataAttr}/>`;
+}
+
 const DRIVER_GAP = 60;
 const DRIVER_Y   = PI_H + DRIVER_GAP;          // 568 — back to pre-encoder spacing
 const DRIVER_H   = 175;
@@ -533,15 +625,26 @@ function renderBoardWithDriver(claims, opts = {}) {
     wires.push(`<path class="motor-wire ${wireClass}" d="M${startX},${startY} C${startX},${midY} ${endX},${midY} ${endX},${endY}" data-wire="${escapeHtml(info.role)}"/>`);
   }
 
+  // Ultrasonic module is only present when something claims the cap.
+  // Editable view always shows it so the user can position pins before
+  // toggling — guarded by editConfig.ultrasonic_enabled.
+  const hasUltrasonic = Object.values(claims).some(c => c?.cap === "ultrasonic");
+  const usModule  = hasUltrasonic ? ultrasonicModuleFragment({ editable, editConfig, flagged }) : "";
+  const usWires   = hasUltrasonic ? ultrasonicWiresFragment(claims) : "";
+  const vbTopY    = hasUltrasonic ? -US_REGION_H : 0;
+  const vbHeight  = TOTAL_H + (hasUltrasonic ? US_REGION_H : 0);
+
   return `
     <div class="pinout-svg-wrap">
-      <svg class="pinout-svg" viewBox="0 0 ${PI_W} ${TOTAL_H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Raspberry Pi header with encoder modules and H-bridge driver wiring">
+      <svg class="pinout-svg" viewBox="0 ${vbTopY} ${PI_W} ${vbHeight}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Raspberry Pi header with encoder modules and H-bridge driver wiring">
         <rect class="pinout-strip" x="180" y="${PI_PAD_Y - 4}" width="90" height="${PI_H - 2 * PI_PAD_Y + 8}" rx="3"/>
         ${piRowsFragment(claims)}
         ${encoderModules}
+        ${usModule}
         ${driverPcb}
         ${terminals}
         ${encoderWires}
+        ${usWires}
         ${wires.join("")}
         ${supplyNote}
       </svg>
@@ -982,10 +1085,6 @@ function renderEdit(entry) {
     : "";
 
   const ledFlagCls = (c.led_pin != null && flagged.has(c.led_pin)) ? " conflict" : "";
-  const usTrig = c.ultrasonic_pins?.trig ?? PI_DEFAULTS.ultrasonic_pins.trig;
-  const usEcho = c.ultrasonic_pins?.echo ?? PI_DEFAULTS.ultrasonic_pins.echo;
-  const usTrigCls = flagged.has(usTrig) ? " conflict" : "";
-  const usEchoCls = flagged.has(usEcho) ? " conflict" : "";
 
   $("pinout-body").innerHTML = `
     <div class="pinout-toolbar">
@@ -1016,14 +1115,10 @@ function renderEdit(entry) {
       <label class="toolbar-toggle">
         <input type="checkbox" data-toggle="ultrasonic_enabled" ${ultrasonicChecked}>
         <span>Ultrasonic</span>
-        <!-- HC-SR04: TRIG = Pi → sensor (3V3 direct, fine). ECHO = sensor
-             → Pi, needs a 5V→3V3 divider on the wire or the GPIO burns
-             out over time. Firmware can't enforce that — only the wiring
-             can. -->
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${usTrigCls}"
-               data-path="ultrasonic_pins.trig" value="${usTrig}" title="TRIG (Pi → sensor)">
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${usEchoCls}"
-               data-path="ultrasonic_pins.echo" value="${usEcho}" title="ECHO (sensor → Pi, needs divider)">
+        <!-- HC-SR04: TRIG/ECHO pin inputs live on the SVG breakout above
+             the Pi header — same pattern as encoders + L298N. ECHO needs
+             a 5V→3V3 divider on the wire; firmware can't enforce that,
+             only the wiring can. -->
       </label>
     </div>
     ${renderBoardWithDriver(claims, { editable: true, editConfig: c, flagged })}
