@@ -2118,6 +2118,24 @@ dialog[open]::backdrop { opacity: 1; }
   color: color-mix(in srgb, var(--ink) 80%, #4ec27e);
 }
 .pip-reflex-notice--clear svg { color: #4ec27e; }
+/* Mic-input notice — same shape as reflex-notice but cyan-tinged to
+   distinguish "input feedback" (operator-facing diagnostic) from
+   "perception event" (sensor-side notice). Surfaces no-speech, mic
+   permission, and other voice-input states the operator otherwise
+   wouldn't see. */
+.pip-mic-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #4eb5d4 14%, transparent);
+  color: color-mix(in srgb, var(--ink) 80%, #4eb5d4);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.pip-mic-notice svg { flex-shrink: 0; color: #4eb5d4; }
 /* Pip chat panel — pip-core defaults to 320px, below the 45-75-character
    reading sweet spot for 14px body. 420px puts a line at ~55ch and gives
    code blocks + tool pills room to breathe without dominating the
