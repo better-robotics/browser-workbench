@@ -742,13 +742,18 @@ export function initAssistant() {
   wireWatcherFireBridge();
 }
 
-// L2 reflex-fire bridge. On every watcher fire-event (enter or exit):
+// L2 reflex-fire bridge. On every watcher fire-event:
 //   - queue a synthetic observation for askWithTools to drain on the
 //     next iteration (so Pip sees it without having to poll state)
 //   - render a small inline notice in the active turn so the operator
 //     sees what got injected
-// `kind` is "fire" (target entered frame) or "clear" (target left). Halt-
-// mode watchers emit both; speak/notify only emit "fire".
+// `kind` is one of:
+//   "fire"            — halt-mode target entered frame
+//   "clear"           — halt-mode target left frame
+//   "gesture-pause"   — follow-mode operator gesture engaged the gate
+//   "gesture-resume"  — follow-mode operator gesture released the gate
+//   "follow-lost"    — follow-mode lost the hand for N consecutive ticks
+//   "follow-reacquire" — follow-mode regained the hand after a lost streak
 function wireWatcherFireBridge() {
   onWatcherFire((entry, det, kind = "fire") => {
     const ts = new Date(det?.ts || Date.now()).toISOString();
@@ -757,21 +762,47 @@ function wireWatcherFireBridge() {
     // Terse fact-only observation — no "surface this / pause your plan"
     // prescriptions (the firmware-bounded reflex already gated motion;
     // planner narrates the fact, doesn't second-guess the safety floor).
-    const obsText = kind === "clear"
-      ? `[reflex-clear] "${det?.label}" no longer visible on ${entry.name} at ${ts}; motion gate released, your queued motor calls will proceed.`
-      : `[reflex-fire] saw "${det?.label}" (${score}) on ${entry.name} at ${ts}; action ${action} ran${action === "halt" ? " and motion is now gated until the target leaves frame" : ""}.`;
+    let obsText, noticeHtml, isReleaseShape;
+    switch (kind) {
+      case "clear":
+        obsText = `[reflex-clear] "${det?.label}" no longer visible on ${entry.name} at ${ts}; motion gate released, your queued motor calls will proceed.`;
+        noticeHtml = `Reflex clear: <strong>${escHtml(String(det?.label || ""))}</strong> left frame — motion resumed.`;
+        isReleaseShape = true;
+        break;
+      case "gesture-pause":
+        obsText = `[reflex-fire] operator gestured "${det?.gesture}" to ${entry.name} at ${ts}; follow paused and motion gate engaged until they signal resume.`;
+        noticeHtml = `Gesture: <strong>${escHtml(String(det?.gesture || ""))}</strong> — follow paused, motion gated.`;
+        isReleaseShape = false;
+        break;
+      case "gesture-resume":
+        obsText = `[reflex-clear] operator gestured "${det?.gesture}" to ${entry.name} at ${ts}; motion gate released, follow resumed.`;
+        noticeHtml = `Gesture: <strong>${escHtml(String(det?.gesture || ""))}</strong> — follow resumed.`;
+        isReleaseShape = true;
+        break;
+      case "follow-lost":
+        obsText = `[reflex-fire] follow lost the operator's hand on ${entry.name} at ${ts}; robot is idle (not chasing) until the hand reappears.`;
+        noticeHtml = `Follow: lost the hand — holding position until it reappears.`;
+        isReleaseShape = false;
+        break;
+      case "follow-reacquire":
+        obsText = `[reflex-clear] follow reacquired the operator's hand on ${entry.name} at ${ts}.`;
+        noticeHtml = `Follow: hand reacquired — tracking resumed.`;
+        isReleaseShape = true;
+        break;
+      default:  // "fire"
+        obsText = `[reflex-fire] saw "${det?.label}" (${score}) on ${entry.name} at ${ts}; action ${action} ran${action === "halt" ? " and motion is now gated until the target leaves frame" : ""}.`;
+        noticeHtml = `Reflex: saw <strong>${escHtml(String(det?.label || ""))}</strong> (${score}) — action <code>${escHtml(action)}</code> executed.`;
+        isReleaseShape = false;
+    }
     _pendingObservations.push(obsText);
     if (!_activeTurnEl) return;  // not mid-turn — planner sees it on the next user turn via convo replay
     const el = document.createElement("div");
-    el.className = `pip-reflex-notice${kind === "clear" ? " pip-reflex-notice--clear" : ""}`;
+    el.className = `pip-reflex-notice${isReleaseShape ? " pip-reflex-notice--clear" : ""}`;
     el.innerHTML =
       `<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">` +
         `<circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/>` +
         `<circle cx="6" cy="6" r="1.8" fill="currentColor"/>` +
-      `</svg> ` +
-      (kind === "clear"
-        ? `Reflex clear: <strong>${escHtml(String(det?.label || ""))}</strong> left frame — motion resumed.`
-        : `Reflex: saw <strong>${escHtml(String(det?.label || ""))}</strong> (${score}) — action <code>${escHtml(action)}</code> executed.`);
+      `</svg> ` + noticeHtml;
     _activeTurnEl.appendChild(el);
     scrollPanelToBottom();
   });
