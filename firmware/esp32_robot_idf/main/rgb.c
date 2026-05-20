@@ -5,36 +5,42 @@
 #include "esp_log.h"
 
 #include "gatt_svr.h"
+#include "motors.h"
 #include "pin_config.h"
 
 static const char *TAG = "rgb";
 
 // Channel budget by chip:
 //   Classic ESP32 — 8 LS channels (0–3 motors, 4 flash, 5 servo) and 8
-//     HS channels totally unused. Put RGB on HS_0/1/2 so the cap is
-//     orthogonal to everything else on the LS side.
-//   ESP32-C3     — 6 LEDC channels total (no HS mode). 0–3 motors + 5
-//     servo leave just channel 4. Not enough for 3 colors; cap stays
-//     disabled and rgb_enabled() returns false even when pins are
-//     assigned (firmware never claims the channels).
+//     HS channels totally unused. RGB lives on HS_0/1/2 (TIMER_0), so the
+//     cap is orthogonal to everything else on the LS side regardless of
+//     motor mode.
+//   ESP32-C3 — 6 LEDC channels total, LS-only. Motors take ch 0–3 in
+//     PWM-on-direction mode or just ch 0–1 in PWM-on-enable; servo takes
+//     ch 5. RGB uses ch 2/3/4 with TIMER_2, so the cap only works when
+//     motors are in PWM-on-enable mode — otherwise ch 2/3 are live LEDC
+//     channels driving motor IN pins and a second ledc_channel_config
+//     would reconfigure them and silently break motor PWM.
 #if CONFIG_IDF_TARGET_ESP32
-#  define RGB_AVAILABLE   1
 #  define RGB_MODE        LEDC_HIGH_SPEED_MODE
 #  define RGB_TIMER       LEDC_TIMER_0
+static const ledc_channel_t s_chan[3] = {
+    LEDC_CHANNEL_0, LEDC_CHANNEL_1, LEDC_CHANNEL_2,
+};
+#elif CONFIG_IDF_TARGET_ESP32C3
+#  define RGB_MODE        LEDC_LOW_SPEED_MODE
+#  define RGB_TIMER       LEDC_TIMER_2
+static const ledc_channel_t s_chan[3] = {
+    LEDC_CHANNEL_2, LEDC_CHANNEL_3, LEDC_CHANNEL_4,
+};
 #else
-#  define RGB_AVAILABLE   0
+#  error "rgb: unknown IDF target — pick LEDC mode/timer/channels"
 #endif
 
 // 1 kHz, 8-bit — same conventions as motors/flash; no perceptible
 // flicker, duty 0..255 maps 1:1 onto the BLE payload bytes.
 #define RGB_FREQ_HZ   1000
 #define RGB_RES_BITS  LEDC_TIMER_8_BIT
-
-#if RGB_AVAILABLE
-static const ledc_channel_t s_chan[3] = {
-    LEDC_CHANNEL_0, LEDC_CHANNEL_1, LEDC_CHANNEL_2,
-};
-#endif
 
 static int s_pin[3] = { -1, -1, -1 };
 static bool s_attached = false;
@@ -49,10 +55,14 @@ void rgb_init(int pin_r, int pin_g, int pin_b) {
                  pin_r, pin_g, pin_b);
         return;
     }
-#if !RGB_AVAILABLE
-    ESP_LOGW(TAG, "no free LEDC channels on this chip — cap disabled");
-    return;
-#else
+#if CONFIG_IDF_TARGET_ESP32C3
+    // Bail before touching the channel config — see header comment.
+    if (motors_enabled() && !motors_pwm_on_enable()) {
+        ESP_LOGW(TAG, "motors in PWM-on-direction mode are using LEDC ch 2/3 — "
+                      "wire ENA/ENB to MCU pins to free them for RGB");
+        return;
+    }
+#endif
     ledc_timer_config_t tcfg = {
         .speed_mode = RGB_MODE,
         .timer_num = RGB_TIMER,
@@ -80,14 +90,12 @@ void rgb_init(int pin_r, int pin_g, int pin_b) {
     }
     s_attached = true;
     ESP_LOGI(TAG, "ready on GPIOs r=%d g=%d b=%d", pin_r, pin_g, pin_b);
-#endif
 }
 
 void rgb_apply(uint8_t r, uint8_t g, uint8_t b) {
     s_rgb[0] = r;
     s_rgb[1] = g;
     s_rgb[2] = b;
-#if RGB_AVAILABLE
     if (s_attached) {
         ledc_set_duty(RGB_MODE, s_chan[0], r);
         ledc_set_duty(RGB_MODE, s_chan[1], g);
@@ -96,7 +104,6 @@ void rgb_apply(uint8_t r, uint8_t g, uint8_t b) {
         ledc_update_duty(RGB_MODE, s_chan[1]);
         ledc_update_duty(RGB_MODE, s_chan[2]);
     }
-#endif
     gatt_svr_notify_rgb();
 }
 

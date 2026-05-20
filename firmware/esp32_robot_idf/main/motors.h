@@ -47,3 +47,9 @@ void motors_set_orientation(bool swap, bool invert_a, bool invert_b);
 
 void motors_get(int8_t *left, int8_t *right);
 bool motors_enabled(void);
+
+// True when motors are running in PWM-on-enable mode (ENA/ENB wired to
+// MCU pins, IN1..IN4 as digital direction outputs). False for PWM-on-
+// direction mode where the IN pins carry PWM. Used by rgb_init on C3
+// to know whether channels 2/3 are free to claim.
+bool motors_pwm_on_enable(void);

@@ -357,3 +357,4 @@ void motors_set_orientation(bool swap, bool invert_a, bool invert_b) {
 
 void motors_get(int8_t *left, int8_t *right) { *left = s_left; *right = s_right; }
 bool motors_enabled(void) { return s_attached; }
+bool motors_pwm_on_enable(void) { return s_use_en_pwm; }
