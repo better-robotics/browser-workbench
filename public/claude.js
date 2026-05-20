@@ -27,14 +27,23 @@ function currentClaudeModel() {
   return CLAUDE_IDS.has(id) ? id : CLAUDE_DEFAULT;
 }
 
+// API-shape partition. CLAUDE_BACKENDS speak the Anthropic messages API
+// (used directly, or proxied through ai-bridge); OPENAI_SHAPED_BACKENDS
+// speak /chat/completions (OpenAI direct + GitHub Models). Centralizing
+// the predicate stops the `=== "bridge" || === "anthropic"` ladder from
+// drifting between call sites. Note: do NOT alias this to "supports
+// vision" or "supports tool_result images" — those happen to coincide
+// today but are separate facts (see pip-tools.js's VISION_BACKENDS).
+export const CLAUDE_BACKENDS = new Set(["bridge", "anthropic"]);
+export const OPENAI_SHAPED_BACKENDS = new Set(["openai", "github"]);
+
 // User-facing model identifier per backend. Single source of truth for
 // what name shows up in the Pip placeholder ("Ask Pip… · gpt-4o-mini")
 // and in any future model picker. Keeps display logic out of assistant.js
 // — model knowledge lives next to the actual API calls.
 export function activeModelForBackend(backend) {
-  if (backend === "bridge" || backend === "anthropic") return currentClaudeModel();
-  if (backend === "openai") return "gpt-4o-mini";
-  if (backend === "github") return "gpt-4o-mini";  // strip vendor prefix for display
+  if (CLAUDE_BACKENDS.has(backend)) return currentClaudeModel();
+  if (OPENAI_SHAPED_BACKENDS.has(backend)) return "gpt-4o-mini";
   return backend;
 }
 // Per-Claude-call ceiling. Tool-using conversations make several requests in
@@ -306,7 +315,7 @@ function logBackendError(label, res) {
 }
 
 export async function ask(userText, opts = {}) {
-  if (settings.pipBackend === "openai" || settings.pipBackend === "github")
+  if (OPENAI_SHAPED_BACKENDS.has(settings.pipBackend))
     return _openaiAsk(userText, opts);
   return _anthropicAsk(userText, opts);
 }
@@ -319,7 +328,7 @@ export async function ask(userText, opts = {}) {
 // 127.0.0.1:7337); falls through to null on github/openai backends
 // since they don't share the same vision content-block protocol.
 export async function askAboutFrame(imageDataUrl, prompt, { maxTokens = 100, system } = {}) {
-  if (settings.pipBackend !== "bridge" && settings.pipBackend !== "anthropic") return null;
+  if (!CLAUDE_BACKENDS.has(settings.pipBackend)) return null;
   const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec(imageDataUrl || "");
   if (!m) return null;
   const body = withPromptCache({
@@ -405,7 +414,7 @@ async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
 //                                             stop and return the canned
 //                                             "(reached iteration limit)".
 export async function askWithTools(messages, opts = {}) {
-  if (settings.pipBackend === "openai" || settings.pipBackend === "github")
+  if (OPENAI_SHAPED_BACKENDS.has(settings.pipBackend))
     return _openaiAskWithTools(messages, opts);
   return _anthropicAskWithTools(messages, opts);
 }

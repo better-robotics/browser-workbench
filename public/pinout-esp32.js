@@ -343,7 +343,7 @@ let editConfig = null;
 // the led/flash/motors cap entries). Edit in place; save by writing JSON
 // to the PIN_CONFIG char (firmware persists to NVS + restarts).
 function esp32PinsFromFwInfo(entry) {
-  const caps = entry?.fwInfo?.caps || [];
+  const caps = entry?.capSchema || [];
   const led      = caps.find(c => c.name === "led")?.pin;
   const flash    = caps.find(c => c.name === "flash")?.pin;
   const motors   = caps.find(c => c.name === "motors")?.pins;
@@ -422,7 +422,7 @@ function renderEsp32View(entry) {
   // camera (DevKit, C3) have nowhere to wire it; the firmware also
   // disables it by default. Hide the row instead of showing a permanently
   // disabled slot that reads as "we're reserving something for camera."
-  const hasFlash = (entry?.fwInfo?.caps || []).some(c => c.name === "flash");
+  const hasFlash = (entry?.capSchema || []).some(c => c.name === "flash");
   const connected = entry?.status === "connected";
   const editBtn = connected
     ? `<button class="secondary sm" id="pinout-edit-btn">Edit pins</button>`
@@ -473,7 +473,7 @@ function renderEsp32Edit(entry) {
   // Flash only exists on boards that advertise the cap (AI-Thinker CAM).
   // Excluding it from ALL_KEYS on no-flash boards keeps the conflict guard
   // from flagging a phantom claim against the real motor/LED assignments.
-  const hasFlash = (entry?.fwInfo?.caps || []).some(c => c.name === "flash");
+  const hasFlash = (entry?.capSchema || []).some(c => c.name === "flash");
   const ALL_KEYS = ["led", ...(hasFlash ? ["flash"] : []), "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"];
   const usedBy = {};
   for (const k of ALL_KEYS) {
