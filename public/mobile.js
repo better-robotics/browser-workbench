@@ -9,6 +9,7 @@ import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
 } from "./app-menu.js";
+import { wireTiltDrive, stopTilt } from "./mobile-tilt-drive.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 let _peer = null;
@@ -229,276 +230,6 @@ function wireJoypad() {
   });
 }
 
-// ── Tilt-drive ────────────────────────────────────────────────────
-// Phone-as-steering-wheel + on-screen throttle pedals. Rolling the phone
-// left/right (gamma axis) sets a turn rate; press-and-hold "Forward" or
-// "Reverse" applies throttle. Maps to the same {type:"drive", l, r}
-// protocol the joypad uses, mixed via differential drive (throttle ±
-// turn → left / right motor). 10 Hz send rate (joystick parity).
-//
-// iOS Safari requires DeviceOrientationEvent.requestPermission() — a
-// one-tap user gesture before motion data flows. We surface the prompt
-// only when the user opts into Tilt mode (no friction for joypad users).
-const TILT_MODE_KEY = "better-robotics:phone-drive-mode";
-// Dead-zone covers IMU noise floor (~1°) + typical hand tremor + relaxed
-// grip drift (3-6°). Anything inside this band = "go straight" intent —
-// the operator gets to keep moving forward without locking their wrist.
-const TILT_TURN_DEADZONE_DEG = 8;
-const TILT_TURN_SATURATION_DEG = 35;  // ±35° = full turn rate; beyond clips
-const TILT_THROTTLE = 60;             // base motor magnitude when a pedal is held (LLM-cap-safe range)
-const TILT_SEND_HZ = 10;
-// Brief grace period after a pointer-release event before zeroing the
-// throttle. iOS Safari can preempt touches during sustained device
-// motion (system gestures, capacitive-touch dropouts on hard tilts).
-// 80 ms of grace means a quick re-press cancels the stop — common
-// mobile-racing-game pattern to filter glitchy releases.
-const TILT_RELEASE_GRACE_MS = 80;
-let _tiltGamma = 0;                   // last orientation event's left-right roll
-let _tiltBeta = 0;                    // front-back tilt (used in landscape)
-let _tiltThrottle = 0;                // -1, 0, +1 from pedal state
-let _tiltSendTimer = null;
-let _tiltOrientationOn = false;
-let _tiltMotionPermission = "unknown"; // "granted" | "denied" | "unknown"
-
-// Returns the user's "left-right tilt to steer" reading in degrees,
-// normalized so positive = turn right regardless of how the phone is
-// physically oriented. The DeviceOrientationEvent axes (alpha/beta/gamma)
-// are tied to the device frame, not the screen frame, so we re-map based
-// on screen.orientation.angle:
-//   0   (portrait primary): gamma → screen left-right
-//   180 (portrait inverted): -gamma
-//   90  (landscape primary, home button on left): beta → screen left-right
-//   270 (landscape secondary, home button on right): -beta
-function _tiltSteerAxisDeg() {
-  const angle = ((screen.orientation?.angle ?? 0) % 360 + 360) % 360;
-  if (angle === 90)  return _tiltBeta;
-  if (angle === 270) return -_tiltBeta;
-  if (angle === 180) return -_tiltGamma;
-  return _tiltGamma;
-}
-
-function _tiltIsLandscape() {
-  const angle = ((screen.orientation?.angle ?? 0) % 360 + 360) % 360;
-  return angle === 90 || angle === 270;
-}
-
-function _tiltMix() {
-  // Steering axis is in [-90, 90] roughly; positive = right tilt.
-  // dead-zone + clip then normalize to the shared mix() convention
-  // (which handles operator-perspective sign flip on reverse).
-  let g = _tiltSteerAxisDeg();
-  if (Math.abs(g) < TILT_TURN_DEADZONE_DEG) g = 0;
-  if (g >  TILT_TURN_SATURATION_DEG) g =  TILT_TURN_SATURATION_DEG;
-  if (g < -TILT_TURN_SATURATION_DEG) g = -TILT_TURN_SATURATION_DEG;
-  const turnPct = g / TILT_TURN_SATURATION_DEG;        // -1..+1
-  // 70% turn ratio = comfortable turn radius without pivot-in-place.
-  const [l, r] = mix(_tiltThrottle * TILT_THROTTLE, turnPct * TILT_THROTTLE * 0.7);
-  return { l, r };
-}
-
-function _tiltUpdateIndicator() {
-  const fill = $("phone-tilt-fill");
-  const neutral = $("phone-tilt-neutral");
-  const read = $("phone-tilt-readout");
-  if (!fill) return;
-  const steer = _tiltSteerAxisDeg();
-  const pct = Math.max(-1, Math.min(1, steer / TILT_TURN_SATURATION_DEG));
-  // Center the bar at 50%; fill from center outward toward the tilt direction.
-  const left = pct < 0 ? `${50 + pct * 50}%` : "50%";
-  const width = `${Math.abs(pct) * 50}%`;
-  fill.style.left = left;
-  fill.style.width = width;
-  // Neutral zone width tracks the dead-zone / saturation ratio so the
-  // visual matches the actual "go straight" band whenever the constants
-  // change. Set once per render — cheap.
-  if (neutral) {
-    const neutralPct = (TILT_TURN_DEADZONE_DEG / TILT_TURN_SATURATION_DEG) * 50;
-    neutral.style.width = `${neutralPct * 2}%`;
-  }
-  if (read) {
-    if (Math.abs(steer) < TILT_TURN_DEADZONE_DEG) {
-      read.textContent = _tiltThrottle === 0 ? "Roll phone L/R to steer" : "Going straight";
-    } else {
-      read.textContent = `${steer > 0 ? "→ Right" : "← Left"} ${Math.round(Math.abs(steer))}°`;
-    }
-  }
-}
-
-function _tiltSendTick() {
-  if (!_peer) return;
-  const { l, r } = _tiltMix();
-  // Skip the send when both motors would be zero AND we already sent zero
-  // last tick — common case (phone flat, no pedal). Saves bandwidth.
-  if (l === 0 && r === 0 && _tiltSendTimer?._lastZero) return;
-  try { _peer.send({ type: "drive", l, r }); } catch {}
-  _tiltSendTimer._lastZero = (l === 0 && r === 0);
-}
-
-function _tiltOrientationHandler(e) {
-  // gamma: left-right roll. beta: front-back tilt. We need both because
-  // the steering axis depends on whether the phone is in portrait or
-  // landscape (handled by _tiltSteerAxisDeg).
-  if (typeof e.gamma === "number") _tiltGamma = e.gamma;
-  if (typeof e.beta  === "number") _tiltBeta  = e.beta;
-  _tiltUpdateIndicator();
-}
-
-// Apply / remove the .landscape modifier on the tilt-drive container so
-// CSS can reflow the pedals to bottom corners (controller-grip pattern)
-// when the phone rotates. Hides the steering input when in portrait
-// + tilt mode, with a hint to rotate.
-function _tiltApplyOrientation() {
-  const wrap = $("phone-drive-tilt-wrap");
-  const hint = $("phone-tilt-orient-hint");
-  if (!wrap) return;
-  const land = _tiltIsLandscape();
-  wrap.classList.toggle("landscape", land);
-  if (hint) hint.hidden = land;
-  _tiltUpdateIndicator();
-}
-
-async function _tiltRequestMotionPermission() {
-  // iOS 13+ Safari: explicit user-gesture-bound permission request. Other
-  // browsers: addEventListener works without the prompt. Treat the legacy
-  // path as already-granted.
-  const Klass = window.DeviceOrientationEvent;
-  if (Klass && typeof Klass.requestPermission === "function") {
-    try {
-      const result = await Klass.requestPermission();
-      _tiltMotionPermission = result;  // "granted" | "denied"
-      return result === "granted";
-    } catch { _tiltMotionPermission = "denied"; return false; }
-  }
-  _tiltMotionPermission = "granted";
-  return true;
-}
-
-function _tiltStartOrientation() {
-  if (_tiltOrientationOn) return;
-  window.addEventListener("deviceorientation", _tiltOrientationHandler, { passive: true });
-  _tiltOrientationOn = true;
-}
-
-function _tiltStopOrientation() {
-  if (!_tiltOrientationOn) return;
-  window.removeEventListener("deviceorientation", _tiltOrientationHandler);
-  _tiltOrientationOn = false;
-  _tiltGamma = 0;
-  _tiltUpdateIndicator();
-}
-
-function _setDriveMode(mode) {
-  const isTilt = mode === "tilt";
-  $("phone-drive-joypad-wrap").hidden = isTilt;
-  $("phone-drive-tilt-wrap").hidden = !isTilt;
-  $("phone-drive-mode-joypad").setAttribute("aria-pressed", String(!isTilt));
-  $("phone-drive-mode-tilt").setAttribute("aria-pressed", String(isTilt));
-  try { localStorage.setItem(TILT_MODE_KEY, mode); } catch {}
-  if (isTilt) {
-    // iOS: show the permission button when we don't have permission yet.
-    // The button has a real user-gesture; addEventListener inside an
-    // arbitrary toggle wouldn't satisfy iOS's gesture requirement.
-    const Klass = window.DeviceOrientationEvent;
-    const needsPrompt = Klass && typeof Klass.requestPermission === "function"
-                       && _tiltMotionPermission !== "granted";
-    $("phone-tilt-permission").hidden = !needsPrompt;
-    if (!needsPrompt) _tiltStartOrientation();
-    _tiltApplyOrientation();
-    // Joystick-mode is no longer the throttle source — kill any in-flight
-    // joypad drive so swapping doesn't strand a non-zero throttle.
-    _joypad?.reset();
-    try { _peer?.send({ type: "drive", l: 0, r: 0 }); } catch {}
-  } else {
-    _tiltStopOrientation();
-    _tiltThrottle = 0;
-    if (_tiltSendTimer) { clearInterval(_tiltSendTimer); _tiltSendTimer = null; }
-  }
-}
-
-function wireTiltDrive() {
-  // Mode toggle: persist choice + swap UI.
-  $("phone-drive-mode-joypad")?.addEventListener("click", () => _setDriveMode("joypad"));
-  $("phone-drive-mode-tilt")?.addEventListener("click", () => _setDriveMode("tilt"));
-  // Orientation change → re-apply class + hint. The browser fires both
-  // orientationchange (legacy) and screen.orientation.change (modern);
-  // listen to whichever surfaces first.
-  const onOrient = () => _tiltApplyOrientation();
-  if (screen.orientation?.addEventListener) {
-    screen.orientation.addEventListener("change", onOrient);
-  } else {
-    window.addEventListener("orientationchange", onOrient);
-  }
-  // Permission prompt — explicit gesture handler so iOS approves.
-  $("phone-tilt-permission")?.addEventListener("click", async () => {
-    const ok = await _tiltRequestMotionPermission();
-    $("phone-tilt-permission").hidden = ok;
-    if (ok) _tiltStartOrientation();
-  });
-  // Pedals — pointer events so it works for both touch and mouse-on-tablet.
-  // Throttle on press, zero on release. The interval driver runs only
-  // while a pedal is held to keep the bandwidth profile flat.
-  const startSend = () => {
-    if (_tiltSendTimer) return;
-    _tiltSendTimer = setInterval(_tiltSendTick, 1000 / TILT_SEND_HZ);
-  };
-  const stopSend = () => {
-    if (_tiltSendTimer) { clearInterval(_tiltSendTimer); _tiltSendTimer = null; }
-    try { _peer?.send({ type: "drive", l: 0, r: 0 }); } catch {}
-  };
-  // Pending grace timer per pedal. A pointer-release event schedules a
-  // delayed stop; if the user re-presses (real intent: hold continuous)
-  // before the timer fires, we cancel it. Filters capacitive-touch
-  // dropouts during hard tilts that would otherwise spuriously stop.
-  const pendingStop = new Map();  // dir -> timer id
-  const cancelPending = (dir) => {
-    const t = pendingStop.get(dir);
-    if (t) { clearTimeout(t); pendingStop.delete(dir); }
-  };
-  const wirePedal = (id, dir) => {
-    const btn = $(id);
-    if (!btn) return;
-    let activePid = null;
-    const onWinUp = (e) => {
-      if (activePid != null && e.pointerId !== activePid) return;
-      activePid = null;
-      window.removeEventListener("pointerup", onWinUp);
-      window.removeEventListener("pointercancel", onWinUp);
-      // Grace-period stop: a quick re-press cancels it. If genuinely
-      // released, the timer fires and zeroes the throttle.
-      cancelPending(dir);
-      pendingStop.set(dir, setTimeout(() => {
-        pendingStop.delete(dir);
-        if (_tiltThrottle === dir) { _tiltThrottle = 0; stopSend(); }
-      }, TILT_RELEASE_GRACE_MS));
-    };
-    btn.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      // Cancel any in-flight grace-stop from a previous release —
-      // user re-pressed before the grace window expired, so they
-      // were never really off the pedal.
-      cancelPending(dir);
-      activePid = e.pointerId;
-      try { btn.setPointerCapture(e.pointerId); } catch {}
-      _tiltThrottle = dir;
-      startSend();
-      // Window-level release listeners. iOS Safari can preempt the
-      // pointer with a system gesture during heavy device motion;
-      // listening on window catches the release even when the
-      // button-level capture is lost mid-drive.
-      window.addEventListener("pointerup", onWinUp);
-      window.addEventListener("pointercancel", onWinUp);
-    });
-    // Intentionally NOT listening to pointerleave on the button —
-    // pointer capture handles drift, and the window-level pointerup
-    // catches the actual release reliably.
-  };
-  wirePedal("phone-tilt-forward", +1);
-  wirePedal("phone-tilt-reverse", -1);
-  // Restore last-used drive mode (defaults to joypad).
-  let saved = "joypad";
-  try { saved = localStorage.getItem(TILT_MODE_KEY) || "joypad"; } catch {}
-  _setDriveMode(saved);
-}
 
 // Phone backgrounded (tab switch, screen lock, app switcher): emit a stop so
 // the robot doesn't keep driving while the user can't see it, and kill any
@@ -508,12 +239,7 @@ function wireBackgroundStop() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       _joypad?.reset();
-      // Tilt-drive: also kill any held throttle so a backgrounded phone
-      // doesn't drive into a wall while the user can't see the robot.
-      if (_tiltThrottle !== 0) {
-        _tiltThrottle = 0;
-        if (_tiltSendTimer) { clearInterval(_tiltSendTimer); _tiltSendTimer = null; }
-      }
+      stopTilt();
       _peer?.send({ type: "drive", l: 0, r: 0 });
       _stopSharing();
     }
@@ -965,7 +691,10 @@ async function init() {
       startNearbyDiscovery();
     });
     wireJoypad();
-    wireTiltDrive();
+    wireTiltDrive({
+      getPeer: () => _peer,
+      resetJoypad: () => _joypad?.reset(),
+    });
     wireStopButton();
     wireBackgroundStop();
     wireShareCamera();
