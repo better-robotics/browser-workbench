@@ -824,6 +824,36 @@ let _dictation = null;
 // is the "talk to your robot" loop — clicking the mic once should be
 // enough to issue a sequence of commands without re-clicking between each.
 let _micSticky = false;
+// Consecutive no-speech failures. Web Speech can flake (TTS-feedback gate
+// cuts a session mid-utterance, mic permission lapses, Bluetooth route
+// change) and the sticky restart loop would otherwise re-engage a dead
+// recognizer forever. After 2 consecutive failures we disarm sticky and
+// require an explicit re-click. Reset to 0 on any successful transcript.
+let _consecutiveNoSpeech = 0;
+const NO_SPEECH_GIVE_UP = 2;
+
+// Append a short, dismissable mic-status notice into the chat panel —
+// same shape as the watcher reflex notices, different color (cyan for
+// "informational input feedback"). Falls back to console.log if pip
+// hasn't initialized. Bounded to ONE active notice at a time per panel;
+// re-calling replaces the previous so the chat doesn't accumulate them
+// if Web Speech is flaking.
+function surfaceMicNotice(text) {
+  if (!_pip?.scroll) { console.log("[voice-input]", text); return; }
+  const scroll = _pip.scroll;
+  // Drop any prior notice — keeps the panel from filling up with stale
+  // "Didn't catch that" lines during a flaky-mic spell.
+  scroll.querySelectorAll(".pip-mic-notice").forEach(n => n.remove());
+  const el = document.createElement("div");
+  el.className = "pip-mic-notice";
+  el.innerHTML =
+    `<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">` +
+      `<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="1.6" fill="none"/>` +
+    `</svg> ` +
+    escHtml(text);
+  scroll.appendChild(el);
+  scroll.scrollTop = scroll.scrollHeight;
+}
 function wireMicButton() {
   if (!voiceInputSupported()) return;
   const form = document.querySelector(".pip-form");
@@ -918,6 +948,21 @@ function wireMicButton() {
         console.warn("[voice-input]", err);
         if (err === "not-allowed") {
           input.placeholder = "Microphone permission denied — check Site settings.";
+          _micSticky = false;
+          surfaceMicNotice("Microphone permission denied — click the mic icon in the address bar to allow.");
+          return;
+        }
+        if (err === "no-speech") {
+          _consecutiveNoSpeech++;
+          if (_consecutiveNoSpeech >= NO_SPEECH_GIVE_UP) {
+            // Two in a row — recognizer is probably stuck (TTS cut a
+            // session mid-utterance, mic route changed). Disarm sticky
+            // so we stop the dead-loop and surface an actionable hint.
+            _micSticky = false;
+            surfaceMicNotice("Didn't hear anything twice in a row — click the mic again to retry.");
+          } else {
+            surfaceMicNotice("Didn't catch that — try again.");
+          }
         }
       },
       onEnd: async ({ reason }) => {
@@ -948,6 +993,9 @@ function wireMicButton() {
         }
         const text = input.value.trim();
         if (!text) { input.focus(); restartIfSticky(); return; }
+        // We got real text — recognizer is healthy. Reset the streak so
+        // a future flaky-mic spell starts counting fresh.
+        _consecutiveNoSpeech = 0;
 
         // Mid-turn voice: don't go through pip-core's submit (input is
         // disabled during a running turn anyway). Inject as observation
