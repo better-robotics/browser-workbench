@@ -1,4 +1,4 @@
-import { CLAUDE_VARIANTS, activeModelForBackend } from "./claude.js";
+import { CLAUDE_VARIANTS, CLAUDE_BACKENDS, activeModelForBackend } from "./claude.js";
 import { settings, saveSettings } from "./settings.js";
 import { isSupported as voiceInputSupported } from "./voice-input.js";
 import { toggleDictation } from "./assistant-voice.js";
@@ -48,7 +48,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
     // first (that's the next decision you'd most likely make); otherwise
     // backends lead.
     complete: (partial) => {
-      const isClaude = settings.pipBackend === "bridge" || settings.pipBackend === "anthropic";
+      const isClaude = CLAUDE_BACKENDS.has(settings.pipBackend);
       const ordered = isClaude ? [...CLAUDE_ALIASES, ...PIP_BACKENDS] : [...PIP_BACKENDS, ...CLAUDE_ALIASES];
       return ordered.filter(b => b.startsWith(partial.toLowerCase()));
     },
@@ -69,8 +69,9 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         settings.pipClaudeModel = variant.id;
         try { saveSettings(); } catch {}
         pip.setModelLabel?.(activeModelForBackend(settings.pipBackend));
-        const isClaudeBackend = settings.pipBackend === "bridge" || settings.pipBackend === "anthropic";
-        const tail = isClaudeBackend ? "" : ` — takes effect after \`/model bridge\` or \`/model anthropic\`.`;
+        const tail = CLAUDE_BACKENDS.has(settings.pipBackend)
+          ? ""
+          : ` — takes effect after \`/model bridge\` or \`/model anthropic\`.`;
         return { reply: `Claude variant set to \`${variant.id}\`${tail}` };
       }
 
@@ -105,23 +106,9 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         settings.pipOpenaiKey = key;
       }
 
-      const KEY = "better-robotics:settings";
-      const beforeRaw = localStorage.getItem(KEY);
-
       // Mutate the live binding shared with claude.js, then save.
       settings.pipBackend = arg;
-      try { saveSettings(); } catch {}
-
-      // Direct-write fallback if saveSettings didn't land — kept as cheap
-      // insurance in case the canonical path silently no-ops.
-      const after = JSON.parse(localStorage.getItem(KEY) || "{}").pipBackend;
-      if (after !== arg) {
-        try {
-          const merged = { ...JSON.parse(beforeRaw || "{}"), ...settings };
-          localStorage.setItem(KEY, JSON.stringify(merged));
-        } catch {}
-      }
-
+      saveSettings();
       pip.setModelLabel?.(activeModelForBackend(arg));
 
       return { reply: `Backend set to \`${arg}\`.` };

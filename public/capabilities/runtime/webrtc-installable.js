@@ -3,7 +3,7 @@
 //           install?: { pkg: "camera", confirm: "..." } }
 // Chunked opcode protocol both ways (browser→robot via signal,
 // robot→browser via status notify). Install via the `command` cap.
-import { UUIDS_BY_CAP, encodeJson, decodeJson } from "../../ble.js";
+import { UUIDS_BY_CAP, CHUNK_BYTES, encodeJson, decodeJson } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { persist } from "../../state.js";
@@ -19,7 +19,6 @@ const OP_BEGIN   = 0x01;
 const OP_CHUNK   = 0x02;
 const OP_COMMIT  = 0x03;
 const OP_STOP    = 0x04;
-const CHUNK_BYTES = 180;
 
 import { renderEntry } from "./render-bus.js";
 
