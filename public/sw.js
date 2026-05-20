@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "e24b1433";
+const VERSION = "04a230ac";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -58,6 +58,10 @@ function isCacheableCrossOrigin(url) {
   if (url.hostname !== "cdn.jsdelivr.net") return false;
   if (url.pathname.includes("@peculiar/")) return true;
   if (url.pathname.includes("@mediapipe/")) return true;
+  // CodeMirror 6 (scripts.js dynamic-imports). The /+esm bundles are
+  // immutable per version; durable cache keeps the script editor warm
+  // across sessions even when offline.
+  if (url.pathname.includes("/codemirror@") || url.pathname.includes("/@codemirror/")) return true;
   return false;
 }
 

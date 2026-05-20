@@ -900,18 +900,25 @@ details.tray.has-alert > summary::after {
   background-position: right 10px center;
 }
 .scripts-template-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Host for the CodeMirror 6 EditorView mount (see scripts.js). CM owns its
+   own borders + scrollbars internally; the wrapper just establishes height
+   and the rounded outer corner. The .cm-editor selectors below match CM6's
+   stable DOM structure (`.cm-editor` > `.cm-scroller` > `.cm-content`). */
 .scripts-editor {
   width: 100%;
   min-height: 280px;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 13px;
-  line-height: 1.45;
-  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  resize: vertical;
+  overflow: hidden;
 }
+.scripts-editor .cm-editor {
+  height: 100%;
+  min-height: 280px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 13px;
+}
+.scripts-editor .cm-editor.cm-focused { outline: none; }
+.scripts-editor .cm-scroller { line-height: 1.45; }
 .scripts-output {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 12px;
