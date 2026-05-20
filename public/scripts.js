@@ -13,6 +13,56 @@ import { listPhones, askHuman } from "./phones.js";
 import { ask as claudeAsk } from "./claude.js";
 import { speak as voiceSpeak } from "./voice.js";
 
+// CodeMirror 6 — lazy-loaded on first dialog open so the ~150KB ESM bundle
+// (basicSetup + lang-javascript + one-dark theme) isn't paid on dashboard
+// boot. jsdelivr's `/+esm` flattens CM6's multi-package graph into one
+// fetch. Stale-while-revalidate cached by sw.js — see isCacheableCrossOrigin.
+let _cm = null;             // EditorView instance once mounted
+let _cmLoading = null;      // in-flight import Promise, so concurrent opens share
+
+async function ensureCodeMirror() {
+  if (_cm) return _cm;
+  if (!_cmLoading) {
+    _cmLoading = (async () => {
+      const [cmCore, cmJs, cmDark] = await Promise.all([
+        import("https://cdn.jsdelivr.net/npm/codemirror@6/+esm"),
+        import("https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/+esm"),
+        import("https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/+esm"),
+      ]);
+      const { EditorView, basicSetup, keymap } = cmCore;
+      const host = $("scripts-editor");
+      host.innerHTML = "";
+      _cm = new EditorView({
+        parent: host,
+        doc: loadBody(),
+        extensions: [
+          basicSetup,
+          cmJs.javascript(),
+          cmDark.oneDark,
+          // Cmd/Ctrl-Enter to run (used to live on the textarea keydown).
+          keymap.of([{ key: "Mod-Enter", run: () => { runScript(); return true; } }]),
+          // Persist on any change so the user's draft survives a reload.
+          // Same shape the textarea had via implicit "value" reads on Run.
+          EditorView.updateListener.of((u) => {
+            if (u.docChanged) saveBody(u.state.doc.toString());
+          }),
+        ],
+      });
+      return _cm;
+    })();
+  }
+  return _cmLoading;
+}
+
+function editorValue() {
+  return _cm ? _cm.state.doc.toString() : loadBody();
+}
+
+function setEditorValue(text) {
+  if (!_cm) return;  // pre-mount; the doc constructor argument carries the initial value
+  _cm.dispatch({ changes: { from: 0, to: _cm.state.doc.length, insert: text } });
+}
+
 // pip.ask(prompt, opts?) — routes through whichever Pip backend the user
 // picked in Settings (GitHub Models / Anthropic / OpenAI / Bridge / local).
 // Throws on any backend/HTTP/parse failure so scripts catch a single error
@@ -204,12 +254,11 @@ function saveBody(body) {
 
 function loadTemplate(id) {
   const tpl = templateById(id);
-  const editor = $("scripts-editor");
-  const current = editor.value;
+  const current = editorValue();
   // If the user has unsaved divergence from any known template, confirm.
   const isKnown = TEMPLATES.some(t => t.body === current);
   if (current && !isKnown && !confirm(`Replace current script with "${tpl.name}"?`)) return false;
-  editor.value = tpl.body;
+  setEditorValue(tpl.body);
   saveBody(tpl.body);
   return true;
 }
@@ -220,8 +269,7 @@ function loadTemplate(id) {
 function syncDropdownToEditor() {
   const sel = $("scripts-template");
   if (!sel) return;
-  const ed = $("scripts-editor").value;
-  const match = TEMPLATES.find(t => t.body === ed);
+  const match = TEMPLATES.find(t => t.body === editorValue());
   sel.value = match ? match.id : "";
 }
 
@@ -313,7 +361,7 @@ async function runScript() {
   if (runBtn) { runBtn.disabled = true; runBtn.textContent = "Running…"; }
   const out = $("scripts-output");
   if (out) out.innerHTML = "";
-  const body = $("scripts-editor").value;
+  const body = editorValue();
   saveBody(body);
   const log = (...args) => appendOutput(args.map(a =>
     typeof a === "string" ? a : JSON.stringify(a)
@@ -340,11 +388,14 @@ async function runScript() {
   }
 }
 
-export function openScriptsDialog() {
+export async function openScriptsDialog() {
   const dlg = $("scripts-modal");
-  $("scripts-editor").value = loadBody();
-  syncDropdownToEditor();
+  // Show the dialog first so the CDN load happens against a visible
+  // surface — gives the user a beat of "this is opening" feedback even
+  // when the bundle is mid-fetch.
   dlg.showModal();
+  await ensureCodeMirror();
+  syncDropdownToEditor();
 }
 
 export function init() {
@@ -363,10 +414,7 @@ export function init() {
     if (!sel.value) return;
     if (!loadTemplate(sel.value)) syncDropdownToEditor();
   });
-  $("scripts-editor").addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      runScript();
-    }
-  });
+  // Cmd/Ctrl-Enter is wired inside the EditorView keymap (see
+  // ensureCodeMirror) — CM swallows keydown before bubbling to host, so a
+  // host-level listener would never fire.
 }
