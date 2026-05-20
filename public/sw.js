@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "8016f544";
+const VERSION = "bff607a2";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -45,13 +45,16 @@ const BOOTSTRAP = [
 ];
 
 // Cross-origin URLs we DO cache. Default is pass-through (host owns
-// freshness). @peculiar (DTLS cert generation, dynamic-imported by
-// webrtc-cert.js) is the only cross-origin asset that benefits from
-// durable caching today — small library, one-time download, used on
-// every WebRTC session.
+// freshness). MediaPipe Tasks-Vision (mediapipe.js + gestures.js
+// dynamic-imported from jsDelivr, plus the .task model files from
+// storage.googleapis.com) benefit from durable caching: ~7 MB gesture
+// model + ~4 MB COCO model + the WASM bundle, otherwise re-downloaded
+// each tab open. @peculiar (DTLS cert, webrtc-cert.js) same shape.
 function isCacheableCrossOrigin(url) {
+  if (url.hostname === "storage.googleapis.com" && url.pathname.includes("/mediapipe-models/")) return true;
   if (url.hostname !== "cdn.jsdelivr.net") return false;
   if (url.pathname.includes("@peculiar/")) return true;
+  if (url.pathname.includes("@mediapipe/")) return true;
   return false;
 }
 

@@ -56,31 +56,7 @@ async function sustainedDrive(ctx, l, r, count = 2) {
   for (let i = 0; i < count; i++) await pulse(ctx, l, r, MAX);
 }
 
-// 1 — Figure-8. Two wide arcs in opposite curves, ~10s total. Bigger
-//     diameter than the v1 (which was a tiny tight figure). Speaks at
-//     start so the viewer knows what they're about to see.
-async function figure8(ctx) {
-  await ctx.exec("speak", { text: "Figure eight. Here we go." });
-  await ctx.sleep(500);
-  // Right-arc forward (left wheel faster) — traces left lobe of the 8
-  for (let i = 0; i < 3; i++) await pulse(ctx, SPEED, SPEED * 0.35, MAX);
-  // Left-arc forward — traces right lobe
-  for (let i = 0; i < 3; i++) await pulse(ctx, SPEED * 0.35, SPEED, MAX);
-}
-
-// 2 — Zigzag sweep. Wide alternating arcs forward — like a search
-//     pattern. ~10s total. Vocal mid-sweep so the demo feels narrated.
-async function zigzag(ctx) {
-  await ctx.exec("speak", { text: "Hmm... scanning around." });
-  await ctx.sleep(400);
-  for (let i = 0; i < 3; i++) {
-    await pulse(ctx, SPEED, SPEED * 0.3, MAX);
-    await pulse(ctx, SPEED * 0.3, SPEED, MAX);
-  }
-  await ctx.exec("speak", { text: "All clear." });
-}
-
-// 3 — Dance. Multi-section: intro → spin sequence → shimmy → charge →
+// Dance. Multi-section: intro → spin sequence → shimmy → charge →
 //     finale. ~15s total. Each section visually distinct so it reads as
 //     "choreography" not "scripted twitch."
 async function dance(ctx) {
@@ -195,6 +171,27 @@ async function follow(ctx, target = "person") {
     else if (cx > 0.6) await pulse(ctx,  SPEED, -SPEED, 300);  // turn right
     else               await pulse(ctx,  SPEED,  SPEED, MAX);  // sustained drive toward
   }
+}
+
+// Hand-follow. Persistent watcher-backed loop — the demo arms the
+// follow action and narrates the gesture vocabulary, then exits. The
+// behavior keeps running until the operator presses Stop on the Reflex
+// card or shows Closed_Fist + presses Stop. Different shape from the
+// COCO follow above: no fixed step count, no scripted choreography —
+// the user is the choreographer via their hand.
+//
+// We arm via start_robot_watcher (not direct startWatcher) so the
+// tool-call pill renders the same way Pip-issued arming would. Camera
+// auto-armed the halt-on-stop-sign watcher; switching to follow
+// replaces it cleanly because startWatcher always stops the prior loop.
+async function handFollow(ctx) {
+  await ctx.exec("start_robot_camera", { id: ctx.id });
+  await speakAndWait(ctx, "Hand follow. Show me a hand.", 300);
+  // classes is unused by the follow loop but the schema requires it —
+  // pass a sentinel that makes intent obvious in the audit pill.
+  await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["hand"], action: "follow" });
+  await ctx.sleep(800);
+  await speakAndWait(ctx, "Open palm to pause. Pointing up to resume.");
 }
 
 // 7 — Introduce. Multi-section self-introduction with audience
@@ -468,17 +465,16 @@ async function showOff(ctx) {
 }
 
 const DEMOS = {
-  figure8:   { run: figure8,   label: "figure-8"   },
-  zigzag:    { run: zigzag,    label: "zigzag"     },
-  dance:     { run: dance,     label: "dance"      },
-  patrol:    { run: patrol,    label: "patrol"     },
-  react:     { run: react,     label: "react"      },
-  follow:    { run: follow,    label: "follow"     },
-  introduce: { run: introduce, label: "introduce"  },
-  wiggle:    { run: wiggle,    label: "wiggle"     },
-  selfie:    { run: selfie,    label: "selfie"     },
-  stopsign:  { run: stopsignPatrol, label: "stop-sign-patrol" },
-  showoff:   { run: showOff,   label: "show-off"   },
+  dance:      { run: dance,         label: "dance"            },
+  patrol:     { run: patrol,        label: "patrol"           },
+  react:      { run: react,         label: "react"            },
+  follow:     { run: follow,        label: "follow"           },
+  handfollow: { run: handFollow,    label: "hand-follow"      },
+  introduce:  { run: introduce,     label: "introduce"        },
+  wiggle:     { run: wiggle,        label: "wiggle"           },
+  selfie:     { run: selfie,        label: "selfie"           },
+  stopsign:   { run: stopsignPatrol, label: "stop-sign-patrol" },
+  showoff:    { run: showOff,      label: "show-off"          },
 };
 
 export const DEMO_NAMES = Object.keys(DEMOS);
@@ -491,17 +487,19 @@ export const DEMO_NAMES = Object.keys(DEMOS);
 // shorter ones (e.g. `stopsign` before `patrol`, since "stop sign
 // patrol" should map to the stopsign demo, not vanilla patrol).
 const ALIASES = {
-  figure8:   /(?:figure[\s-]*(?:eight|8))/i,
-  zigzag:    /(?:zig[\s-]*zag)/i,
-  stopsign:  /(?:stop[\s-]*sign)/i,
-  dance:     /dance/i,
-  patrol:    /patrol/i,
-  react:     /react/i,
-  follow:    /follow/i,
-  introduce: /(?:introduce|introduction|intro)/i,
-  wiggle:    /(?:wiggle|wag)/i,
-  selfie:    /(?:selfie|look\s+around|describe\s+room)/i,
-  showoff:   /(?:show[\s-]*off|reel|highlights?)/i,
+  stopsign:   /(?:stop[\s-]*sign)/i,
+  // hand-follow MUST match before bare `follow` — otherwise "hand follow"
+  // would resolve to the COCO object-follow demo and waste the user's
+  // breath on the wrong primitive.
+  handfollow: /(?:hand[\s-]*follow|follow[\s-]*(?:my\s+)?hand|gesture[\s-]*follow)/i,
+  dance:      /dance/i,
+  patrol:     /patrol/i,
+  react:      /react/i,
+  follow:     /follow/i,
+  introduce:  /(?:introduce|introduction|intro)/i,
+  wiggle:     /(?:wiggle|wag)/i,
+  selfie:     /(?:selfie|look\s+around|describe\s+room)/i,
+  showoff:    /(?:show[\s-]*off|reel|highlights?)/i,
 };
 const RX_PREFIX = /^\/?demo\s+(.+)$/i;
 

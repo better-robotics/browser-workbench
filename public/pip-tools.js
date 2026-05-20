@@ -217,7 +217,7 @@ const ALL_TOOLS = [
   },
   {
     name: "start_robot_watcher",
-    description: "Start a continuous closed-vocab MediaPipe COCO reflex on the robot's camera (~10ms/frame, 3s cool-down between fires). On every detection, runs the action then re-arms. Once armed, you do NOT need to also poll view_robot_frame for the same target — a [reflex-fire] block appears in your next tool_result when it catches. Idempotent: a second call replaces any prior. `classes` must come from the COCO-80 enum below. By default the halt action also speaks 'stopped, X' / 'resuming' aloud — set silent:true if your own logic narrates these events to avoid two voices overlapping.",
+    description: "Start a continuous reflex on the robot's camera. Two model paths: (a) `halt`/`speak`/`notify` actions run MediaPipe COCO closed-vocab object detection on `classes` (~10ms/frame, 3s cool-down between fires); (b) `follow` action runs MediaPipe Gesture Recognizer for hand tracking — `classes` is ignored, and built-in gestures double as commands (Open_Palm/Closed_Fist pause+halt, Pointing_Up resumes). A [reflex-fire] / [reflex-clear] block appears in your next tool_result when something triggers. Idempotent: a second call replaces any prior. By default halt/follow speak narration aloud — set silent:true if your own logic narrates these events to avoid two voices overlapping.",
     input_schema: {
       type: "object",
       properties: {
@@ -226,16 +226,16 @@ const ALL_TOOLS = [
           type: "array",
           minItems: 1,
           items: { type: "string", enum: COCO_CLASSES },
-          description: "One or more COCO-80 class names to watch for.",
+          description: "One or more COCO-80 class names to watch for. Required even for `follow` action (pass any single class like ['hand'] as a sentinel — the follow loop ignores classes).",
         },
         action: {
           type: "string",
           enum: ACTION_NAMES,
-          description: "halt = zero-speed motor pulse; speak = announce label; notify = console log. Defaults to halt.",
+          description: "halt = zero-speed motor pulse + motion gate (Pip's motor tools block until the target leaves frame); speak = announce label; notify = console log; follow = hand-tracking visual servo with gesture commands. Defaults to halt.",
         },
         silent: {
           type: "boolean",
-          description: "When true, suppress the watcher's built-in 'stopped, X' / 'resuming' speech. Use this when your own loop announces the events (otherwise both voices race + overlap).",
+          description: "When true, suppress the watcher's built-in 'stopped, X' / 'resuming' / 'paused' / 'following again' speech. Use this when your own loop announces the events (otherwise both voices race + overlap).",
         },
       },
       required: ["id", "classes"],

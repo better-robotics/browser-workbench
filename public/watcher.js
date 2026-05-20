@@ -3,20 +3,25 @@
 // it works without a script open, and Pip can compose it ("watch for X,
 // then ask_human").
 //
-// Two loop shapes by action:
-//   - speak / notify: continuous-fire, REARM_DEBOUNCE_MS cool-down. Fires
-//     once per cool-down while the target lingers (announce-style).
-//   - halt: presence/absence poll. On enter, halts motors + sets a per-
-//     entry gate Promise that motor tools in pip-tools.js await. On exit,
-//     resolves the gate so blocked motor calls proceed. Mirrors the
-//     openpilot panda pattern from .claude/CLAUDE.md — safety enforced
-//     below the planner: Pip can't bypass the gate, only narrate around it.
+// Loop shapes by action:
+//   - speak / notify: continuous-fire on `classes` (COCO closed-vocab),
+//     REARM_DEBOUNCE_MS cool-down between fires. Announce-style.
+//   - halt: presence/absence poll on `classes`. On enter, halts motors +
+//     sets a per-entry gate Promise that motor tools in pip-tools.js
+//     await. On exit, resolves the gate. Mirrors the openpilot panda
+//     pattern — safety enforced below the planner.
+//   - follow: hand-tracking visual servo (MediaPipe Gesture Recognizer).
+//     Centers the palm centroid via turn pulses, drives forward when far,
+//     holds when close. Built-in gestures double as commands: Open_Palm
+//     pauses follow, Pointing_Up resumes. Same gate-pattern as halt so
+//     the user retains a hard stop without leaving the page.
 //
-// Actions are a closed set (halt / speak / notify). Same containment
-// principle as ask_human being the bottom rung: a hallucinated Pip call
-// can pick which verb, not invent a new one.
+// Actions are a closed set (halt / speak / notify / follow). Same
+// containment principle as ask_human being the bottom rung: a
+// hallucinated Pip call can pick which verb, not invent a new one.
 
 import { startDetection, detectOnce, isMediapipeFailed } from "./mediapipe.js";
+import { detectGestureOnce, isGesturesFailed, GESTURE_CLASSES } from "./gestures.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { listCameraSources } from "./camera-frame.js";
 import { capSection } from "./capabilities/runtime/cap-section.js";
@@ -39,6 +44,40 @@ const REARM_DEBOUNCE_MS = 3000;
 // 1s wait between "I moved the sign away" and motion resuming reads as
 // the demo being broken.
 const HALT_POLL_MS = 200;
+
+// Follow-loop poll interval. The Gesture Recognizer is ~20ms GPU and
+// the motor pulses below take 150-1200ms, so the loop's outer cadence
+// is paced by the pulse, not the poll. 150ms gives near-real-time
+// gesture pickup without redundant detector spam between pulses.
+const FOLLOW_POLL_MS = 150;
+// Visual-servo defaults (Hiwonder MentorPi + GestureBot references):
+//   - Deadband 0.1 (10% of frame width) — under this, no turn pulse,
+//     just drive straight forward.
+//   - Turn pulse 200ms — long enough to register, short enough that
+//     overshoot is bounded.
+//   - Forward pulse 600ms — covers ground without committing past the
+//     next perception tick.
+//   - bboxArea 0.30 = "close enough, hold position." Above this the
+//     palm-detector also starts losing the hand (it needs surrounding
+//     context to localize), so trying to drive closer would lose track.
+const FOLLOW_DEADBAND = 0.10;
+const FOLLOW_TURN_MS  = 200;
+const FOLLOW_DRIVE_MS = 600;
+const FOLLOW_HOLD_AREA = 0.30;
+const FOLLOW_TURN_SPEED  = 28;
+const FOLLOW_DRIVE_SPEED = 32;
+// How many consecutive null detections before we announce "lost hand"
+// and switch from drive/turn to a passive idle. Single dropouts are
+// common when the hand crosses the FOV edge — don't react to noise.
+const FOLLOW_LOST_TICKS = 4;
+// Gesture command map. Open_Palm and Closed_Fist are the most reliably
+// classified across the literature; Pointing_Up is the cleanest
+// re-engage signal. Thumb_Down explicitly excluded — known failure mode.
+const FOLLOW_GESTURE_COMMANDS = {
+  Open_Palm:   "pause",
+  Closed_Fist: "pause",
+  Pointing_Up: "resume",
+};
 
 // Fire-event listeners — assistant.js subscribes so it can inject a
 // synthetic observation into Pip's active turn (L2 "harness pushes state
@@ -130,14 +169,16 @@ export async function awaitReflexGate(entryId, { maxMs = DEFAULT_GATE_TIMEOUT_MS
 }
 
 const ACTIONS = {
-  // halt is implemented as its own loop (runHaltLoop) — presence/absence
-  // with a motor gate, not a single fire-and-cool-down. The entry here is
-  // a no-op so cfg.action validation and the UI dropdown still work.
+  // halt + follow are implemented as their own loops (runHaltLoop,
+  // runFollowLoop) — they need richer per-tick logic than the speak/notify
+  // single-shot pattern. The entries here are no-ops so cfg.action
+  // validation and the UI dropdown still work.
   halt:   async ()           => {},
   speak:  async (_entry, det) => { ttsSpeak(`saw ${det.label}`); },
   notify: async (entry, det) => {
     console.log(`[watcher] ${entry.name} saw ${det.label} (${(det.score * 100 | 0)}%)`);
   },
+  follow: async ()           => {},
 };
 export const ACTION_NAMES = Object.keys(ACTIONS);
 
@@ -269,6 +310,123 @@ function runHaltLoop(entry, cfg) {
   tick();
 }
 
+// Follow-action loop. Polls the Gesture Recognizer for the operator's
+// hand; runs a centroid P-loop that turn-pulses to center the palm in
+// frame and drive-pulses to close distance when far. Built-in gestures
+// double as commands — Open_Palm/Closed_Fist pause (engage motor gate
+// + halt), Pointing_Up resumes. Same gate primitive as runHaltLoop, so
+// "pause follow" cleanly composes with Pip if it's running concurrently
+// AND a hard-stop verb survives whatever the operator is otherwise doing.
+//
+// State machine:
+//   tracking → (Open_Palm)      → paused
+//   tracking → (Closed_Fist)    → paused
+//   paused   → (Pointing_Up)    → tracking
+//   tracking → (no hand × N)    → idle (no chase-spin — staying put is
+//                                  far less unnerving than a robot that
+//                                  hunts for you when you've stepped away)
+//   idle     → (hand reappears) → tracking
+function runFollowLoop(entry, cfg) {
+  let stopped = false;
+  let timer = null;
+  let paused = false;
+  let lostCount = 0;
+  let lastGesture = null;
+  const stopFn = () => {
+    if (stopped) return;
+    stopped = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+    releaseGate(entry.id);
+  };
+  _running.set(entry.id, { stop: stopFn });
+
+  const tick = async () => {
+    if (stopped) return;
+    if (!cfg.enabled || entry.status !== "connected") {
+      stopFn();
+      _running.delete(entry.id);
+      cfg.enabled = false;
+      renderEntry(entry);
+      return;
+    }
+    let det = null;
+    try { det = await detectGestureOnce(entry); }
+    catch { det = null; }
+    if (stopped) return;
+    if (det === null && isGesturesFailed()) {
+      stopFn();
+      _running.delete(entry.id);
+      cfg.enabled = false;
+      renderEntry(entry);
+      return;
+    }
+
+    // Gesture commands — fire only on transition (not every tick the
+    // gesture stays held) so the audience hears one announcement per
+    // user action, not a stream.
+    const g = det?.gesture;
+    if (g && g !== "None" && g !== lastGesture && FOLLOW_GESTURE_COMMANDS[g]) {
+      const cmd = FOLLOW_GESTURE_COMMANDS[g];
+      if (cmd === "pause" && !paused) {
+        paused = true;
+        try { await pulseMotors(entry.id, 0, 0, 200); } catch {}
+        if (stopped) return;
+        if (!cfg.silent) ttsSpeak(`paused, ${g.toLowerCase().replace(/_/g, " ")}`);
+        setGateBlocked(entry.id);
+        emitFire(entry, { gesture: g, ts: Date.now() }, "gesture-pause");
+      } else if (cmd === "resume" && paused) {
+        paused = false;
+        if (!cfg.silent) ttsSpeak("following again");
+        releaseGate(entry.id);
+        emitFire(entry, { gesture: g, ts: Date.now() }, "gesture-resume");
+      }
+    }
+    if (g) lastGesture = g;
+
+    // Tracking — skipped entirely while paused (the gate is engaged;
+    // even an erroneous pulse here would be a no-op via pip-tools, but
+    // skipping is cheaper + cleaner).
+    if (!paused) {
+      if (!det) {
+        lostCount++;
+        if (lostCount === FOLLOW_LOST_TICKS) {
+          if (!cfg.silent) ttsSpeak("lost the hand");
+          emitFire(entry, { ts: Date.now() }, "follow-lost");
+          renderEntry(entry);
+        }
+      } else {
+        if (lostCount >= FOLLOW_LOST_TICKS) {
+          if (!cfg.silent) ttsSpeak("found you");
+          emitFire(entry, { ts: Date.now() }, "follow-reacquire");
+        }
+        lostCount = 0;
+        cfg.lastDetection = { label: "hand", score: det.score, ts: Date.now() };
+        const cx = det.palmCentroid.cx;
+        const area = det.bboxArea;
+        if (area >= FOLLOW_HOLD_AREA) {
+          // Close enough — hold. No pulse, no narration. Keeps the
+          // operator in the "I can move my hand around without dragging
+          // the robot in" sweet spot the audience reads as "it knows
+          // I'm close." Lower than this and we'd overshoot the hand;
+          // higher and the palm detector starts losing context.
+        } else if (cx < 0.5 - FOLLOW_DEADBAND) {
+          try { await pulseMotors(entry.id, -FOLLOW_TURN_SPEED, FOLLOW_TURN_SPEED, FOLLOW_TURN_MS); } catch {}
+        } else if (cx > 0.5 + FOLLOW_DEADBAND) {
+          try { await pulseMotors(entry.id, FOLLOW_TURN_SPEED, -FOLLOW_TURN_SPEED, FOLLOW_TURN_MS); } catch {}
+        } else {
+          try { await pulseMotors(entry.id, FOLLOW_DRIVE_SPEED, FOLLOW_DRIVE_SPEED, FOLLOW_DRIVE_MS); } catch {}
+        }
+        if (stopped) return;
+        renderEntry(entry);
+      }
+    }
+
+    if (!stopped) timer = setTimeout(tick, FOLLOW_POLL_MS);
+  };
+
+  tick();
+}
+
 export function startWatcher(entry, opts = {}) {
   const cfg = ensureConfig(entry);
   if (opts.classes) {
@@ -287,6 +445,7 @@ export function startWatcher(entry, opts = {}) {
   stopWatcher(entry, { silent: true });
   cfg.enabled = true;
   if (cfg.action === "halt") runHaltLoop(entry, cfg);
+  else if (cfg.action === "follow") runFollowLoop(entry, cfg);
   else runDetectIteration(entry, cfg);
   renderEntry(entry);
   return cfg;
@@ -330,16 +489,27 @@ function renderSection(entry) {
   const enabled = !!cfg.enabled;
   const last = cfg.lastDetection;
   const gated = isReflexGated(entry.id);
+  const isFollow = cfg.action === "follow";
   // Surface the gate state explicitly when blocked — operators (and demo
   // audiences) need to see WHY motion isn't happening, not infer it from
-  // a stale "last saw" line.
-  const state = enabled
-    ? gated
+  // a stale "last saw" line. Follow mode has its own state vocabulary
+  // (tracking / paused / lost) since "watching stop sign" makes no sense.
+  let state;
+  if (!enabled) {
+    state = last ? `saw ${last.label} at ${fmtClock(last.ts)}` : "off";
+  } else if (isFollow) {
+    state = gated
+      ? `PAUSED — gesture engaged · show Pointing_Up to resume`
+      : last
+        ? `tracking hand · last seen at ${fmtClock(last.ts)}`
+        : `tracking hand — show one to the camera`;
+  } else {
+    state = gated
       ? `BLOCKED — ${last?.label || cfg.classes[0]} visible · motion gated`
       : last
         ? `watching ${cfg.classes.join(", ")} · last saw ${last.label} at ${fmtClock(last.ts)}`
-        : `watching: ${cfg.classes.join(", ")}`
-    : last ? `saw ${last.label} at ${fmtClock(last.ts)}` : "off";
+        : `watching: ${cfg.classes.join(", ")}`;
+  }
   const action = enabled
     ? `<button class="secondary sm" data-action="watcher-stop">Stop</button>`
     : `<button class="secondary sm" data-action="watcher-start">Start</button>`;
@@ -353,26 +523,43 @@ function renderSection(entry) {
   const datalistId = `coco-classes-${entry.id}`;
   const datalistOpts = COCO_CLASSES.map(c => `<option value="${c}">`).join("");
   const cocoListHtml = COCO_CLASSES.map(c => escapeHtml(c)).join(", ");
+  // Follow mode swaps the "Watch for" combobox for a gesture cheat-sheet
+  // so the audience knows which hand shapes do anything. Listed in
+  // priority order — pause verbs first, resume verb after, then the
+  // ignored-but-recognized ones for completeness. Demo tip: a hint about
+  // having your hand visible BEFORE pressing Start to avoid the "why
+  // isn't it doing anything" moment when the recognizer has no input.
+  const followCheatSheet = `
+    <div class="watcher-gestures">
+      <div class="watcher-gesture-row"><strong>Open palm</strong> · pause + halt</div>
+      <div class="watcher-gesture-row"><strong>Closed fist</strong> · pause + halt</div>
+      <div class="watcher-gesture-row"><strong>Pointing up</strong> · resume tracking</div>
+      <div class="meta">Show a hand near the camera; gestures fire on transition (one announcement per pose change).</div>
+    </div>
+  `;
+  const reflexBody = `
+    <div class="row">
+      <div class="label">Watch for</div>
+      <input type="text" class="watcher-classes" data-action="watcher-classes"
+             value="${escapeHtml(cfg.classes.join(", "))}"
+             placeholder="stop sign, person"
+             list="${datalistId}"
+             ${enabled ? "disabled" : ""}>
+      <datalist id="${datalistId}">${datalistOpts}</datalist>
+    </div>
+    <details class="watcher-coco">
+      <summary>All ${COCO_CLASSES.length} COCO classes</summary>
+      <div class="watcher-coco-list">${cocoListHtml}</div>
+    </details>
+    <div class="meta">Closed-vocab — only the classes above will trigger.</div>
+  `;
   const body = `
     <div class="watcher-body">
-      <div class="row">
-        <div class="label">Watch for</div>
-        <input type="text" class="watcher-classes" data-action="watcher-classes"
-               value="${escapeHtml(cfg.classes.join(", "))}"
-               placeholder="stop sign, person"
-               list="${datalistId}"
-               ${enabled ? "disabled" : ""}>
-        <datalist id="${datalistId}">${datalistOpts}</datalist>
-      </div>
       <div class="row">
         <div class="label">On detection</div>
         <select data-action="watcher-action" ${enabled ? "disabled" : ""}>${actionOpts}</select>
       </div>
-      <details class="watcher-coco">
-        <summary>All ${COCO_CLASSES.length} COCO classes</summary>
-        <div class="watcher-coco-list">${cocoListHtml}</div>
-      </details>
-      <div class="meta">Closed-vocab — only the classes above will trigger.</div>
+      ${isFollow ? followCheatSheet : reflexBody}
     </div>
   `;
   return capSection({ name: "watcher", label: "Reflex", state, action, body });
