@@ -8,7 +8,7 @@ import { state } from "./state.js";
 import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
 import { tryMatchDemo, STATIC_DEMO_PHRASES } from "./demos.js";
 import { prewarmCache as prewarmTtsCache } from "./voice.js";
-import { wireMicButton } from "./assistant-voice.js";
+import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assistant-voice.js";
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
@@ -552,6 +552,10 @@ export function initAssistant() {
   // Intro fires once per install; subsequent loads stay silent at idle.
   const seenKey = "better-robotics:pip-intro-seen";
   const showIntro = !localStorage.getItem(seenKey);
+  // assistant-voice.setDeps must run BEFORE createPip — pip-core fires
+  // mic hooks the first time the user clicks the mic, but the config
+  // closure captures _turn/_getPip/_injectVoiceMidTurn at that point.
+  setVoiceDeps({ turn, getPip: () => _pip, injectVoiceMidTurn });
   _pip = createPip({
     container: document.body,
     ask,
@@ -571,6 +575,10 @@ export function initAssistant() {
     // release, Stop would wait up to 10s for the gate's timeout to fire
     // before the loop noticed turn.abort.
     onAbort: () => { turn.cancel(); releaseAllGates(); },
+    // Mic config — pip-core mounts the Web Speech button + handles
+    // sticky-mode, no-speech retry, etc. We pass hooks for safety-verb
+    // instant-fire (onChunk) and mid-turn injection (onFinal).
+    mic: makeMicConfig(),
   });
   registerSlashCommands({ pip: _pip, loadConnectGitHub: _loadConnectGitHub });
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
@@ -602,7 +610,7 @@ export function initAssistant() {
       .finally(() => anchor.remove());
   });
   watchDialogs();
-  wireMicButton({ turn, getPip: () => _pip, injectVoiceMidTurn });
+  wireTtsGating();
   wireWatcherFireBridge({ turn, scrollPanelToBottom });
 }
 

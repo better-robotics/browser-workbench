@@ -1,7 +1,5 @@
 import { CLAUDE_VARIANTS, CLAUDE_BACKENDS, activeModelForBackend } from "./claude.js";
 import { settings, saveSettings } from "./settings.js";
-import { isSupported as voiceInputSupported } from "./voice-input.js";
-import { toggleDictation } from "./assistant-voice.js";
 import { DEMO_NAMES } from "./demos.js";
 
 // Slash commands registered on the pip handle. /clear and /help ship as
@@ -13,10 +11,10 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
     name: "voice",
     description: "start / stop voice dictation into the input",
     handler: () => {
-      if (!voiceInputSupported()) {
+      if (!pip.micSupported) {
         return { reply: "Voice input isn't supported in this browser. Chrome / Edge / Safari only." };
       }
-      toggleDictation();
+      pip.toggleMic();
       return { reply: "" };
     },
   });
