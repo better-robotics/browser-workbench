@@ -1,5 +1,10 @@
-# macOS
-.DS_Store
+# Hidden paths aren't tracked unless negated.
+**/.*
+!.gitignore
+!.gitattributes
+!**/.claude
+!**/.claude/**
+**/.claude/settings.local.json
 
 # Arduino build output
 /tmp/
@@ -17,12 +22,8 @@ build/
 
 # Local config
 config.mk
-.env
 *.local
 
 # Editors
-.vscode/
-.idea/
 *.swp
 firmware/esp32_robot_idf/main/version.h
-.claude/scheduled_tasks.lock

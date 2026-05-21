@@ -26,7 +26,9 @@ let _detector = null;
 let _detectorPromise = null;
 let _detectorFailed = false;
 
-export function isMediapipeFailed() { return _detectorFailed; }
+// Standard backend-interface name consumed by detectors.js — the registry
+// proxies through isFailed across all backends.
+export function isFailed() { return _detectorFailed; }
 
 // GPU is ~10× faster but some drivers refuse shader compile or silently
 // fall back. CPU path is ~30–80ms — still well below detection budget
@@ -121,12 +123,14 @@ export async function detectOnce(entry, { classes, source = null, threshold } = 
 export function startDetection(entry, { classes, source = null, threshold, intervalMs = DEFAULT_INTERVAL_MS, timeoutMs = 0 } = {}) {
   let stopped = false;
   let timer = null;
+  let timeoutTimer = null;
   let resolveResult;
   const promise = new Promise((resolve) => { resolveResult = resolve; });
   const finish = (val) => {
     if (stopped) return;
     stopped = true;
     if (timer) { clearTimeout(timer); timer = null; }
+    if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
     resolveResult(val);
   };
   const loop = async () => {
@@ -144,7 +148,7 @@ export function startDetection(entry, { classes, source = null, threshold, inter
     if (dets.length > 0) { finish(dets[0]); return; }
     timer = setTimeout(loop, intervalMs);
   };
-  if (timeoutMs > 0) setTimeout(() => finish(null), timeoutMs);
+  if (timeoutMs > 0) timeoutTimer = setTimeout(() => finish(null), timeoutMs);
   loop();
   return { promise, stop: () => finish(null) };
 }

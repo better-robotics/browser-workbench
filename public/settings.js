@@ -27,7 +27,12 @@ export const settings = Object.assign(
   //   localizer. Mutually exclusive — only one is non-null at a time.
   // arucoMarkerSizeMm: printed marker side length, used by POS.Posit for
   //   metric pose. Defaults to the printable sheets' size (100 mm).
-  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
+  // pipDetector: active closed-vocab object detection backend, read by
+  //   detectors.js on import. "mediapipe" (default, ~4MB EfficientDet-
+  //   Lite0 via @mediapipe/tasks-vision) or "yolo26" (~10MB ONNX via
+  //   onnxruntime-web + WebGPU). Switch via /detector <name>; persists
+  //   here so the next session picks up the same backend.
+  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
   (() => {
     const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     // Migration: pipGithubAuth → githubAuth (Identity + Pip share one OAuth

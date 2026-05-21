@@ -7,7 +7,7 @@ import { capSection } from "./cap-section.js";
 import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
 import { persist } from "../../state.js";
 import { startWatcher, stopWatcher } from "../../watcher.js";
-import { isMediapipeFailed } from "../../mediapipe.js";
+import { isDetectorFailed } from "../../detectors.js";
 
 import { renderEntry } from "./render-bus.js";
 
@@ -274,12 +274,13 @@ export function makeMjpegStreamCap(schema) {
       );
       // Auto-arm the reflex watcher on camera start so the demo's stop-
       // sign gate is live the moment frames flow. Skipped if pre-armed
-      // (operator custom config) or mediapipe failed. _watcherAutoArmed
-      // tracks the inverse on stop so a manually-armed watcher survives
-      // a camera restart. Symmetric with webrtc-installable.js.
+      // (operator custom config) or the active detector failed.
+      // _watcherAutoArmed tracks the inverse on stop so a manually-armed
+      // watcher survives a camera restart. Symmetric with
+      // webrtc-installable.js.
       const armWatcherIfAuto = () => {
         if (entry.watcher?.enabled) return;
-        if (isMediapipeFailed()) return;
+        if (isDetectorFailed()) return;
         entry._watcherAutoArmed = true;
         startWatcher(entry);
       };
