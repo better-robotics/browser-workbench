@@ -8,7 +8,7 @@ import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
 import { waitOpsResponse } from "./ops-response.js";
 import { captureFrameDataUrl } from "./camera-frame.js";
-import { detectOnce as mpDetectOnce, startDetection as mpStartDetection } from "./mediapipe.js";
+import { detectOnce as detDetectOnce, startDetection as detStartDetection } from "./detectors.js";
 import { listPhones, askHuman } from "./phones.js";
 import { ask as claudeAsk } from "./claude.js";
 import { speak as voiceSpeak } from "./voice.js";
@@ -316,10 +316,11 @@ function makeRobotApi(entry) {
 
     frame(maxDim = 320) { return captureFrameDataUrl(entry, maxDim); },
 
-    // Closed-vocab COCO detection on the current robot frame (MediaPipe).
-    // For open-vocab text-prompt detection, use Pip via `pip.ask(...)`.
+    // Closed-vocab detection on the current robot frame, via the active
+    // backend selected by /detector (mediapipe or yolo26). For open-vocab
+    // text-prompt detection, use Pip via `pip.ask(...)`.
     async detections(opts = {}) {
-      const dets = await mpDetectOnce(entry, opts);
+      const dets = await detDetectOnce(entry, opts);
       if (dets === null) throw new Error(`${entry.name}: detector unavailable (WebGPU/model init failed)`);
       return dets;
     },
@@ -329,7 +330,7 @@ function makeRobotApi(entry) {
     // script can `await robot.watchFor("stop sign")` and linearize.
     watchFor(classes, opts = {}) {
       const list = Array.isArray(classes) ? classes : [classes];
-      return mpStartDetection(entry, { ...opts, classes: list }).promise;
+      return detStartDetection(entry, { ...opts, classes: list }).promise;
     },
   };
 }

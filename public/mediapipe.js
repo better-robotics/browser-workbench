@@ -26,7 +26,9 @@ let _detector = null;
 let _detectorPromise = null;
 let _detectorFailed = false;
 
-export function isMediapipeFailed() { return _detectorFailed; }
+// Standard backend-interface name consumed by detectors.js — the registry
+// proxies through isFailed across all backends.
+export function isFailed() { return _detectorFailed; }
 
 // GPU is ~10× faster but some drivers refuse shader compile or silently
 // fall back. CPU path is ~30–80ms — still well below detection budget

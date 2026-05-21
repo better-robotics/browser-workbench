@@ -13,7 +13,7 @@ import { installPackage } from "./command.js";
 import { capSection } from "./cap-section.js";
 import { notifyRobotStreamChange } from "../../phones.js";
 import { startWatcher, stopWatcher } from "../../watcher.js";
-import { isMediapipeFailed } from "../../mediapipe.js";
+import { isDetectorFailed } from "../../detectors.js";
 
 const OP_BEGIN   = 0x01;
 const OP_CHUNK   = 0x02;
@@ -234,11 +234,11 @@ export function makeWebrtcInstallableCap(schema) {
     // Auto-arm the reflex watcher on camera start so the demo's stop-sign
     // gate is live the moment frames flow — operator doesn't have to
     // remember to press Reflex Start. Skipped if the watcher is already
-    // armed (operator pre-armed with a custom config) or mediapipe failed
-    // to load. _watcherAutoArmed tracks the inverse on stop() so we only
-    // tear down what we set up; a manually-armed watcher survives a
-    // camera restart.
-    if (streamField === "cameraStream" && !entry.watcher?.enabled && !isMediapipeFailed()) {
+    // armed (operator pre-armed with a custom config) or the active
+    // detector failed to load. _watcherAutoArmed tracks the inverse on
+    // stop() so we only tear down what we set up; a manually-armed
+    // watcher survives a camera restart.
+    if (streamField === "cameraStream" && !entry.watcher?.enabled && !isDetectorFailed()) {
       entry._watcherAutoArmed = true;
       startWatcher(entry);
     }
