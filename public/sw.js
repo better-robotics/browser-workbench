@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "b5e1ee18";
+const VERSION = "b0d6d13e";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -53,11 +53,15 @@ const BOOTSTRAP = [
 // storage.googleapis.com) benefit from durable caching: ~7 MB gesture
 // model + ~4 MB COCO model + the WASM bundle, otherwise re-downloaded
 // each tab open. @peculiar (DTLS cert, webrtc-cert.js) same shape.
+// onnxruntime-web (yolo26.js) + huggingface.co/.../resolve/ paths
+// (yolo26n ONNX model, ~10 MB) follow the same pattern.
 function isCacheableCrossOrigin(url) {
   if (url.hostname === "storage.googleapis.com" && url.pathname.includes("/mediapipe-models/")) return true;
+  if (url.hostname === "huggingface.co" && url.pathname.includes("/resolve/")) return true;
   if (url.hostname === "cdn.jsdelivr.net") {
     if (url.pathname.includes("@peculiar/")) return true;
     if (url.pathname.includes("@mediapipe/")) return true;
+    if (url.pathname.includes("onnxruntime-web")) return true;
     return false;
   }
   // CodeMirror 6 (scripts.js). Loaded from esm.sh (not jsdelivr) because

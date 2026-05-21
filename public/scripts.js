@@ -321,7 +321,10 @@ function makeRobotApi(entry) {
     // text-prompt detection, use Pip via `pip.ask(...)`.
     async detections(opts = {}) {
       const dets = await detDetectOnce(entry, opts);
-      if (dets === null) throw new Error(`${entry.name}: detector unavailable (WebGPU/model init failed)`);
+      // null = either the detector failed to init / mid-session crashed,
+      // or no frame was capturable (camera not streaming / 0-sized).
+      // Both surface as "unavailable" here; details live in the console.
+      if (dets === null) throw new Error(`${entry.name}: detection unavailable (check the camera is streaming and the detector loaded — see console)`);
       return dets;
     },
 

@@ -209,12 +209,14 @@ export async function detectOnce(entry, { classes, source = null, threshold = DE
 export function startDetection(entry, { classes, source = null, threshold, intervalMs = DEFAULT_INTERVAL_MS, timeoutMs = 0 } = {}) {
   let stopped = false;
   let timer = null;
+  let timeoutTimer = null;
   let resolveResult;
   const promise = new Promise((resolve) => { resolveResult = resolve; });
   const finish = (val) => {
     if (stopped) return;
     stopped = true;
     if (timer) { clearTimeout(timer); timer = null; }
+    if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
     resolveResult(val);
   };
   const loop = async () => {
@@ -229,7 +231,7 @@ export function startDetection(entry, { classes, source = null, threshold, inter
     if (dets.length > 0) { finish(dets[0]); return; }
     timer = setTimeout(loop, intervalMs);
   };
-  if (timeoutMs > 0) setTimeout(() => finish(null), timeoutMs);
+  if (timeoutMs > 0) timeoutTimer = setTimeout(() => finish(null), timeoutMs);
   loop();
   return { promise, stop: () => finish(null) };
 }

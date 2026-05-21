@@ -531,7 +531,7 @@ async function dispatch(name, input) {
       const entry = state.devices.get(input.id);
       if (!entry) return { error: `no robot with id ${input.id}` };
       const queries = Array.isArray(input.queries) ? input.queries.map(String).slice(0, 5) : [];
-      if (queries.length === 0) return { error: "queries is required (up to 5 COCO class labels)" };
+      if (queries.length === 0) return { error: "queries is required (up to 5 class labels from the active detector's vocabulary)" };
       const camera = String(input.camera || "primary").toLowerCase();
       const sources = listCameraSources(entry);
       // detectOnce takes { classes, source, threshold } and filters the

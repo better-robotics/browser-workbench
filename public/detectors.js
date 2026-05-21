@@ -56,9 +56,20 @@ async function ensureLoaded() {
     // Guard against a switch happening mid-import — if the user toggled
     // away before this module finished loading, drop it on the floor and
     // let the next ensureLoaded() pick up the new backend.
-    if (_activeName !== name) return ensureLoaded();
+    if (_activeName !== name) {
+      _activePromise = null;
+      return ensureLoaded();
+    }
     _activeModule = mod;
     return mod;
+  }).catch(err => {
+    // Module fetch failed (CDN blocked, 404, offline). Resolve to null
+    // and drop the cached rejection so a later call can retry — without
+    // this, a transient network blip would brick the active backend
+    // until page reload.
+    console.warn(`[detectors] failed to load ${name}:`, err && err.message || err);
+    _activePromise = null;
+    return null;
   });
   return _activePromise;
 }
@@ -100,9 +111,15 @@ export function startDetection(entry, opts) {
   const promise = new Promise((r) => { resolveResult = r; });
   ensureLoaded().then((mod) => {
     if (stopped || !mod) { resolveResult(null); return; }
-    const { promise: p, stop } = mod.startDetection(entry, opts);
-    realStop = stop;
-    p.then((v) => resolveResult(v));
+    try {
+      const { promise: p, stop } = mod.startDetection(entry, opts);
+      realStop = stop;
+      // Resolve to null on inner-promise rejection so the caller's await
+      // unblocks instead of hanging on an unhandled rejection.
+      p.then((v) => resolveResult(v), () => resolveResult(null));
+    } catch {
+      resolveResult(null);
+    }
   });
   return {
     promise,
