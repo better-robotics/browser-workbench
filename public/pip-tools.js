@@ -21,8 +21,8 @@ import {
 // surfaces an error if neither transport is available.
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
-import { detectOnce, isMediapipeFailed } from "./mediapipe.js";
-import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES, awaitReflexGate, isReflexGated } from "./watcher.js";
+import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "./detectors.js";
+import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, awaitReflexGate, isReflexGated } from "./watcher.js";
 import { speak as voiceSpeak } from "./voice.js";
 
 // Motor-tool gate. Blocks a tool call while the reflex watcher's halt
@@ -160,7 +160,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_robot_detections",
-    description: "Closed-vocab detector on the robot's camera frame (MediaPipe COCO, ~80 classes). Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no class in `queries` was seen (this also means: queries containing non-COCO terms like 'cat feeder' or 'doorway' will always return empty — use only COCO labels like 'person', 'cup', 'cat', 'chair', 'cell phone', 'bottle', 'laptop'). Per-camera bboxes are not comparable across cameras.",
+    description: "Closed-vocab detector on the robot's camera frame, scored against the active backend's vocabulary (defaults to COCO 80; switch via the `/detector` slash command). Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no class in `queries` was seen (this also means: queries containing terms not in the active vocabulary will always return empty). Per-camera bboxes are not comparable across cameras.",
     input_schema: {
       type: "object",
       properties: {
@@ -168,7 +168,7 @@ const ALL_TOOLS = [
         queries: {
           type: "array",
           items: { type: "string" },
-          description: "Up to 5 COCO class labels ('person', 'cup', 'cat', 'cell phone', 'stop sign'). Non-COCO terms silently return empty.",
+          description: "Up to 5 class labels drawn from the active detector's vocabulary (e.g. 'person', 'cup', 'cat', 'cell phone', 'stop sign' for COCO). Terms outside the vocabulary silently return empty.",
         },
         camera: { type: "string", description: "'primary' (default), 'phone', or 'all'." },
       },
@@ -239,7 +239,7 @@ const ALL_TOOLS = [
   },
   {
     name: "start_robot_watcher",
-    description: "Start a continuous reflex on the robot's camera. Two model paths: (a) `halt`/`speak`/`notify` actions run MediaPipe COCO closed-vocab object detection on `classes` (~10ms/frame, 3s cool-down between fires); (b) `follow` action runs MediaPipe Gesture Recognizer for hand tracking — `classes` is ignored. Follow always drives toward the hand, speaks any high-confidence gesture aloud (Open_Palm, Closed_Fist, Pointing_Up, Thumb_Up, Victory, ILoveYou), and overrides palm-tracking with a directional spin when the operator points sideways. A [reflex-fire] / [reflex-clear] block appears in your next tool_result when something triggers. Idempotent: a second call replaces any prior. By default halt/follow speak narration aloud — set silent:true if your own logic narrates these events.",
+    description: "Start a continuous reflex on the robot's camera. Two model paths: (a) `halt`/`speak`/`notify` actions run the active closed-vocab object detector on `classes` (~10–30ms/frame on GPU, 3s cool-down between fires); (b) `follow` action runs MediaPipe Gesture Recognizer for hand tracking — `classes` is ignored. Follow always drives toward the hand, speaks any high-confidence gesture aloud (Open_Palm, Closed_Fist, Pointing_Up, Thumb_Up, Victory, ILoveYou), and overrides palm-tracking with a directional spin when the operator points sideways. A [reflex-fire] / [reflex-clear] block appears in your next tool_result when something triggers. Idempotent: a second call replaces any prior. By default halt/follow speak narration aloud — set silent:true if your own logic narrates these events.",
     input_schema: {
       type: "object",
       properties: {
@@ -247,8 +247,8 @@ const ALL_TOOLS = [
         classes: {
           type: "array",
           minItems: 1,
-          items: { type: "string", enum: COCO_CLASSES },
-          description: "One or more COCO-80 class names to watch for. Required even for `follow` action (pass any single class like ['hand'] as a sentinel — the follow loop ignores classes).",
+          items: { type: "string" },
+          description: "One or more class names to watch for, drawn from the active detector's vocabulary. Required even for `follow` action (pass any single class like ['hand'] as a sentinel — the follow loop ignores classes).",
         },
         action: {
           type: "string",
@@ -364,15 +364,40 @@ export function isVisionAvailable() {
   return !!settings.pipVisionEnabled && VISION_BACKENDS.has(settings.pipBackend || "bridge");
 }
 
-// Dynamic per-call so runtime toggles (Settings → Pip vision) take effect
-// without a page reload. All MediaPipe-backed tools (detections + watcher)
-// share the same isMediapipeFailed() gate — same model, same failure mode.
+// Dynamic per-call so runtime toggles (Settings → Pip vision, /detector
+// switches) take effect without a page reload. Detector-backed tools
+// (detections + watcher) share the same isDetectorFailed() gate — same
+// model surface, same failure mode. The watcher's `classes` enum is also
+// injected here so the planner sees the active vocabulary (skip injection
+// for >200 entries to keep prompt tokens sane — YOLOE/LVIS would put 1200
+// names into the schema).
+const VOCAB_ENUM_MAX = 200;
+function injectVocabEnum(tool, vocab) {
+  if (!vocab || vocab.length === 0 || vocab.length > VOCAB_ENUM_MAX) return tool;
+  if (tool.name !== "start_robot_watcher") return tool;
+  const props = tool.input_schema?.properties;
+  if (!props?.classes) return tool;
+  return {
+    ...tool,
+    input_schema: {
+      ...tool.input_schema,
+      properties: {
+        ...props,
+        classes: { ...props.classes, items: { type: "string", enum: vocab } },
+      },
+    },
+  };
+}
+
 export function getTools() {
-  return ALL_TOOLS.filter(t => {
-    if ((t.name === "get_robot_detections" || t.name === "start_robot_watcher" || t.name === "stop_robot_watcher") && isMediapipeFailed()) return false;
-    if (t.name === "view_robot_frame" && !isVisionAvailable()) return false;
-    return true;
-  });
+  const vocab = getActiveVocabulary();
+  return ALL_TOOLS
+    .filter(t => {
+      if ((t.name === "get_robot_detections" || t.name === "start_robot_watcher" || t.name === "stop_robot_watcher") && isDetectorFailed()) return false;
+      if (t.name === "view_robot_frame" && !isVisionAvailable()) return false;
+      return true;
+    })
+    .map(t => injectVocabEnum(t, vocab));
 }
 
 async function dispatch(name, input) {
@@ -506,14 +531,14 @@ async function dispatch(name, input) {
       const entry = state.devices.get(input.id);
       if (!entry) return { error: `no robot with id ${input.id}` };
       const queries = Array.isArray(input.queries) ? input.queries.map(String).slice(0, 5) : [];
-      if (queries.length === 0) return { error: "queries is required (up to 5 COCO class labels)" };
+      if (queries.length === 0) return { error: "queries is required (up to 5 class labels from the active detector's vocabulary)" };
       const camera = String(input.camera || "primary").toLowerCase();
       const sources = listCameraSources(entry);
-      // MediaPipe's detectOnce takes { classes, source, threshold } and
-      // filters the 80-class scan post-detection. Returns null on hard
-      // failure, [] on "no class matched" — those mean different things.
-      const captureErr = isMediapipeFailed()
-        ? "detector unavailable this session (MediaPipe init failed — check browser console)"
+      // detectOnce takes { classes, source, threshold } and filters the
+      // model's full scan post-detection. Returns null on hard failure,
+      // [] on "no class matched" — those mean different things.
+      const captureErr = isDetectorFailed()
+        ? `detector unavailable this session (${getActiveDetectorName()} init failed — check browser console)`
         : "couldn't capture a frame — camera not started or video element 0-sized";
       try {
         if (camera === "all") {

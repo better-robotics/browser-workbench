@@ -20,7 +20,7 @@
 // containment principle as ask_human being the bottom rung: a
 // hallucinated Pip call can pick which verb, not invent a new one.
 
-import { startDetection, detectOnce, isMediapipeFailed } from "./mediapipe.js";
+import { startDetection, detectOnce, isDetectorFailed, getActiveVocabulary } from "./detectors.js";
 import { detectGestureOnce, isGesturesFailed, GESTURE_CLASSES } from "./gestures.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { listCameraSources } from "./camera-frame.js";
@@ -233,25 +233,9 @@ const ACTIONS = {
 };
 export const ACTION_NAMES = Object.keys(ACTIONS);
 
-// COCO 80 — the exact closed vocabulary EfficientDet-Lite0 detects. Exposed
-// so the tool description can list them for the planner (no more guessing)
-// and the Reflex card body can show them for the operator (no more "what
-// can I watch for?"). Pinned here as the single source of truth instead of
-// duplicating in pip-tools.js + watcher UI.
-export const COCO_CLASSES = [
-  "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
-  "truck", "boat", "traffic light", "fire hydrant", "stop sign",
-  "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-  "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag",
-  "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite",
-  "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
-  "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana",
-  "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza",
-  "donut", "cake", "chair", "couch", "potted plant", "bed", "dining table",
-  "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-  "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock",
-  "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
-];
+// Vocabulary read from the active detector at render time — both shipped
+// backends (mediapipe + yolo26) are COCO 80; a future YOLOE backend with a
+// 1200+ LVIS vocab will widen this without further changes here.
 
 function ensureConfig(entry) {
   if (!entry.watcher) entry.watcher = { classes: ["stop sign"], action: "halt", enabled: false, lastDetection: null };
@@ -325,7 +309,7 @@ function runHaltLoop(entry, cfg) {
     if (stopped) return;
     // Hard failure (detector permanently down) → exit. Transient null
     // (camera blip, frame not ready) → just keep polling.
-    if (dets === null && isMediapipeFailed()) {
+    if (dets === null && isDetectorFailed()) {
       stopFn();
       _running.delete(entry.id);
       cfg.enabled = false;
@@ -597,7 +581,7 @@ function renderSection(entry) {
   // No camera = no reflex source. Hide the section so it doesn't pretend
   // to be functional on a robot it can't watch.
   if (listCameraSources(entry).length === 0) return "";
-  if (isMediapipeFailed()) return "";
+  if (isDetectorFailed()) return "";
   const cfg = ensureConfig(entry);
   const enabled = !!cfg.enabled;
   const last = cfg.lastDetection;
@@ -628,12 +612,13 @@ function renderSection(entry) {
     `<option value="${a}"${cfg.action === a ? " selected" : ""}>${a}</option>`
   ).join("");
   // Datalist for autocomplete on the class input — Apple-HIG combobox
-  // shape, lets the operator pick from the exact 80 without consulting
-  // external docs. <details>/summary surfaces the full list as a
-  // disclosure so the visual default is compact.
-  const datalistId = `coco-classes-${entry.id}`;
-  const datalistOpts = COCO_CLASSES.map(c => `<option value="${c}">`).join("");
-  const cocoListHtml = COCO_CLASSES.map(c => escapeHtml(c)).join(", ");
+  // shape, lets the operator pick from the active backend's vocabulary
+  // without consulting external docs. <details>/summary surfaces the full
+  // list as a disclosure so the visual default is compact.
+  const vocab = getActiveVocabulary() || [];
+  const datalistId = `detector-classes-${entry.id}`;
+  const datalistOpts = vocab.map(c => `<option value="${c}">`).join("");
+  const cocoListHtml = vocab.map(c => escapeHtml(c)).join(", ");
   // Follow mode swaps the "Watch for" combobox for a behavior cheat-
   // sheet. Default: track the hand. Overrides: index-point left/right
   // steers that way; thumbs-down drives backward. Every recognized
@@ -659,7 +644,7 @@ function renderSection(entry) {
       <datalist id="${datalistId}">${datalistOpts}</datalist>
     </div>
     <details class="watcher-coco">
-      <summary>All ${COCO_CLASSES.length} COCO classes</summary>
+      <summary>All ${vocab.length} classes</summary>
       <div class="watcher-coco-list">${cocoListHtml}</div>
     </details>
     <div class="meta">Closed-vocab — only the classes above will trigger.</div>

@@ -1,6 +1,7 @@
 import { CLAUDE_VARIANTS, CLAUDE_BACKENDS, activeModelForBackend } from "./claude.js";
 import { settings, saveSettings } from "./settings.js";
 import { DEMO_NAMES } from "./demos.js";
+import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from "./detectors.js";
 
 // Slash commands registered on the pip handle. /clear and /help ship as
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
@@ -156,6 +157,42 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
       settings.pipVisionEnabled = arg === "on";
       saveSettings();
       return { reply: `Vision ${arg}.` };
+    },
+  });
+
+  // /detector — switch the closed-vocab detector backend. Backends are
+  // lazy-loaded by detectors.js, so switching is cheap: the previously-
+  // active module stays cached in memory but a switch immediately routes
+  // all future detectOnce / startDetection calls (and the active
+  // vocabulary surfaced in tool schemas + the Reflex card UI). Persists
+  // through settings.pipDetector inside setActiveDetector().
+  pip.registerSlash({
+    name: "detector",
+    description: "switch the closed-vocab detector backend (mediapipe / yolo26)",
+    complete: (partial) => getAvailableDetectors()
+      .map(d => d.name)
+      .filter(n => n.startsWith(partial.toLowerCase())),
+    handler: (argsString) => {
+      const arg = argsString.trim().toLowerCase();
+      const available = getAvailableDetectors();
+      if (!arg) {
+        const lines = available.map(d => {
+          const marker = d.name === getActiveDetectorName() ? "•" : " ";
+          return `${marker} \`${d.name}\` — ${d.label}`;
+        }).join("\n");
+        return { reply: `Active detector: \`${getActiveDetectorName()}\`.\n\n${lines}\n\nSwitch with \`/detector <name>\`.` };
+      }
+      if (!available.some(d => d.name === arg)) {
+        const names = available.map(d => `\`${d.name}\``).join(", ");
+        return { reply: `Unknown detector \`${arg}\`. Available: ${names}.` };
+      }
+      try {
+        setActiveDetector(arg);
+      } catch (err) {
+        return { reply: `Failed to switch: ${err.message || err}` };
+      }
+      const label = available.find(d => d.name === arg)?.label || arg;
+      return { reply: `Detector set to \`${arg}\` — ${label}. First detection call will lazy-load the model.` };
     },
   });
 }
