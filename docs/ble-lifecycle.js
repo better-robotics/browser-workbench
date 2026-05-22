@@ -95,8 +95,18 @@ export async function scanForNew() {
       ? [{ name: hintedName, services: [SERVICE_UUID] },
          { name: hintedName, services: [HEARTBEAT_SVC_UUID] }]
       : [{ services: [SERVICE_UUID] }, { services: [HEARTBEAT_SVC_UUID] }];
+    // Hide already-paired robots from the chooser — Scan is the "add new"
+    // path, Reconnect on the existing card is the re-pair path. Names are
+    // unique per chassis (BR-XXXX hash from MAC) so name-exclusion is safe.
+    // exclusionFilters is Chrome 114+; older browsers silently ignore the
+    // option and show every match as before — graceful degradation.
+    const exclusionFilters = [...state.devices.values()]
+      .filter(e => e.name)
+      .map(e => ({ name: e.name }));
     const device = await pickDeviceOrFail({
-      filters, optionalServices: [SERVICE_UUID, HEARTBEAT_SVC_UUID],
+      filters,
+      optionalServices: [SERVICE_UUID, HEARTBEAT_SVC_UUID],
+      ...(exclusionFilters.length ? { exclusionFilters } : {}),
     });
     const name = device.name || device.id;
     entryFor(device);
