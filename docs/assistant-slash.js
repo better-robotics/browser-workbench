@@ -5,7 +5,13 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 
 // Slash commands registered on the pip handle. /clear and /help ship as
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
-const PIP_BACKENDS = ["github", "bridge", "anthropic", "openai"];
+//
+// Provider list mirrors pip-core's bundle taxonomy (`./bundle/anthropic`,
+// `./bundle/openai`, `./bundle/local`) plus the dashboard-specific
+// transports (`bridge` = localhost ai-bridge proxy, `github` = GitHub
+// Models). Anthropic's Claude variants nest under `anthropic` rather
+// than living as sibling top-level entries — they're not providers.
+const PIP_PROVIDERS = ["github", "bridge", "anthropic", "openai", "local"];
 
 export function registerSlashCommands({ pip, loadConnectGitHub }) {
   pip.registerSlash({
@@ -34,57 +40,87 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
     },
   });
 
-  // /model handles both *switching* the backend and *setting it up* if the
-  // chosen one needs auth or a key. One slash, one mental model: pick a
-  // backend or a Claude variant, the rest happens inline. Key entry
-  // repurposes Pip's main input via pip.collectSecret — same input the
-  // user's already looking at.
+  // /model — pick a provider, optionally with a sub-arg.
+  //   /model anthropic            switch to anthropic (current variant)
+  //   /model anthropic opus       switch to anthropic + opus variant
+  //   /model anthropic sonnet     ... etc
+  //   /model bridge | openai | github | local
+  // Setup (OAuth, API key) happens inline via pip.collectSecret so the
+  // user never leaves the chat surface to enter credentials.
   const CLAUDE_ALIASES = CLAUDE_VARIANTS.map(v => v.alias);
   pip.registerSlash({
     name: "model",
-    description: "switch Pip's backend (github/bridge/anthropic/openai) or Claude variant (opus/sonnet/haiku)",
-    // Context-aware completion: on a Claude-capable backend, variants come
-    // first (that's the next decision you'd most likely make); otherwise
-    // backends lead.
+    description: "switch Pip's provider; /model anthropic <variant> for opus/sonnet/haiku",
+    // Two-level completion (mirrors /vision pip|detector shape): top
+    // tokens are providers; after `anthropic ` the second token completes
+    // against Claude variants. Other providers don't yet expose nested
+    // model selection — when they do, slot a branch here.
     complete: (partial) => {
-      const isClaude = CLAUDE_BACKENDS.has(settings.pipBackend);
-      const ordered = isClaude ? [...CLAUDE_ALIASES, ...PIP_BACKENDS] : [...PIP_BACKENDS, ...CLAUDE_ALIASES];
-      return ordered.filter(b => b.startsWith(partial.toLowerCase()));
+      const tokens = partial.split(/\s+/);
+      if (tokens.length <= 1) {
+        return PIP_PROVIDERS.filter(p => p.startsWith(tokens[0].toLowerCase()));
+      }
+      const [provider, ...rest] = tokens;
+      const lastToken = rest[rest.length - 1] || "";
+      if (provider.toLowerCase() === "anthropic") {
+        return CLAUDE_ALIASES.filter(v => v.startsWith(lastToken.toLowerCase()));
+      }
+      return [];
     },
     handler: async (argsString) => {
-      const arg = argsString.trim().toLowerCase();
-      if (!arg) {
-        const others = PIP_BACKENDS.filter(b => b !== settings.pipBackend);
+      const trimmed = argsString.trim();
+      if (!trimmed) {
+        const others = PIP_PROVIDERS.filter(p => p !== settings.pipBackend);
         return {
-          reply: `Current backend: \`${settings.pipBackend}\` · model: \`${activeModelForBackend(settings.pipBackend)}\`. Switch backend with \`/model <name>\` (${others.map(b => `\`${b}\``).join(", ")}) or Claude variant with \`/model opus|sonnet|haiku\`.`,
+          reply: `Current: \`${settings.pipBackend}\` · model: \`${activeModelForBackend(settings.pipBackend)}\`. Switch with \`/model <provider>\` (${others.map(p => `\`${p}\``).join(", ")}). Claude variants: \`/model anthropic ${CLAUDE_ALIASES.join("|")}\`.`,
         };
       }
 
-      // Claude variant switch — sets pipClaudeModel; takes effect on
-      // bridge + anthropic backends. On other backends we still save it so
-      // it'll apply once they switch to a Claude-capable backend.
-      const variant = CLAUDE_VARIANTS.find(v => v.alias === arg);
-      if (variant) {
+      const [providerArg, ...rest] = trimmed.split(/\s+/);
+      const provider = providerArg.toLowerCase();
+      const subArg = rest.join(" ").trim().toLowerCase();
+
+      if (!PIP_PROVIDERS.includes(provider)) {
+        return { reply: `Unknown provider \`${provider}\`. Available: ${PIP_PROVIDERS.map(p => `\`${p}\``).join(", ")}.` };
+      }
+
+      // Anthropic + variant sub-arg: set variant first, then fall through
+      // to the provider-switch path (which handles auth + saveSettings).
+      // Variant-only switches (current backend stays anthropic) skip auth.
+      if (provider === "anthropic" && subArg) {
+        const variant = CLAUDE_VARIANTS.find(v => v.alias === subArg);
+        if (!variant) {
+          return { reply: `Unknown Claude variant \`${subArg}\`. Available: ${CLAUDE_ALIASES.map(v => `\`${v}\``).join(", ")}.` };
+        }
         settings.pipClaudeModel = variant.id;
-        try { saveSettings(); } catch {}
-        pip.setModelLabel?.(activeModelForBackend(settings.pipBackend));
-        const tail = CLAUDE_BACKENDS.has(settings.pipBackend)
-          ? ""
-          : ` — takes effect after \`/model bridge\` or \`/model anthropic\`.`;
-        return { reply: `Claude variant set to \`${variant.id}\`${tail}` };
+        // If already on a Claude-capable backend, no auth needed — just
+        // update the label and persist. Otherwise fall through to switch.
+        if (CLAUDE_BACKENDS.has(settings.pipBackend) && settings.pipBackend === provider) {
+          saveSettings();
+          pip.setModelLabel?.(activeModelForBackend(settings.pipBackend));
+          return { reply: `Claude variant set to \`${variant.id}\`.` };
+        }
+        // Variant set; continue into the provider-switch logic below.
       }
 
-      if (!PIP_BACKENDS.includes(arg)) {
-        return { reply: `Unknown choice \`${arg}\`. Backends: ${PIP_BACKENDS.map(b => `\`${b}\``).join(", ")}. Claude variants: ${CLAUDE_ALIASES.map(b => `\`${b}\``).join(", ")}.` };
+      // `local` is reserved for pip-core's bundle/local.esm.js (transformers.js
+      // + WebGPU) and isn't yet wired into claude.js's dispatch. Surface it
+      // in the menu so the taxonomy is honest, but don't flip pipBackend
+      // until the actual provider is implemented — that would brick the
+      // user's session.
+      if (provider === "local") {
+        return {
+          reply: "Local in-browser inference (pip-core's `bundle/local.esm.js` — transformers.js + WebGPU) isn't wired into the dispatch yet. Staying on `" + settings.pipBackend + "`. When implemented this'll be `/model local <model-id>`.",
+        };
       }
 
-      // Contextual setup: backends that need auth/keys get prompted inline
-      // before we commit the switch. Cancellation leaves the existing
-      // backend selection untouched. Re-running `/model <current>` is the
-      // documented re-auth / re-key path, so we re-prompt even when the
+      // Contextual setup: providers that need auth/keys get prompted
+      // inline before we commit. Cancellation leaves the existing
+      // selection untouched. Re-running `/model <current>` is the
+      // documented re-auth path, so we re-prompt even when the
       // credential already exists.
-      const isReSetup = arg === settings.pipBackend;
-      if (arg === "github" && (!settings.githubAuth?.username || isReSetup)) {
+      const isReSetup = provider === settings.pipBackend;
+      if (provider === "github" && (!settings.githubAuth?.username || isReSetup)) {
         try {
           const connect = await loadConnectGitHub();
           const auth = await connect("read:user", "better-robotics");
@@ -94,23 +130,23 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
           return { reply: `Sign-in failed: ${err.message || err}` };
         }
       }
-      if (arg === "anthropic" && (!settings.pipApiKey || isReSetup)) {
+      if (provider === "anthropic" && (!settings.pipApiKey || isReSetup)) {
         const key = await pip.collectSecret({ label: "Anthropic API key", format: "sk-ant-…" });
         if (!key) return { reply: "Cancelled — Anthropic needs an API key. Run `/model anthropic` to try again." };
         settings.pipApiKey = key;
       }
-      if (arg === "openai" && (!settings.pipOpenaiKey || isReSetup)) {
+      if (provider === "openai" && (!settings.pipOpenaiKey || isReSetup)) {
         const key = await pip.collectSecret({ label: "OpenAI API key", format: "sk-…" });
         if (!key) return { reply: "Cancelled — OpenAI needs an API key. Run `/model openai` to try again." };
         settings.pipOpenaiKey = key;
       }
 
-      // Mutate the live binding shared with claude.js, then save.
-      settings.pipBackend = arg;
+      settings.pipBackend = provider;
       saveSettings();
-      pip.setModelLabel?.(activeModelForBackend(arg));
+      pip.setModelLabel?.(activeModelForBackend(provider));
 
-      return { reply: `Backend set to \`${arg}\`.` };
+      const modelLabel = activeModelForBackend(provider);
+      return { reply: `Backend set to \`${provider}\`${provider !== modelLabel ? ` · model: \`${modelLabel}\`` : ""}.` };
     },
   });
 
