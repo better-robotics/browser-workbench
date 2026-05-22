@@ -241,10 +241,10 @@ export async function startHelperCamera(helperId) {
     try {
       return await requestPhoneCameraShare(phoneId);
     } catch (err) {
-      return { error: err.message || String(err) };
+      return { ok: false, error: err.message || String(err) };
     }
   }
-  return { error: `unknown helper: ${helperId}` };
+  return { ok: false, error: `unknown helper: ${helperId}` };
 }
 
 export async function stopHelperCamera(helperId) {
@@ -253,9 +253,9 @@ export async function stopHelperCamera(helperId) {
     // a stop-prompt but the inconvenience is much lower than the start
     // case (the camera-running indicator is visible on the phone), so
     // leaving this as a guidance message for now.
-    return { error: "tap Stop sharing on the phone to end the stream" };
+    return { ok: false, error: "tap Stop sharing on the phone to end the stream" };
   }
-  return { error: `unknown helper: ${helperId}` };
+  return { ok: false, error: `unknown helper: ${helperId}` };
 }
 
 export function takeHelperSnapshot(helperId) {

@@ -96,11 +96,12 @@ export function requestPhoneCameraShare(phoneId, { timeoutMs = 60000 } = {}) {
   const phone = _phones.get(phoneId);
   if (!phone) return Promise.reject(new Error(`phone ${phoneId} not paired`));
   const requestId = crypto.randomUUID();
+  const timeoutLabel = `${Math.round(timeoutMs / 1000)}s`;
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       if (!_pendingCameraShares.has(requestId)) return;
       _pendingCameraShares.delete(requestId);
-      resolve({ ok: false, error: "user didn't respond within 60s" });
+      resolve({ ok: false, error: `user didn't respond within ${timeoutLabel}` });
     }, timeoutMs);
     _pendingCameraShares.set(requestId, { resolve, timeout, phoneId });
     phone.peer.send({ type: "request-camera-share", requestId });

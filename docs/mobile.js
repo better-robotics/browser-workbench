@@ -156,10 +156,13 @@ function showCameraShareRequest(msg) {
     // toggleShareCamera() awaits getUserMedia internally; the user
     // gesture from this click propagates through the first await per
     // the user-activation spec, so the permission dialog (if any) is
-    // allowed to show.
+    // allowed to show. The {ok, error} return surfaces the real
+    // permission / device error to the desktop instead of collapsing
+    // every failure to "user dismissed".
     try {
-      await toggleShareCamera();
-      respond(_shareStream ? "shared" : "denied", _shareStream ? null : "getUserMedia returned no stream");
+      const res = await toggleShareCamera();
+      if (res?.ok) respond("shared");
+      else respond("error", res?.error || "getUserMedia returned no stream");
     } catch (err) {
       respond("error", err.message || String(err));
     }
@@ -322,10 +325,11 @@ let _shareStream = null;
 let _shareSenders = [];
 
 async function toggleShareCamera() {
-  if (_shareStream) { _stopSharing(); return; }
+  if (_shareStream) { _stopSharing(); return { ok: true, stopped: true }; }
   if (!navigator.mediaDevices?.getUserMedia) {
-    showCommandStatus(cameraUnavailableReason(), "alert");
-    return;
+    const reason = cameraUnavailableReason();
+    showCommandStatus(reason, "alert");
+    return { ok: false, error: reason };
   }
   let stream;
   try {
@@ -335,7 +339,7 @@ async function toggleShareCamera() {
     });
   } catch (err) {
     showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
-    return;
+    return { ok: false, error: err.message || String(err) };
   }
   _shareStream = stream;
   for (const t of stream.getVideoTracks()) {
@@ -351,6 +355,7 @@ async function toggleShareCamera() {
   }
   const btn = $("phone-share-btn");
   if (btn) { btn.textContent = "Stop sharing this device's camera"; btn.classList.add("on"); }
+  return { ok: true };
 }
 
 function _stopSharing() {
