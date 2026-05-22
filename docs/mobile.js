@@ -316,13 +316,28 @@ function wireBackgroundStop() {
 
 // ── Phone-camera-as-helper ────────────────────────────────────────
 //
-// Toggle the phone's back camera into the paired WebRTC connection as
-// an outgoing media stream. Desktop picks it up via peer.onTrack and
+// Toggle the phone's camera into the paired WebRTC connection as an
+// outgoing media stream. Desktop picks it up via peer.onTrack and
 // registers it in its helpers list (phone-helpers.js). Pairing layer handles
 // renegotiation on addTrack — `negotiationneeded` fires, Peer
 // re-offers, desktop answers, track lands on the other side.
+//
+// Front is default — it's the quick-share / "show me what I'm pointing at"
+// idiom most users reach for. Back is the robot-mount idiom and is one tap
+// away. While sharing, the segmented control live-switches via
+// sender.replaceTrack so the desktop sees the same track slot — no
+// renegotiation, no helper-card churn.
 let _shareStream = null;
 let _shareSenders = [];
+let _shareFacing = "user";  // "user" (front) | "environment" (back)
+let _shareSwitching = false;
+
+async function openCameraStream(facing) {
+  return navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: facing } },
+    audio: false,
+  });
+}
 
 async function toggleShareCamera() {
   if (_shareStream) { _stopSharing(); return { ok: true, stopped: true }; }
@@ -333,10 +348,7 @@ async function toggleShareCamera() {
   }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false,
-    });
+    stream = await openCameraStream(_shareFacing);
   } catch (err) {
     showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
     return { ok: false, error: err.message || String(err) };
@@ -356,6 +368,60 @@ async function toggleShareCamera() {
   const btn = $("phone-share-btn");
   if (btn) { btn.textContent = "Stop sharing this device's camera"; btn.classList.add("on"); }
   return { ok: true };
+}
+
+// While sharing, swap the camera underneath the existing RTCRtpSender so
+// the desktop sees no track change — just a different image. When not
+// sharing, just remember the choice for the next Share tap.
+async function switchShareFacing(nextFacing) {
+  if (nextFacing !== "user" && nextFacing !== "environment") return;
+  if (_shareSwitching) return;
+  if (_shareFacing === nextFacing && _shareStream) return;
+  _shareFacing = nextFacing;
+  updateShareFacingButtons();
+  if (!_shareStream) return;
+  _shareSwitching = true;
+  let stream;
+  try {
+    stream = await openCameraStream(nextFacing);
+  } catch (err) {
+    showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
+    _shareSwitching = false;
+    return;
+  }
+  const newTrack = stream.getVideoTracks()[0];
+  if (!newTrack) {
+    stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+    _shareSwitching = false;
+    return;
+  }
+  const sender = _shareSenders[0];
+  try {
+    if (sender?.replaceTrack) await sender.replaceTrack(newTrack);
+  } catch (err) {
+    showCommandStatus(`Switch failed: ${err.message || err}`, "alert");
+    stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+    _shareSwitching = false;
+    return;
+  }
+  for (const t of _shareStream.getTracks()) { try { t.stop(); } catch {} }
+  // Build a fresh MediaStream wrapping the new track so the preview re-
+  // attaches cleanly. Re-arm the ended-listener for OS-level revoke.
+  _shareStream = new MediaStream([newTrack]);
+  newTrack.addEventListener("ended", () => _stopSharing());
+  const preview = $("phone-share-preview");
+  if (preview) {
+    preview.srcObject = _shareStream;
+    preview.play?.().catch(() => {});
+  }
+  _shareSwitching = false;
+}
+
+function updateShareFacingButtons() {
+  const front = $("phone-share-mode-front");
+  const back = $("phone-share-mode-back");
+  if (front) front.setAttribute("aria-pressed", _shareFacing === "user" ? "true" : "false");
+  if (back) back.setAttribute("aria-pressed", _shareFacing === "environment" ? "true" : "false");
 }
 
 function _stopSharing() {
@@ -378,6 +444,12 @@ function wireShareCamera() {
   if (!section || !btn) return;
   section.hidden = false;
   btn.addEventListener("click", toggleShareCamera);
+  for (const id of ["phone-share-mode-front", "phone-share-mode-back"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener("click", () => switchShareFacing(el.dataset.facing));
+  }
+  updateShareFacingButtons();
 }
 
 // Reconnect / QR-scan surface. Shown when there's no pair code, or after
