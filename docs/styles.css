@@ -884,7 +884,7 @@ details.tray.has-alert > summary::after {
    default footprint, native corner-resize. The base .prepare-dialog padding
    (24px) is too generous for an editor surface — overridden below. */
 .scripts-modal {
-  width: min(1400px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
   height: min(880px, calc(100vh - 64px));
   padding: 12px 16px 16px;
   display: flex;
