@@ -48,6 +48,9 @@ const _phones = new Map();  // roomId → { id, label, peer, connectedAt, status
 // askId → { resolve, timeout, phoneId }. Keyed by askId so simultaneous
 // asks to different phones don't collide.
 const _pendingAsks = new Map();
+// requestId → { resolve, timeout, phoneId }. Mirrors _pendingAsks for the
+// camera-share request/response shape — see requestPhoneCameraShare.
+const _pendingCameraShares = new Map();
 let _pendingSession = null;
 let _changeHandler = null;
 
@@ -78,6 +81,30 @@ export function askHuman(phoneId, { question, options = [], imageDataUrl = null,
     }, timeoutMs);
     _pendingAsks.set(askId, { resolve, timeout, phoneId });
     phone.peer.send({ type: "ask", askId, question, options, imageDataUrl });
+  });
+}
+
+// Wire (must match showCameraShareRequest in mobile.js):
+//   desktop→phone  { type:"request-camera-share", requestId }
+//   phone→desktop  { type:"camera-share-result",  requestId, result, error? }
+// `result` is "shared" | "denied" | "error". Browsers gate getUserMedia
+// behind a user gesture in the phone's own browser tab, so the desktop
+// can't toggle the camera remotely. This shape relays the request to a
+// phone-side prompt where the user's tap on Share IS the gesture.
+// Resolves (never rejects) on timeout so Pip keeps operating.
+export function requestPhoneCameraShare(phoneId, { timeoutMs = 60000 } = {}) {
+  const phone = _phones.get(phoneId);
+  if (!phone) return Promise.reject(new Error(`phone ${phoneId} not paired`));
+  const requestId = crypto.randomUUID();
+  const timeoutLabel = `${Math.round(timeoutMs / 1000)}s`;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      if (!_pendingCameraShares.has(requestId)) return;
+      _pendingCameraShares.delete(requestId);
+      resolve({ ok: false, error: `user didn't respond within ${timeoutLabel}` });
+    }, timeoutMs);
+    _pendingCameraShares.set(requestId, { resolve, timeout, phoneId });
+    phone.peer.send({ type: "request-camera-share", requestId });
   });
 }
 
@@ -404,6 +431,12 @@ function _registerPairedPhone(id, peer, defaultLabel) {
       _pendingAsks.delete(askId);
       p.resolve({ answer: null, timed_out: true });
     }
+    for (const [requestId, p] of _pendingCameraShares) {
+      if (p.phoneId !== id) continue;
+      clearTimeout(p.timeout);
+      _pendingCameraShares.delete(requestId);
+      p.resolve({ ok: false, error: "phone disconnected before user responded" });
+    }
     _phones.delete(id);
     setPhoneStream(id, null);  // clear any helper-list entry for this phone's camera
     log("phone disconnected", "phone");
@@ -550,6 +583,20 @@ async function onPhoneMessage(id, peer, msg) {
     clearTimeout(pending.timeout);
     _pendingAsks.delete(msg.askId);
     pending.resolve({ answer: msg.answer ?? null, timed_out: false });
+    return;
+  }
+  if (msg.type === "camera-share-result") {
+    const pending = _pendingCameraShares.get(msg.requestId);
+    if (!pending) return;  // late reply after timeout — drop silently
+    clearTimeout(pending.timeout);
+    _pendingCameraShares.delete(msg.requestId);
+    if (msg.result === "shared") {
+      pending.resolve({ ok: true });
+    } else if (msg.result === "denied") {
+      pending.resolve({ ok: false, error: "user dismissed the share-camera prompt" });
+    } else {
+      pending.resolve({ ok: false, error: `camera-share failed on phone: ${msg.error || msg.result}` });
+    }
     return;
   }
   if (msg.type === "drive") {
