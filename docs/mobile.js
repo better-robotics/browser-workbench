@@ -373,48 +373,76 @@ async function toggleShareCamera() {
 // While sharing, swap the camera underneath the existing RTCRtpSender so
 // the desktop sees no track change — just a different image. When not
 // sharing, just remember the choice for the next Share tap.
+//
+// Mutation discipline: on the sharing path, `_shareFacing` and the
+// segmented buttons stay on the previous value until replaceTrack
+// resolves. Otherwise a failed switch leaves the UI claiming a camera
+// the desktop isn't actually receiving. Failures stop the just-opened
+// stream and leave the existing share untouched.
+function stopTracks(stream) {
+  if (!stream) return;
+  for (const t of stream.getTracks()) { try { t.stop(); } catch {} }
+}
+
 async function switchShareFacing(nextFacing) {
   if (nextFacing !== "user" && nextFacing !== "environment") return;
   if (_shareSwitching) return;
   if (_shareFacing === nextFacing && _shareStream) return;
-  _shareFacing = nextFacing;
-  updateShareFacingButtons();
-  if (!_shareStream) return;
+
+  // Not sharing: safe to mutate immediately — there's no live stream
+  // whose state we could lie about. Next Share tap honors the choice.
+  if (!_shareStream) {
+    _shareFacing = nextFacing;
+    updateShareFacingButtons();
+    return;
+  }
+
   _shareSwitching = true;
-  let stream;
+  let newStream = null;
   try {
-    stream = await openCameraStream(nextFacing);
-  } catch (err) {
-    showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
+    try {
+      newStream = await openCameraStream(nextFacing);
+    } catch (err) {
+      showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
+      return;
+    }
+    // Sharing may have been stopped (user tapped Stop, peer closed,
+    // tab backgrounded) during the getUserMedia await. Discard the new
+    // stream and bail — _stopSharing already cleaned up.
+    if (!_shareStream) { stopTracks(newStream); return; }
+    const newTrack = newStream.getVideoTracks()[0];
+    const sender = _shareSenders[0];
+    if (!newTrack || !sender?.replaceTrack) {
+      showCommandStatus("Switch failed: sender unavailable", "alert");
+      stopTracks(newStream);
+      return;
+    }
+    try {
+      await sender.replaceTrack(newTrack);
+    } catch (err) {
+      showCommandStatus(`Switch failed: ${err.message || err}`, "alert");
+      stopTracks(newStream);
+      return;
+    }
+    // Sharing may have been stopped during the replaceTrack await too.
+    // The track is now live on the sender but _stopSharing already
+    // emptied _shareSenders, so stop the new stream and leave the
+    // dead-sender path to clean itself up on next addTrack.
+    if (!_shareStream) { stopTracks(newStream); return; }
+    // Success — stop old tracks, swap stream + preview, commit UI state.
+    stopTracks(_shareStream);
+    _shareStream = new MediaStream([newTrack]);
+    newTrack.addEventListener("ended", () => _stopSharing());
+    _shareFacing = nextFacing;
+    updateShareFacingButtons();
+    const preview = $("phone-share-preview");
+    if (preview) {
+      preview.srcObject = _shareStream;
+      preview.play?.().catch(() => {});
+    }
+  } finally {
     _shareSwitching = false;
-    return;
   }
-  const newTrack = stream.getVideoTracks()[0];
-  if (!newTrack) {
-    stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
-    _shareSwitching = false;
-    return;
-  }
-  const sender = _shareSenders[0];
-  try {
-    if (sender?.replaceTrack) await sender.replaceTrack(newTrack);
-  } catch (err) {
-    showCommandStatus(`Switch failed: ${err.message || err}`, "alert");
-    stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
-    _shareSwitching = false;
-    return;
-  }
-  for (const t of _shareStream.getTracks()) { try { t.stop(); } catch {} }
-  // Build a fresh MediaStream wrapping the new track so the preview re-
-  // attaches cleanly. Re-arm the ended-listener for OS-level revoke.
-  _shareStream = new MediaStream([newTrack]);
-  newTrack.addEventListener("ended", () => _stopSharing());
-  const preview = $("phone-share-preview");
-  if (preview) {
-    preview.srcObject = _shareStream;
-    preview.play?.().catch(() => {});
-  }
-  _shareSwitching = false;
 }
 
 function updateShareFacingButtons() {
