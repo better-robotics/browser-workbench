@@ -272,6 +272,76 @@ async function actOnFailure(backend, turnEl) {
   return backendFailureHint(backend);
 }
 
+// "Does the current backend have what it needs to make a request?" Used
+// to decide whether to surface the first-message onboarding picker. Bridge
+// is Keychain-backed by the ai-bridge proxy, opaque to the page; treat it
+// as always-credentialed and let the existing failure-recovery flow handle
+// "proxy not running." `local` is reserved for pip-core's bundle/local
+// (transformers.js + WebGPU) and isn't wired into dispatch yet.
+function hasCredentialsForBackend(backend) {
+  switch (backend) {
+    case "github":    return !!settings.githubAuth?.token;
+    case "anthropic": return !!settings.pipApiKey;
+    case "openai":    return !!settings.pipOpenaiKey;
+    case "bridge":    return true;
+    default:          return false;
+  }
+}
+
+// First-message onboarding. The default backend is github with no auth,
+// so a brand-new user pressing send would otherwise eat a doomed request
+// + the generic recovery prompt. Surface the choice up front, route
+// through the same inline primitives the /model slash uses, and then
+// continue into the user's original message — no manual retry.
+async function offerBackendChoice(turnEl) {
+  const labels = {
+    github:    "GitHub Models (free · sign in)",
+    anthropic: "Anthropic (paste API key)",
+    openai:    "OpenAI (paste API key)",
+    local:     "Local (in-browser · coming soon)",
+  };
+  const choice = await _pip.askInChat({
+    question: "Pick a backend for Pip — your message will continue after setup.",
+    options: Object.values(labels),
+  }, turnEl);
+
+  if (choice === labels.github) {
+    try {
+      const connect = await _loadConnectGitHub();
+      const auth = await connect("read:user", "better-robotics");
+      settings.githubAuth = { username: auth.username, token: auth.token };
+      settings.pipBackend = "github";
+      saveSettings();
+      window.__syncIdentityUI?.();
+      _pip.setModelLabel?.(activeModelForBackend("github"));
+      return true;
+    } catch (err) {
+      _pip.appendReplyBubble(turnEl).setText(`Sign-in failed: ${err?.message || err}`);
+      return false;
+    }
+  }
+  if (choice === labels.anthropic || choice === labels.openai) {
+    const isAnthropic = choice === labels.anthropic;
+    const label = isAnthropic ? "Anthropic" : "OpenAI";
+    const format = isAnthropic ? "sk-ant-…" : "sk-…";
+    const key = await _pip.collectSecret({ label: `${label} API key`, format });
+    if (!key) return false;
+    if (isAnthropic) settings.pipApiKey = key;
+    else settings.pipOpenaiKey = key;
+    settings.pipBackend = isAnthropic ? "anthropic" : "openai";
+    saveSettings();
+    _pip.setModelLabel?.(activeModelForBackend(settings.pipBackend));
+    return true;
+  }
+  if (choice === labels.local) {
+    _pip.appendReplyBubble(turnEl).setText(
+      "Local in-browser inference (pip-core's bundle/local) isn't wired into dispatch yet. Pick another backend, or run `/model` later.",
+    );
+    return false;
+  }
+  return false;  // user dismissed
+}
+
 // Host onSubmit — runs askWithTools with hatch-style inline pill flow.
 // We render text + tool pills directly into turnEl in arrival order
 // instead of stuffing the final text into pip's single .pip-reply.
@@ -288,7 +358,15 @@ async function onSubmit(text, { turnEl }) {
   // once for the direct-command branch. The LLM branch already cleared
   // it inline at the bottom, but a single try/finally covers all
   // current and future return paths uniformly.
-  return await runTurn(text, turnEl).finally(() => turn.end());
+  try {
+    if (!hasCredentialsForBackend(settings.pipBackend)) {
+      const onboarded = await offerBackendChoice(turnEl);
+      if (!onboarded) return;  // user dismissed or picked local
+    }
+    return await runTurn(text, turnEl);
+  } finally {
+    turn.end();
+  }
 }
 
 async function runTurn(text, turnEl) {
