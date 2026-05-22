@@ -108,14 +108,14 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         // Variant staged; continue into the provider-switch logic below.
       }
 
-      // `local` is browser-resident inference via pip-core's
-      // createTransformersRenderer (transformers.js + WebGPU). No auth /
-      // key needed — just download the model on first use. Defaults to
-      // Gemma 4 E2B-it at q4f16 (~1.5GB decoder, browser-cached after).
-      // Tools aren't dispatched to local yet (pip-core's local provider
-      // doesn't parse Gemma's inline tool-call format into tool_use
-      // events) — chat works; deterministic tool calls go through slash
-      // commands until that lands.
+      // `local` is browser-resident inference via pip-core's local()
+      // runtime provider (transformers.js + WebGPU). No auth / key
+      // needed — just download the model on first use. Defaults to
+      // Gemma 4 E2B-it at q4f16 (~1.5 GB decoder, browser-cached after).
+      // Tools dispatch through pip-core's <tool_call> prompt convention
+      // (3.8+). Reliability at 2B effective params + q4f16 isn't
+      // benchmark-strong — slash commands stay as the deterministic
+      // fallback when Gemma misfires.
       if (provider === "local") {
         if (typeof navigator === "undefined" || !navigator.gpu) {
           return { reply: "Local inference needs WebGPU — not available in this browser. Chrome 113+ / Edge 113+ on a recent OS with GPU acceleration enabled." };
@@ -124,7 +124,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         saveSettings();
         pip.setModelLabel?.(activeModelForBackend("local"));
         return {
-          reply: `Backend set to \`local\` — \`${activeModelForBackend("local")}\`. **First message downloads ~1.5 GB of weights** (browser-cached after). Tools aren't routed to local yet; use slash commands for deterministic dispatch.`,
+          reply: `Backend set to \`local\` — \`${activeModelForBackend("local")}\`. **First message downloads ~1.5 GB of weights** (browser-cached after). Tools work but small-model reliability varies; slash commands stay as the deterministic fallback.`,
         };
       }
 
