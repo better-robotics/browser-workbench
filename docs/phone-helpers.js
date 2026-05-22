@@ -1,5 +1,5 @@
 import { $, escapeHtml } from "./dom.js";
-import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange } from "./phones.js";
+import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare } from "./phones.js";
 import { state } from "./state.js";
 import { settings, saveSettings } from "./settings.js";
 import { setOverheadSource, clearOverheadSource } from "./aruco.js";
@@ -229,23 +229,33 @@ export function getPhoneAttachment(phoneId) {
 
 export async function startHelperCamera(helperId) {
   if (helperId.startsWith("phone:")) {
-    // MVP: desktop can't remotely flip the phone's camera on. User has to
-    // tap "Share camera" on phone.html. Surface that here so Pip's tool
-    // call returns a guidance message rather than a hard error.
+    // Browsers gate getUserMedia() behind a user gesture in the phone's
+    // own browser tab — desktop can't toggle it remotely. We relay a
+    // share request over the data channel; the phone shows a one-tap
+    // prompt where the user's tap on Share IS the gesture. This call
+    // awaits the phone's reply (or 60s timeout). See
+    // requestPhoneCameraShare in phones.js + showCameraShareRequest in
+    // mobile.js for the wire shape.
     const phoneId = helperId.slice("phone:".length);
     if (_phoneStreams.has(phoneId)) return { ok: true, already: true };
-    return { error: "tap Share camera on the phone to start" };
+    try {
+      return await requestPhoneCameraShare(phoneId);
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
   }
-  return { error: `unknown helper: ${helperId}` };
+  return { ok: false, error: `unknown helper: ${helperId}` };
 }
 
 export async function stopHelperCamera(helperId) {
   if (helperId.startsWith("phone:")) {
-    // Same constraint as start: phone owns its camera. Stop happens when
-    // the user taps the button on phone.html or when the track ends.
-    return { error: "tap Stop sharing on the phone to end the stream" };
+    // Same gesture-scope constraint as start, in reverse. We could relay
+    // a stop-prompt but the inconvenience is much lower than the start
+    // case (the camera-running indicator is visible on the phone), so
+    // leaving this as a guidance message for now.
+    return { ok: false, error: "tap Stop sharing on the phone to end the stream" };
   }
-  return { error: `unknown helper: ${helperId}` };
+  return { ok: false, error: `unknown helper: ${helperId}` };
 }
 
 export function takeHelperSnapshot(helperId) {

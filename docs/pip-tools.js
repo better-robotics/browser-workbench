@@ -136,7 +136,7 @@ const ALL_TOOLS = [
   },
   {
     name: "start_helper_camera",
-    description: "Prompt the user to tap Share camera on the phone (desktop can't flip it remotely). Idempotent.",
+    description: "Send a share-camera prompt to a paired phone. The phone shows a one-tap Share dialog; on tap, getUserMedia runs with that tap as the user gesture and the stream flows back over WebRTC. Returns { ok:true } on success, { ok:true, already:true } if the helper is already streaming, { ok:false, error:'...' } on dismiss / timeout / device error.",
     input_schema: {
       type: "object",
       properties: {
