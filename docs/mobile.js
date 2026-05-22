@@ -115,6 +115,68 @@ function showAsk(msg) {
   if (free.hidden === false) setTimeout(() => freeInput.focus(), 50);
 }
 
+// Desktop relayed a "please share your camera" prompt over the data
+// channel. Browsers won't let getUserMedia() run without a user gesture
+// in this tab; the Share button click below IS that gesture, so
+// toggleShareCamera() called synchronously from the handler can call
+// getUserMedia successfully. The handler awaits the share flow and
+// reports back so the desktop's startHelperCamera tool can resolve
+// instead of dead-ending on a string error.
+//
+// Reuses the phone-ask-dialog DOM rather than introducing a parallel
+// modal — same Share / Not now affordance shape as askHuman.
+function showCameraShareRequest(msg) {
+  const dialog = $("phone-ask-dialog");
+  const img = $("phone-ask-image");
+  const q = $("phone-ask-question");
+  const optsEl = $("phone-ask-options");
+  const free = $("phone-ask-free");
+  let responded = false;
+
+  img.hidden = true; img.src = "";
+  q.textContent = "Pip wants to use this phone's camera. Share it?";
+  free.hidden = true;
+  optsEl.innerHTML = "";
+
+  const respond = (result, error) => {
+    if (responded) return;
+    responded = true;
+    _peer?.send({ type: "camera-share-result", requestId: msg.requestId, result, error });
+    dialog.close();
+  };
+
+  const shareBtn = document.createElement("button");
+  shareBtn.type = "button";
+  shareBtn.className = "ask-option sm";
+  shareBtn.textContent = _shareStream ? "Already sharing" : "Share camera";
+  shareBtn.addEventListener("click", async () => {
+    // Already-sharing fast path — desktop sometimes asks before its
+    // onTrack handler has registered the stream we already sent.
+    if (_shareStream) { respond("shared"); return; }
+    // toggleShareCamera() awaits getUserMedia internally; the user
+    // gesture from this click propagates through the first await per
+    // the user-activation spec, so the permission dialog (if any) is
+    // allowed to show.
+    try {
+      await toggleShareCamera();
+      respond(_shareStream ? "shared" : "denied", _shareStream ? null : "getUserMedia returned no stream");
+    } catch (err) {
+      respond("error", err.message || String(err));
+    }
+  }, { once: true });
+  optsEl.appendChild(shareBtn);
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "ask-option sm";
+  cancelBtn.textContent = "Not now";
+  cancelBtn.addEventListener("click", () => respond("denied"), { once: true });
+  optsEl.appendChild(cancelBtn);
+
+  $("phone-ask-skip").onclick = () => respond("denied");
+  if (!dialog.open) dialog.showModal();
+}
+
 // Pairing layer fires onTrack per track; both video tracks of one stream
 // share the same MediaStream so streams[0] is safe.
 function onPeerTrack(e) {
@@ -189,6 +251,7 @@ function renderCameraPicker() {
 
 function onPeerMessage(msg) {
   if (msg.type === "ask") { showAsk(msg); return; }
+  if (msg.type === "request-camera-share") { showCameraShareRequest(msg); return; }
   if (msg.type === "available-sources") {
     _availableSources.set(msg.robotId, {
       sources: msg.sources || [], active: msg.active || null,
