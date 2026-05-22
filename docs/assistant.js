@@ -348,7 +348,7 @@ async function offerBackendChoice(turnEl) {
     saveSettings();
     _pip.setModelLabel?.(activeModelForBackend("local"));
     _pip.appendReplyBubble(turnEl).setText(
-      "Local model selected. First message downloads ~1.5 GB of weights (browser-cached after). Tools aren't routed to local yet; use slash commands for tool dispatch.",
+      "Local model selected. First message downloads ~1.5 GB of weights (browser-cached after). Tools work but small-model reliability varies; slash commands stay as the deterministic fallback.",
     );
     return true;
   }

@@ -362,98 +362,137 @@ export async function askAboutFrame(imageDataUrl, prompt, { maxTokens = 100, sys
   }
 }
 
-// In-browser local model via pip-core's createTransformersRenderer +
-// transformers.js + WebGPU. Lazy-imported on first use so a user staying
-// on github/anthropic/openai never pays the ~hundreds of KB pip-local
-// bundle. Gemma 4 sampling defaults are Google's documented standards
-// (temperature 1.0, top_k 64, top_p 0.95; no repetition_penalty per the
-// model card); chatTemplate.enable_thinking suppresses Gemma 4's
-// <|channel>thought</|channel> blocks. pip-core 3.7+ plumbs chatTemplate
-// through; earlier versions ignored it silently — works either way but
-// older bundles leak thought tokens.
+// In-browser local model via pip-core's `local()` runtime provider —
+// transformers.js + WebGPU under the hood, with the system-prompt
+// augmentation, message flattening, and <tool_call> streaming parser
+// all living in pip-core (3.8+). Lazy-imported on first use so a user
+// staying on github/anthropic/openai never pays the ~hundreds of KB
+// pip-local bundle.
+//
+// The provider's event protocol is { text_delta, tool_use, turn_end }
+// with stopReason — the same conceptual shape Anthropic's tool-use
+// loop expects, just streamed instead of returned in a content array.
+// _localAskWithTools below runs the loop against that event stream
+// using the same executor + onTool* callbacks as _anthropicAskWithTools.
+//
+// Gemma 4 sampling: temperature 1.0, top_k 64, top_p 0.95, no
+// repetition_penalty — Google's documented standards. chatTemplate
+// suppresses <|channel>thought</|channel> leaks.
 const LOCAL_PROVIDER_URL = "https://cdn.jsdelivr.net/npm/@nevescloud/pip@latest/providers/local.esm.js";
-let _localRenderer = null;
-let _localRendererPromise = null;
-async function loadLocalRenderer() {
-  if (_localRenderer) return _localRenderer;
-  if (_localRendererPromise) return _localRendererPromise;
-  _localRendererPromise = (async () => {
-    const mod = await import(LOCAL_PROVIDER_URL);
-    _localRenderer = mod.createTransformersRenderer();
-    return _localRenderer;
-  })();
-  return _localRendererPromise;
-}
-
-function localModelConfig(maxTokens) {
-  return {
-    id: settings.pipLocalModel || "onnx-community/gemma-4-E2B-it-ONNX",
-    dtype: settings.pipLocalDtype || "q4f16",
-    maxTokens,
+let _localProvider = null;
+let _localProviderKey = null;
+async function loadLocalProvider() {
+  const id = settings.pipLocalModel || "onnx-community/gemma-4-E2B-it-ONNX";
+  const dtype = settings.pipLocalDtype || "q4f16";
+  const key = `${id}:${dtype}`;
+  if (_localProvider && _localProviderKey === key) return _localProvider;
+  const mod = await import(LOCAL_PROVIDER_URL);
+  _localProvider = mod.local({
+    model: id,
+    dtype,
+    maxTokens: 1024,
     genParams: { temperature: 1.0, top_p: 0.95, top_k: 64 },
     chatTemplate: { enable_thinking: false },
-  };
+  });
+  _localProviderKey = key;
+  return _localProvider;
 }
 
-// Cumulative-text → delta callback adapter. pip-core's renderer calls
-// setReplyText(turnEl, fullText) on every chunk; the dashboard wants
-// per-call deltas. last is closure-scoped per generate() invocation.
-function makeDeltaAdapter(onDelta) {
-  let last = "";
-  return (_el, fullText) => {
-    if (!onDelta) { last = fullText; return; }
-    if (fullText.length <= last.length) return;
-    onDelta(fullText.slice(last.length));
-    last = fullText;
-  };
-}
-
-async function _localAsk(userText, { system, maxTokens = 200, onDelta, signal } = {}) {
-  let renderer;
-  try { renderer = await loadLocalRenderer(); }
+async function _localAsk(userText, { system, onDelta, signal } = {}) {
+  let provider;
+  try { provider = await loadLocalProvider(); }
   catch (err) { console.warn("[claude/local] provider load failed:", err); return null; }
-  renderer.setModel(localModelConfig(maxTokens));
-  const messages = [];
-  if (system) messages.push({ role: "system", content: system });
-  messages.push({ role: "user", content: userText });
+  const stream = provider({
+    messages: [{ role: "user", content: userText }],
+    system, signal, turnEl: null,
+  });
+  let text = "";
   try {
-    return await renderer.generate({
-      messages, turnEl: null, signal,
-      setReplyText: makeDeltaAdapter(onDelta),
-    });
+    for await (const ev of stream) {
+      if (ev.type === "text_delta") { text += ev.text; onDelta?.(ev.text); }
+    }
   } catch (err) {
     if (err?.name === "AbortError") return null;
     console.warn("[claude/local] generate failed:", err);
     return null;
   }
+  return text.trim() || null;
 }
 
-// Tools intentionally NOT dispatched yet. Gemma 4 supports function-
-// calling but pip-core's local provider doesn't parse the inline
-// tool-call format into tool_use events. Until that lands, local
-// generates text only; deterministic tool calls go through Pip's slash
-// commands. Console-warns once per turn so the operator sees why their
-// "drive forward" never executed a move_motor call.
-async function _localAskWithTools(messages, { system, tools, maxTokens = 1024, onDelta, shouldAbort, signal } = {}) {
-  if (tools?.length) {
-    console.info(`[claude/local] tools (${tools.length}) ignored — local generates text only; use slash commands for tool dispatch.`);
-  }
-  if (shouldAbort?.()) return "(stopped)";
-  let renderer;
-  try { renderer = await loadLocalRenderer(); }
+// Tool-using loop against pip-core 3.8's local provider event stream.
+// Mirrors _anthropicAskWithTools' shape: same executor callback, same
+// onToolStart/onToolEnd hooks, same shouldAbort/onMaxIterations gates,
+// same priorText accumulation across iterations. The provider handles
+// the <tool_call> prompt-augmentation + parsing internally — we just
+// consume tool_use events and feed tool_result blocks back.
+async function _localAskWithTools(messages, { system, tools, executor, maxIterations = 10, onToolStart, onToolEnd, shouldAbort, onMaxIterations, onDelta } = {}) {
+  let provider;
+  try { provider = await loadLocalProvider(); }
   catch (err) { console.warn("[claude/local] provider load failed:", err); return null; }
-  renderer.setModel(localModelConfig(maxTokens));
-  const full = system ? [{ role: "system", content: system }, ...messages] : messages;
-  try {
-    return await renderer.generate({
-      messages: full, turnEl: null, signal,
-      setReplyText: makeDeltaAdapter(onDelta),
-    });
-  } catch (err) {
-    if (err?.name === "AbortError") return "(stopped)";
-    console.warn("[claude/local] generate failed:", err);
-    return null;
+
+  const convo = [...messages];
+  let priorText = "";
+  let budget = maxIterations;
+  while (budget > 0) {
+    if (shouldAbort?.()) return "(stopped)";
+    budget--;
+
+    const stream = provider({ messages: convo, system, tools, turnEl: null });
+    const assistantContent = [];
+    let iterText = "";
+    let stopReason = "end_turn";
+
+    try {
+      for await (const ev of stream) {
+        if (ev.type === "text_delta") {
+          iterText += ev.text;
+          onDelta?.(ev.text);
+        } else if (ev.type === "tool_use") {
+          // Flush any text that preceded this tool call into the content
+          // array so the assistant turn preserves arrival order.
+          if (iterText) { assistantContent.push({ type: "text", text: iterText }); iterText = ""; }
+          assistantContent.push({ type: "tool_use", id: ev.id, name: ev.name, input: ev.input });
+        } else if (ev.type === "turn_end") {
+          stopReason = ev.stopReason || "end_turn";
+        }
+      }
+    } catch (err) {
+      if (err?.name === "AbortError") return "(stopped)";
+      console.warn("[claude/local] iteration failed:", err);
+      return null;
+    }
+    if (iterText) assistantContent.push({ type: "text", text: iterText });
+
+    convo.push({ role: "assistant", content: assistantContent });
+    const iterReply = assistantContent.filter(b => b.type === "text").map(b => b.text).join("\n");
+    if (stopReason !== "tool_use") return (priorText + iterReply).trim();
+    if (iterReply) priorText += iterReply + "\n";
+
+    const toolUses = assistantContent.filter(b => b.type === "tool_use");
+    const toolResults = [];
+    for (const tu of toolUses) {
+      const startedAt = performance.now();
+      onToolStart?.({ name: tu.name, input: tu.input });
+      try {
+        const out = await executor(tu.name, tu.input);
+        onToolEnd?.({ name: tu.name, input: tu.input, result: out, error: null, durationMs: performance.now() - startedAt });
+        const content = (out && out._pipContent)
+          ? JSON.stringify(out._pipContent)  // local provider can't render image blocks; flatten to JSON
+          : (typeof out === "string" ? out : JSON.stringify(out));
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, name: tu.name, content });
+      } catch (err) {
+        onToolEnd?.({ name: tu.name, input: tu.input, result: null, error: err.message || String(err), durationMs: performance.now() - startedAt });
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, name: tu.name, content: `Error: ${err.message || err}`, is_error: true });
+      }
+    }
+    convo.push({ role: "user", content: toolResults });
+
+    if (budget === 0) {
+      const grant = await (onMaxIterations?.() || 0);
+      if (grant > 0) budget = grant;
+    }
   }
+  return (priorText + "(reached iteration limit)").trim();
 }
 
 async function _anthropicAsk(userText, { system, maxTokens = 200 } = {}) {
