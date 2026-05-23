@@ -26,7 +26,7 @@ Different model shapes are good at different jobs — distinct primitives, not i
 
 - **Closed-vocab reflex detector** (`mediapipe.js`, EfficientDet-Lite0 via MediaPipe Tasks API): 80 COCO classes, ~10–30 ms on GPU. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 - **Tool-using LLM via API** (`claude.js`): seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Currently Claude; any tool-using LLM with the same tool surface fits here.
-- **Unproven / experimental**: Overhead ArUco localization (`aruco.js`), YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26`). See `.claude/notes.md` → "Wired but unproven." Keep out of user docs until validated. Grounding DINO was deleted once Claude vision via `view_robot_frame` absorbed the open-vocab role with scene reasoning the bbox-only detector couldn't do.
+- **Unproven / experimental**: Overhead ArUco localization (`aruco.js`), YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26`). See `.claude/exploration.md` → "Wired but unproven." Keep out of user docs until validated. Grounding DINO was deleted once Claude vision via `view_robot_frame` absorbed the open-vocab role with scene reasoning the bbox-only detector couldn't do.
 
 # Transport channels
 
@@ -70,8 +70,9 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 - `SMOKE.md` — manual checklist for architectural promises.
 - `USER-CODE.md` — surface that `scripts.js` exposes to user-authored code.
 - `HARDWARE.md` — wiring, board-specific knobs.
-- `.claude/direction.md` — long-horizon shape decisions in flight.
-- `.claude/notes.md` — field positioning, design rationale, wired-but-unproven inventory.
+- `.claude/direction.md` — what we're committing to close for the course pilot.
+- `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.
+- `.claude/field.md` — positioning analysis vs adjacent work.
 - `firmware/esp32_robot_idf/WEBRTC.md` — the four coordinated DTLS/SDP patches.
 - `firmware/pi_robot/SYSTEMD.md` — preconditions-belong-in-the-script pattern.
 - `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer.
