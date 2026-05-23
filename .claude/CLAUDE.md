@@ -44,19 +44,15 @@ Two layers, kept cheap:
 - `make smoke` — pure-function tests via `node --test tests/*.test.js`. Anything in `format.js` (and future pure helpers) earns a row in `tests/format.test.js`. Runs in <1 s.
 - `SMOKE.md` — manual checklist for architectural promises (lifecycle, render patterns, capability behavior, Pip flow, recovery).
 
-Pattern for new pure helpers: extract from `app.js` / cap runtime into `format.js`, import where used, add a test.
-
 `make install-hooks` wires `.githooks/` as `core.hooksPath`. Pre-commit runs `make smoke`, the gen-uuids drift check (when `protocol/uuids.json` is staged), and the sw.js VERSION stamp (when `docs/*` excluding firmware bins / sw.js is staged — folds the stamp into the user's commit so the dashboard "Reload to update" banner fires on the right commit instead of a CI follow-up). Bypassable with `--no-verify`; CI is the binding layer.
 
 # Comment discipline
 
-Default to no comments — every line is context cost in an AI-edited codebase.
-
-Keep when the comment carries WHY: hidden constraints, kernel/API gotchas, workarounds for past bugs, cross-file invariants ("must match `firmware/pi_robot/pi_robot.py`"), schema/wire-format examples. Cut when it restates WHAT: module preambles, narration, section banners, labels above obvious code.
+Every line is context cost in an AI-edited codebase. Comments earn their place when they carry WHY: hidden constraints, kernel/API gotchas, workarounds for past bugs, cross-file invariants ("must match `firmware/pi_robot/pi_robot.py`"), schema/wire-format examples. Restatement (module preambles, narration, section banners, labels above obvious code) is the cut.
 
 # Abstractions earn upstream consumers
 
-Before adding a logical layer, registry, wrapper, or routing decision, audit who outside its home module will use it. If only one module touches it, it's internal — bar for keeping it is high. The merge layer (item F) shipped with no consumers above the dashboard; deletion (R1) was clean precisely because nothing else depended on it. The cost of an unused abstraction isn't only the lines it adds — it's the explanatory comments, the cross-cutting params plumbed through siblings, and the bug-shaped negative space (the joypad-no-op was a child of the abstraction, not a coincidence). Audit before adding, not before deleting.
+Before adding a logical layer, registry, wrapper, or routing decision, audit who outside its home module will use it. If only one module touches it, it's internal. The merge layer (item F) shipped with no consumers above the dashboard; deletion (R1) was clean precisely because nothing else depended on it. The cost of an unused abstraction isn't only the lines it adds — it's the explanatory comments, the cross-cutting params plumbed through siblings, and the bug-shaped negative space (the joypad-no-op was a child of the abstraction, not a coincidence). Audit before adding, not before deleting.
 
 # Dialog vs menu dismiss
 
@@ -76,19 +72,17 @@ The "openpilot panda" pattern: safety enforced *below* the intelligent layer, no
 
 Different model shapes are good at different jobs — distinct primitives, not interchangeable "AI". Past planner-layer attempts to paper over capability gaps with prompt-engineering have bitten us.
 
-**Detectors and perception:**
+**Detectors and perception.**
 
 - **Closed-vocab reflex detector** (`mediapipe.js`, EfficientDet-Lite0 via MediaPipe Tasks API): 80 COCO classes, ~10–30 ms on GPU. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 
 **Unproven / experimental:** Overhead ArUco localization (`aruco.js`), YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26` — wired, not the default, no field-validation run logged). See `.claude/notes.md` "Wired but unproven." Keep out of user docs until validated. (Grounding DINO was previously the open-vocab fallback; deleted once Claude vision via `view_robot_frame` absorbed that role with scene reasoning the bbox-only detector couldn't do.)
 
-**Planners (Pip):**
+**Planners (Pip).**
 
 - **Tool-using LLM via API** (`claude.js`): seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Currently Claude; any tool-using LLM with the same tool surface fits here.
 
 # Transport channels
-
-Each transport has a distinct job:
 
 - **BLE** — control plane. Low latency, proximity-authenticated, lossy. Anything that sets motor speed, toggles an LED, commits state.
 - **Typed ops over BLE** — structured verbs on a single characteristic (`get-log`, `get-config`, `restart-service`, `wifi-scan`, `wifi-join`). Each verb is a deliberate, reviewable decision instead of a real-shell transport.

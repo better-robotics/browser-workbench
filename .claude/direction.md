@@ -1,6 +1,6 @@
 # Architectural direction — better-robotics
 
-Long-horizon shape decisions. Unlike `working.md` (tactical pending), this file names structural moves the project is committing to. Updated when the shape of the system changes.
+Long-horizon shape decisions. Updated when the shape of the system changes.
 
 ## 1. Generic typed-characteristic runtime (in flight)
 
@@ -93,13 +93,13 @@ does code get onto the robot" sets the tone for everything else.
    **Not yet implemented.** Earns its slot when multi-robot coord or
    offline-first use cases land, not purely for OTA speed.
 
-**Why the three-lane shape is right:**
+**Why the three-lane shape:**
 - Lane 1 works on BLE only. No WiFi assumption.
 - Lane 2 works when browser and robot share a LAN. Most common case.
 - Lane 3 works when the fleet has a Pi (most Better Robotics fleets do).
 
 Dashboard tries fastest available, falls back automatically. User never
-picks a lane — it just updates as fast as the topology allows.
+picks a lane.
 
 **What's baked in vs what's not:**
 - BLE-stream as a baseline works today (for Pi bundle OTA; for ESP32
@@ -193,7 +193,7 @@ before extending.
 **Scope honesty.** This flips part of CLAUDE.md's "Not spatially
 aware" stance: when an overhead camera + marker is present, the
 robot has a known 2D pose. Not SLAM, not depth — just fiducial-
-bounded planar pose. Do NOT update CLAUDE.md until phase 2 lands and
+bounded planar pose. CLAUDE.md updates only after phase 2 lands and
 the validation criterion passes; claiming a capability before it
 works is the worst kind of scope drift.
 
@@ -213,10 +213,7 @@ works is the worst kind of scope drift.
   pose loop is self-contained and MediaPipe COCO handles closed-
   vocab reflex needs.
 
-## What this list doesn't include
-
-These ideas were considered and rejected or deferred for specific reasons
-— recording them here so we don't re-rehash:
+## Rejected / deferred
 
 - **Running without Linux on the Pi (bare-metal).** Loses Python, gpiozero,
   systemd, apt. Not a simplification; a regression. The Pi being a real

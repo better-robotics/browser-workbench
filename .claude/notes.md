@@ -6,7 +6,7 @@ Operator-facing notes — decisions, field positioning, feature design rationale
 
 # Field
 
-Adjacent work that defines what positioning BetterRobotics can claim. The frame is "what's already claimed in the surrounding field" — not "who do we beat." Filtered for what would change a decision.
+Adjacent work that defines what positioning BetterRobotics can claim. Frame: "what's already claimed in the surrounding field," not "who do we beat." Filtered for what would change a decision.
 
 ## schematik.io — not in this lane
 
@@ -105,7 +105,7 @@ Adjacent work that defines what positioning BetterRobotics can claim. The frame 
 - **Layered safety.** Firmware-bounded motors the IDE-level planner can't bypass. Ask-human as terminal cascade rung. Standard in driving (openpilot-panda), rare in hobby/classroom.
 - **No backend, no accounts.** Static-site deployable, MIT-licensed. Sphero, Viam, Particle, RainMaker, Freedom — all account-anchor.
 
-Keep the scope lines loud in the README. Market reads "robotics platform" and expects Sphero or Viam. Naming what it *isn't* — *not a teleop dashboard, not a fleet manager, not "AI does everything autonomously," not real-time, not spatially aware* — does more positioning work than any feature comparison.
+Scope lines stay loud in the README. Market reads "robotics platform" and expects Sphero or Viam. Naming what it *isn't* — *not a teleop dashboard, not a fleet manager, not "AI does everything autonomously," not real-time, not spatially aware* — does more positioning work than any feature comparison.
 
 ## Sources
 
@@ -176,8 +176,6 @@ Pip runs in the browser; every input that would change what Pip says is also in 
 
 "Give Pip a feed so messages aren't boring" is the engagement reflex every newsletter SaaS tries: push content on a schedule, hope relevance averages out. Generic feeds get ignored because the user pays a translation cost from *"someone built X"* to *"does this matter for me right now?"* That cost kills engagement.
 
-Shipping a scheduled pipeline before the state-aware layer exists pays pipeline maintenance for output state-aware messaging would dominate on relevance anyway.
-
 ## When would an external feed earn its way in?
 
 When the state-aware layer saturates — Pip has mined what the browser knows and the ceiling becomes *"Pip doesn't know about the new ESP32-S3 cam module that would unblock the perception loop."* Then:
@@ -192,7 +190,7 @@ State-aware layer first, let it saturate, then add the corpus.
 
 # Wired but unproven — pending real-world validation
 
-Loads at runtime but not confirmed end-to-end against hardware. Kept out of `README.md`, `DEV.md`, and the GitHub repo About. Promote into user docs only after a real run confirms the path.
+Loads at runtime but not confirmed end-to-end against hardware. Kept out of `README.md`, `DEV.md`, and the GitHub repo About until a real run confirms the path.
 
 ## Overhead ArUco localization (`docs/aruco.js`)
 
@@ -210,7 +208,7 @@ Loads at runtime but not confirmed end-to-end against hardware. Kept out of `REA
 
 **To validate.** Print sheet 0 + sheet 1, tape marker 0 on Pi-01 and marker 1 on Pi-02. Pair a phone, share its camera, set role to "Overhead localization." Bind explicitly: `window.bindArucoMarker("<pi-01-id>", 0)` and `window.bindArucoMarker("<pi-02-id>", 1)`. Confirm both robots' `arucoPosition` update simultaneously on each detection, metric XY within ~20 mm of tape-measured ground truth at ~50 cm camera height. If it holds, promote: line in `README.md` perception section, bullet in `DEV.md` "When to reach for what."
 
-**Why bother.** Sub-pixel deterministic pose for a tagged object is the only roadmap primitive that closes the visual-servo loop without a depth sensor — and the substrate for the multi-robot-orchestration direction in `.claude/CLAUDE.md`. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does NOT clear stale entries when a robot leaves frame; consumer's job).
+**Why bother.** Sub-pixel deterministic pose for a tagged object is the only roadmap primitive that closes the visual-servo loop without a depth sensor — and the substrate for the multi-robot-orchestration direction in `.claude/CLAUDE.md`. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does not clear stale entries when a robot leaves frame; consumer's job).
 
 ## Grounding DINO open-vocab detector — deleted (May 2026)
 
@@ -236,7 +234,7 @@ Local-cam helper card gains a third role alongside Overhead. Selecting "Send to 
 
 # Forks in the road — alternatives evaluated, with revisit triggers
 
-Paths we looked at and chose not to take, with the specific change in project direction that would make us revisit. Distinct from the Field section (which audits adjacent work) — these are *adjacent technical paths* we declined.
+Adjacent technical paths declined, with the specific change in project direction that would trigger a revisit. (Distinct from the Field section, which audits adjacent work.)
 
 ## Espressif KVS WebRTC SDK for ESP32
 
@@ -246,6 +244,6 @@ Paths we looked at and chose not to take, with the specific change in project di
 
 **Why not now.** Signaling is hardwired to HTTPS+WebSocket against AWS KVS or `webrtc.espressif.com`. Swapping in means writing a custom `signaling_client_if` implementation that takes offers/answers off our BLE `SIGNAL` characteristic and feeds the SDK's `kvs_peer_connection_if`. The plug point is documented (`CUSTOM_SIGNALING.md` in their tree), but the work doesn't buy us anything the libpeer patches don't already deliver — our wedge is precisely "BLE-signaled, no internet rendezvous." We'd also inherit a 3 MB factory partition expectation that's marginal on classic ESP32's 4 MB flash.
 
-**Revisit trigger.** If a hosted-mode / internet-rendezvoused operator surface lands on the roadmap (share-a-link demos, remote tele-op, third-party robots controlling our robots), KVS WebRTC SDK is the prebuilt path. **Do not reinvent BLE-on-KVS at that point — switch outright.** The libpeer + four-patch setup made sense for BLE-only; it does not earn its keep against a stack that handles cloud signaling for free.
+**Revisit trigger.** If a hosted-mode / internet-rendezvoused operator surface lands on the roadmap (share-a-link demos, remote tele-op, third-party robots controlling our robots), KVS WebRTC SDK is the prebuilt path — switch outright rather than reinvent BLE-on-KVS. The libpeer + four-patch setup made sense for BLE-only; it does not earn its keep against a stack that handles cloud signaling for free.
 
 **Bonus capability worth knowing.** KVS WebRTC Split Mode distributes signaling to ESP32-C6 (light sleep) and streaming to ESP32-P4 (deep sleep until wake-on-signal) — the only battery-powered WebRTC camera architecture in the ecosystem. Irrelevant to mains-powered robots today; remember it if low-power ever becomes a constraint.

@@ -6,9 +6,7 @@
 
 ## What this is
 
-Open a Chrome tab. Pair a robot over BLE. Write code that drives it.
-
-- **Browser is the IDE.** Coding panel + capability cards. localStorage is the file system; BLE is the runtime link.
+Browser is the IDE. Coding panel + capability cards. localStorage is the file system; BLE is the runtime link.
 
 ## Architecture
 
@@ -62,8 +60,4 @@ ESP32 and Pi expose the same service UUID and characteristic UUIDs, so the dashb
 ## Browser support
 
 Web Bluetooth: Chrome, Edge, Opera on desktop and Android. Not Safari. Firefox only behind a flag.
-
-## License
-
-[MIT](LICENSE).
 

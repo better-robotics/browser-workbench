@@ -1,6 +1,6 @@
 # Smoke checklist
 
-Manual verification before merging structural changes (UI redesign, render-pattern shifts, capability refactors, BLE protocol tweaks). If a row breaks, user-visible value broke. Don't ship.
+Manual verification before merging structural changes (UI redesign, render-pattern shifts, capability refactors, BLE protocol tweaks). A broken row means user-visible value broke.
 
 Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardware.
 
