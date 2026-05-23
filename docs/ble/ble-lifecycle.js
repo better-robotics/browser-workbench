@@ -2,17 +2,17 @@ import { SERVICE_UUID, HEARTBEAT_SVC_UUID, HEARTBEAT_CHAR_UUID,
   FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID,
   OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID, SIGNAL_CHAR_UUID,
   decodeJson } from "./ble.js";
-import { log, logFor } from "./log.js";
+import { log, logFor } from "../log.js";
 import {
   state, persist, loadKnown,
   makeEntry, entryFor, attachDevice, setDisconnectHandler,
-} from "./state.js";
+} from "../state.js";
 import { ALL as CAPABILITIES } from "./capabilities/index.js";
 import { RUNTIMES } from "./capabilities/runtime/index.js";
-import { dispatchOpsResponse } from "./ops-response.js";
-import { broadcastTargetInfo } from "./phones.js";
-import { renderHelpers } from "./phone-helpers.js";
-import { stopWatcher } from "./watcher.js";
+import { dispatchOpsResponse } from "../ops-response.js";
+import { broadcastTargetInfo } from "../pair/phones.js";
+import { renderHelpers } from "../pair/phone-helpers.js";
+import { stopWatcher } from "../watcher.js";
 
 let renderers = {
   renderEntry: () => {},

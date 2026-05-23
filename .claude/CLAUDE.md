@@ -22,7 +22,10 @@ The **browser-native robotics dev environment** — vibe-code robots in a tab, r
 # Project layout
 
 - `docs/` is the GitHub Pages publish root — the dashboard's static ES modules live here directly. (Repo-level docs like HARDWARE.md, SMOKE.md, etc. live at the root or inside subsystems, not in `docs/`.)
-- `docs/` is flat by design — file count is manageable, naming prefixes carry the subsystem boundary. Promote a subsystem to its own folder (like `capabilities/`) once it passes ~5 files whose internals shouldn't leak outside.
+
+- **Root holds primitives, subsystems hold vocabularies.** `docs/` root is for (a) HTML entry points, (b) app-shell singletons (`app.js`, `state.js`, `dom.js`, `event-bus.js`, `log.js`, `settings.js`), (c) cross-cutting primitives imported by ≥3 subsystems (`format.js`, `error-capture.js`). Everything else is presumed to belong in a subsystem folder. Mirrors `@anthropic-ai/sdk`'s shape — promotion is by role, not file count.
+
+- **Promotion trigger: vocabulary closure, not file count.** Files belong in their own folder when they (1) share a naming prefix, (2) change together for the same reason, (3) expose ≤2 symbols outward. A 3-file sealed vocabulary (`pinout-*`) is more ready than a 6-file loose collection (`mobile-*`). When a prefix collects files that change for *different* reasons, split — don't folder.
 
 # Subsystem map
 
