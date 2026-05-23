@@ -10,6 +10,15 @@
 // uses. So a demo step renders in the chat the same way an LLM-issued
 // tool call does.
 //
+// ctx carries only the minimal runtime kit (id, exec, sleep, abort
+// check); demos that need watcher / ultrasonic / Claude-vision import
+// those directly. Less dictionary marshaling at the call site, and
+// each demo's actual dependencies are visible in its file's imports.
+
+import { onWatcherFire, awaitReflexGate } from "./watcher.js";
+import { state } from "./state.js";
+import { askAboutFrame } from "./claude.js";
+//
 // Design philosophy (revised after first-pass screenshots showed tiny,
 // twitchy motion):
 //   - Use the full 2000ms pulse cap. Per-pulse gaps are noticeable
@@ -158,13 +167,13 @@ async function react(ctx) {
   let greeting = null;
   const frameRes = await ctx.exec("view_robot_frame", { id: ctx.id }).catch(() => null);
   const imageBlock = frameRes?._pipContent?.find(c => c.type === "image");
-  if (imageBlock && ctx.askAboutFrame) {
+  if (imageBlock) {
     const dataUrl = `data:${imageBlock.source.media_type};base64,${imageBlock.source.data}`;
-    greeting = await ctx.askAboutFrame(
+    greeting = await askAboutFrame(
       dataUrl,
       "You are a friendly robot meeting someone. Reply with one short greeting (12 words max) that references ONE specific thing you can see about them (clothing color, what they're holding, posture, or the room behind them). Plain text only — no quotes, no preamble.",
       { maxTokens: 60 }
-    );
+    ).catch(() => null);
   }
   await ctx.exec("speak", { text: greeting || "Hello there!" });
   // Keep the watcher armed for future visitors after the demo ends.
@@ -374,7 +383,7 @@ async function stopsignPatrol(ctx) {
   // still holding the sign while the watcher cool-down re-fires).
   let catchCount = 0;
   let lastAnnounceTs = 0;
-  const unsub = ctx.onWatcherFire?.((entry, det) => {
+  const unsub = onWatcherFire((entry, det) => {
     if (entry?.id === ctx.id && det?.label === "stop sign") firedThisCycle = true;
   });
   const breakLeg = () => firedThisCycle || ctx.shouldAbort?.();
@@ -398,7 +407,7 @@ async function stopsignPatrol(ctx) {
     blockedAhead = false;
     for (let i = 0; i < segments; i++) {
       if (breakLeg()) return;
-      const dist = ctx.getDistCm?.();
+      const dist = state.devices.get(ctx.id)?.telemetry?.dist_cm ?? null;
       if (typeof dist === "number" && dist < NEAR_OBSTACLE_CM) {
         blockedAhead = true;
         return;
@@ -456,14 +465,10 @@ async function stopsignPatrol(ctx) {
         // Else: silent debounce — the operator's still holding the sign
         // from the last catch; the firmware halt already stopped us.
 
-        if (ctx.awaitReflexGate) {
-          await ctx.awaitReflexGate(ctx.id, {
-            maxMs: 60000,
-            isAborted: () => !!ctx.shouldAbort?.(),
-          });
-        } else {
-          await ctx.sleep(3000);
-        }
+        await awaitReflexGate(ctx.id, {
+          maxMs: 60000,
+          isAborted: () => !!ctx.shouldAbort?.(),
+        });
         if (ctx.shouldAbort?.()) break;
         // Match resume narration to catch narration — if we silenced the
         // catch (debounce), silence the resume too; otherwise the user

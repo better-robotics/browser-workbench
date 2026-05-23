@@ -1,4 +1,4 @@
-import { ask, askWithTools, askAboutFrame, activeModelForBackend } from "./claude.js";
+import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { setAgentState } from "./agent-light.js";
 import { escapeHtml } from "./dom.js";
 import { getTools, executor, setAskInChatHandler, isVisionAvailable } from "./pip-tools.js";
@@ -11,7 +11,7 @@ import { prewarmCache as prewarmTtsCache } from "./voice.js";
 import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assistant-voice.js";
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
-import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
+import { releaseAllGates } from "./watcher.js";
 import { emit as busEmit } from "./event-bus.js";
 import { AUTH_URL } from "./endpoints.js";
 
@@ -443,32 +443,13 @@ async function runTurn(text, turnEl) {
   if (demo) {
     const robotId = pickRobotId();
     if (!robotId) return noRobot();
+    // Minimal runtime kit. Demos that need watcher / ultrasonic /
+    // Claude-vision import those directly (see demos.js imports).
     const ctx = {
       id: robotId,
       exec: runStep,
       sleep: (ms) => new Promise(r => setTimeout(r, ms)),
       shouldAbort: () => turn.abort,
-      // Subscribe to MediaPipe watcher fires so demos can react to
-      // reflex events (e.g. stopsign demo halts its loop when the
-      // watcher catches "stop sign"). Returns an unsubscribe fn.
-      onWatcherFire,
-      // Single-shot Claude observation about a frame (no tool loop).
-      // Powers demos like `react` that want a personalized greeting
-      // from what the robot actually saw. Null on non-Claude backends
-      // or any failure — caller falls back to a canned line.
-      askAboutFrame,
-      // Wait until the reflex motor-gate is released (the operator
-      // moves the trigger out of view, or the watcher's cool-down
-      // expires). Lets demos pause-and-resume around reflex halts
-      // instead of bailing out of the loop.
-      awaitReflexGate,
-      // Forward ultrasonic distance in cm (or null when telemetry
-      // hasn't arrived yet). Demos use this to detect obstacles —
-      // firmware silently clips pure-forward motion when dist_cm<15
-      // and returns ok:true from move_motor, so an inattentive demo
-      // happily "drives" into a wall forever. Polling between
-      // segments lets the demo break the leg early and turn around.
-      getDistCm: () => state.devices.get(robotId)?.telemetry?.dist_cm ?? null,
     };
     try { await demo.run(ctx); }
     catch (err) {

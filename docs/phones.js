@@ -12,7 +12,7 @@ import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { state } from "./state.js";
 import { setPhoneStream, getPhoneAttachment } from "./phone-helpers.js";
-import { settings } from "./settings.js";
+import { emit as busEmit } from "./event-bus.js";
 import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
@@ -526,13 +526,12 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   // Restore attached-mode if this phone was already mounted on a robot
   // when it dropped + reconnected. Without this, a fleeting WebRTC
   // hiccup leaves the on-robot phone showing operator chrome again.
-  // Read the mode preference here too — same source of truth as
-  // phone-helpers.js attachPhoneCameraTo.
+  // Mode resolution lives in phone-screen-mode-plugin; we just re-fire
+  // the attach event and the plugin re-derives the right mode.
   const attachedRobotId = getPhoneAttachment(id);
   if (attachedRobotId) {
     const robot = state.devices.get(attachedRobotId);
-    const mode = settings.phoneAttachedMode === "operator-cam" ? "operator-cam" : "pip-face";
-    setPhoneScreenMode(id, mode, robot?.name || null);
+    busEmit("phone.attached", { phoneId: id, robotId: attachedRobotId, robotLabel: robot?.name || null });
   }
 }
 
