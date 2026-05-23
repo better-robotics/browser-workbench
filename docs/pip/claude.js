@@ -213,9 +213,6 @@ async function callAnthropic(body) {
 // Body shape is identical, only URL + auth + model id differ.
 const OPENAI_MODEL = "gpt-4o-mini";        // cheap default for direct OpenAI
 const GITHUB_MODEL = "openai/gpt-4o-mini"; // GitHub Models requires vendor prefix
-function _activeOpenAiCompatModel() {
-  return settings.pipBackend === "github" ? GITHUB_MODEL : OPENAI_MODEL;
-}
 async function callOpenai(body) {
   // GitHub Models requires the vendor-prefixed model id, so override body.model
   // when calling them.

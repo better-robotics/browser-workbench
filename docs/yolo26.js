@@ -51,6 +51,18 @@ async function ensureSession() {
   return _sessionPromise;
 }
 
+// Module-scope reusables for the YOLO preprocess hot path. A fresh
+// 640x640 canvas + 4.9 MB Float32Array per tick was ~50 MB/s of GC
+// pressure at the 10 Hz detector cadence.
+const _lbCanvas = (() => {
+  const c = document.createElement("canvas");
+  c.width = INPUT_SIZE;
+  c.height = INPUT_SIZE;
+  return c;
+})();
+const _lbCtx = _lbCanvas.getContext("2d");
+const _lbBuf = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
+
 // Letterbox the source canvas into a 640x640 RGB plane, gray (114) pad.
 // Returns CHW float32 buffer + the geometry needed to un-letterbox the
 // bboxes back to original-frame normalized coords.
@@ -63,24 +75,19 @@ function preprocess(canvas) {
   const padX = (INPUT_SIZE - newW) / 2;
   const padY = (INPUT_SIZE - newH) / 2;
 
-  const lb = document.createElement("canvas");
-  lb.width = INPUT_SIZE;
-  lb.height = INPUT_SIZE;
-  const ctx = lb.getContext("2d");
-  ctx.fillStyle = "rgb(114,114,114)";
-  ctx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
-  ctx.drawImage(canvas, padX, padY, newW, newH);
-  const img = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
+  _lbCtx.fillStyle = "rgb(114,114,114)";
+  _lbCtx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+  _lbCtx.drawImage(canvas, padX, padY, newW, newH);
+  const img = _lbCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
 
-  const out = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
   const plane = INPUT_SIZE * INPUT_SIZE;
   for (let i = 0; i < plane; i++) {
     const j = i * 4;
-    out[i]             = img[j]     / 255;
-    out[i + plane]     = img[j + 1] / 255;
-    out[i + 2 * plane] = img[j + 2] / 255;
+    _lbBuf[i]             = img[j]     / 255;
+    _lbBuf[i + plane]     = img[j + 1] / 255;
+    _lbBuf[i + 2 * plane] = img[j + 2] / 255;
   }
-  return { data: out, scale, padX, padY, origW: w, origH: h };
+  return { data: _lbBuf, scale, padX, padY, origW: w, origH: h };
 }
 
 function iou(a, b) {
@@ -166,7 +173,7 @@ function unletterbox(box, pre) {
 
 export async function detectOnce(entry, { classes, source = null, threshold = DEFAULT_THRESHOLD } = {}) {
   if (_failed) return null;
-  const canvas = drawFrameToCanvas(entry, INPUT_SIZE, source);
+  const canvas = drawFrameToCanvas(entry, INPUT_SIZE, source, { reuse: true });
   if (!canvas) return null;
   const session = await ensureSession();
   if (!session) return null;

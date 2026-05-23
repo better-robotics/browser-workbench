@@ -193,9 +193,6 @@ function resolveStreamForPhone(phone, entry) {
 function syncRobotMedia(phone, entry) {
   if (!phone || phone.status === "failed") return;
   if (!phone.robotSenders) phone.robotSenders = new Map();
-  const prev = phone.robotSenders.get(entry.id) || [];
-  for (const s of prev) { try { phone.peer.removeTrack(s); } catch {} }
-  phone.robotSenders.delete(entry.id);
   // Always re-publish the source list — kept in sync with track changes
   // so the phone's picker shows what's actually available right now.
   try {
@@ -207,13 +204,20 @@ function syncRobotMedia(phone, entry) {
     });
   } catch {}
   const stream = resolveStreamForPhone(phone, entry);
+  const prev = phone.robotSenders.get(entry.id);
+  // Skip the renegotiation dance when the stream identity hasn't
+  // changed — removeTrack+addTrack with the same track still churns
+  // DTLS/SCTP and triggers a renegotiate on the phone side.
+  if (prev?.stream === stream) return;
+  for (const s of prev?.senders || []) { try { phone.peer.removeTrack(s); } catch {} }
+  phone.robotSenders.delete(entry.id);
   if (!stream) return;
   const senders = [];
   for (const t of stream.getVideoTracks()) {
     const s = phone.peer.addTrack(t, stream);
     if (s) senders.push(s);
   }
-  if (senders.length) phone.robotSenders.set(entry.id, senders);
+  if (senders.length) phone.robotSenders.set(entry.id, { stream, senders });
 }
 
 export function notifyRobotStreamChange(entry) {

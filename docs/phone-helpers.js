@@ -747,7 +747,7 @@ function wire() {
     const helperId = `phone:${phoneId}`;
     const pv = list.querySelector(`[data-helper-video="${CSS.escape(helperId)}"]`);
     if (pv && entry.stream) {
-      pv.srcObject = entry.stream;
+      if (pv.srcObject !== entry.stream) pv.srcObject = entry.stream;
       _videoEls.set(helperId, pv);
     }
   }
@@ -756,7 +756,7 @@ function wire() {
     const helperId = `local:${cam.deviceId}`;
     const pv = list.querySelector(`[data-helper-video="${CSS.escape(helperId)}"]`);
     if (pv) {
-      pv.srcObject = cam.stream;
+      if (pv.srcObject !== cam.stream) pv.srcObject = cam.stream;
       _videoEls.set(helperId, pv);
     }
   }

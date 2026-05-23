@@ -90,7 +90,7 @@ function toBoxes(raw, w, h) {
 // always scores all 80 COCO classes; filtering is a free operation).
 export async function detectOnce(entry, { classes, source = null, threshold } = {}) {
   if (_detectorFailed) return null;
-  const canvas = drawFrameToCanvas(entry, MAX_DIM, source);
+  const canvas = drawFrameToCanvas(entry, MAX_DIM, source, { reuse: true });
   if (!canvas) return null;
   const det = await ensureDetector();
   if (!det) return null;

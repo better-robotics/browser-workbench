@@ -562,12 +562,13 @@ async function dispatch(name, input) {
         : "couldn't capture a frame — camera not started or video element 0-sized";
       try {
         if (camera === "all") {
+          // Detector is async-safe per call; run all sources in parallel.
+          const results = await Promise.all(
+            sources.map(src => detectOnce(entry, { classes: queries, source: src.element }))
+          );
+          if (results.some(r => r === null)) return { error: captureErr };
           const detections_by_camera = {};
-          for (const src of sources) {
-            const dets = await detectOnce(entry, { classes: queries, source: src.element });
-            if (dets === null) return { error: captureErr };
-            detections_by_camera[src.label] = dets;
-          }
+          sources.forEach((src, i) => { detections_by_camera[src.label] = results[i]; });
           return { detections_by_camera };
         }
         const pick = sources.find(s => s.label === camera);

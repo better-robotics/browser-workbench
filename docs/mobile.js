@@ -304,15 +304,12 @@ function onPeerMessage(msg) {
 // transparent) so anyone in the room can still halt the robot. Desktop
 // owns the choice; the phone has no local override. Reset on peer.
 // onClose so a disconnect leaves the user with normal UI to reconnect.
+let _currentScreenMode = "default";
 function applyScreenMode(mode, robotLabel) {
   const body = document.body;
-  // Same-mode re-emit (reconnect path repeats the screen-mode message
-  // on every WebRTC re-establish): keep the mounted face's timer chain
-  // alive instead of tearing down + remounting.
-  const currentMode = body.classList.contains("phone-face") ? "pip-face"
-    : body.classList.contains("phone-attached") ? "operator-cam"
-    : "default";
-  if (mode === currentMode) {
+  // Same-mode re-emit (reconnect path): keep the mounted face's timer
+  // chain alive instead of tearing down + remounting.
+  if (mode === _currentScreenMode) {
     body.dataset.attachedTo = robotLabel || "";
     return;
   }
@@ -332,6 +329,7 @@ function applyScreenMode(mode, robotLabel) {
       mountPipFace(face);
     }
   }
+  _currentScreenMode = mode === "operator-cam" || mode === "pip-face" ? mode : "default";
 }
 
 function wireJoypad() {

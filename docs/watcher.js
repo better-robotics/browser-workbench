@@ -21,7 +21,7 @@
 // hallucinated Pip call can pick which verb, not invent a new one.
 
 import { startDetection, detectOnce, isDetectorFailed, getActiveVocabulary } from "./detectors.js";
-import { detectGestureOnce, isGesturesFailed, GESTURE_CLASSES } from "./gestures.js";
+import { detectGestureOnce, isGesturesFailed } from "./gestures.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { listCameraSources } from "./camera-frame.js";
 import { capSection } from "./capabilities/runtime/cap-section.js";
