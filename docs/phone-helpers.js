@@ -1,5 +1,6 @@
 import { $, escapeHtml } from "./dom.js";
-import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare, setPhoneFeedStream, setPhoneScreenMode } from "./phones.js";
+import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare, setPhoneFeedStream } from "./phones.js";
+import { emit as busEmit } from "./event-bus.js";
 import { state } from "./state.js";
 import { settings, saveSettings } from "./settings.js";
 import { setOverheadSource, clearOverheadSource } from "./aruco.js";
@@ -222,7 +223,7 @@ export function attachPhoneCameraTo(phoneId, robotId) {
   }
   if (!robotId) {
     _phoneAttachments.delete(phoneId);
-    setPhoneScreenMode(phoneId, "default");
+    busEmit("phone.detached", { phoneId });
   } else {
     if (settings.arucoOverheadPhoneId === phoneId) {
       settings.arucoOverheadPhoneId = null;
@@ -232,7 +233,10 @@ export function attachPhoneCameraTo(phoneId, robotId) {
     const ps = _phoneStreams.get(phoneId);
     if (ps?.stream) routeAttachedStream(phoneId, ps.stream);
     const robot = state.devices.get(robotId);
-    setPhoneScreenMode(phoneId, "attached", robot?.name || null);
+    // Mode resolution (pip-face vs operator-cam) is owned by phone-
+    // screen-mode-plugin.js — this module just emits the attach event
+    // and lets the plugin decide what to do with it.
+    busEmit("phone.attached", { phoneId, robotId, robotLabel: robot?.name || null });
   }
   render();
 }

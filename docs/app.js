@@ -22,6 +22,8 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./assistant.js";
 import { initPhones, listPhones } from "./phones.js";
+import { initPipFacePlugin } from "./pip-face-plugin.js";
+import { initPhoneScreenModePlugin } from "./phone-screen-mode-plugin.js";
 import {
   initHelpers, setHelpersRobotRenderer,
   attachPhoneCameraTo, getPhoneAttachment,
@@ -1139,6 +1141,12 @@ document.addEventListener("DOMContentLoaded", () => {
   initPhones();
   initHelpers();
   initRobotPresence();
+  // Phone-on-robot rendering is split into bus-driven plugins —
+  // phone.attached/phone.detached resolve into a screen mode (settings
+  // preference), and the resolved mode + tool.*/watcher.* bus events
+  // drive what the phone screen shows. Off-switch: delete either line.
+  initPhoneScreenModePlugin();
+  initPipFacePlugin();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
   // System Access API; no reason to pull it into first-paint. prepare.js's

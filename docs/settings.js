@@ -39,7 +39,7 @@ export const settings = Object.assign(
   //   (no int4→fp16 reroll per layer). Sampling defaults baked into
   //   claude.js's _localAsk match Google's documented Gemma-4 standards
   //   (temperature 1.0, top_k 64, top_p 0.95, no repetition_penalty).
-  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, pipDetector: "mediapipe", pipLocalModel: "onnx-community/gemma-4-E2B-it-ONNX", pipLocalDtype: "q4f16", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
+  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, pipDetector: "mediapipe", pipLocalModel: "onnx-community/gemma-4-E2B-it-ONNX", pipLocalDtype: "q4f16", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100, phoneAttachedMode: "pip-face" },
   (() => {
     const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     // Migration: pipGithubAuth → githubAuth (Identity + Pip share one OAuth

@@ -1,4 +1,4 @@
-import { ask, askWithTools, askAboutFrame, activeModelForBackend } from "./claude.js";
+import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { setAgentState } from "./agent-light.js";
 import { escapeHtml } from "./dom.js";
 import { getTools, executor, setAskInChatHandler, isVisionAvailable } from "./pip-tools.js";
@@ -11,7 +11,8 @@ import { prewarmCache as prewarmTtsCache } from "./voice.js";
 import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assistant-voice.js";
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
-import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
+import { releaseAllGates } from "./watcher.js";
+import { emit as busEmit } from "./event-bus.js";
 import { AUTH_URL } from "./endpoints.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
@@ -118,12 +119,22 @@ const turn = {
 // Thin wrappers around pip-core's tool-using turn primitives. Pip ships
 // the pill/bubble/image DOM; we add the robotics state (agent-light)
 // and the labelTool / summarizeTool name formatting.
-function appendStepPill(turnEl, name) {
+function appendStepPill(turnEl, name, input = null) {
   setAgentState(name === "ask_human" ? "asking" : "working");
+  // Tool-call event is emitted on the shared bus; subscribers (pip
+  // face plugin today, audit/log/OSC bridges later) attach without
+  // this function knowing about them.
+  busEmit("tool.call", { tool: name, input });
   return _pip.appendToolPill(turnEl, name, { label: `${labelTool(name)} …` });
 }
 function finishStepPill(pill, name, input, result, error, durationMs) {
   setAgentState("thinking");
+  busEmit("tool.result", {
+    tool: name, input, result,
+    ok: !error && !(result?.error),
+    error: error || result?.error || null,
+    durationMs,
+  });
   // null durationMs to summarizeTool — pip-core's pill renders elapsed in
   // its own span; we keep the label semantic (name + arg summary) and
   // let pip handle the right-edge timing.
@@ -163,7 +174,7 @@ async function injectVoiceMidTurn(text) {
       return true;
     }
     const input = { id: robotId, ...cmd.partialInput };
-    const pill = appendStepPill(turn.el, cmd.tool);
+    const pill = appendStepPill(turn.el, cmd.tool, input);
     const startedAt = performance.now();
     let resultStr;
     try {
@@ -399,7 +410,7 @@ async function runTurn(text, turnEl) {
   // affordance as LLM-driven tool calls, so direct commands and demo
   // sequences are visually indistinguishable from agent work.
   const runStep = async (tool, input) => {
-    const pill = appendStepPill(turnEl, tool);
+    const pill = appendStepPill(turnEl, tool, input);
     const startedAt = performance.now();
     try {
       const result = await executor(tool, input);
@@ -432,32 +443,13 @@ async function runTurn(text, turnEl) {
   if (demo) {
     const robotId = pickRobotId();
     if (!robotId) return noRobot();
+    // Minimal runtime kit. Demos that need watcher / ultrasonic /
+    // Claude-vision import those directly (see demos.js imports).
     const ctx = {
       id: robotId,
       exec: runStep,
       sleep: (ms) => new Promise(r => setTimeout(r, ms)),
       shouldAbort: () => turn.abort,
-      // Subscribe to MediaPipe watcher fires so demos can react to
-      // reflex events (e.g. stopsign demo halts its loop when the
-      // watcher catches "stop sign"). Returns an unsubscribe fn.
-      onWatcherFire,
-      // Single-shot Claude observation about a frame (no tool loop).
-      // Powers demos like `react` that want a personalized greeting
-      // from what the robot actually saw. Null on non-Claude backends
-      // or any failure — caller falls back to a canned line.
-      askAboutFrame,
-      // Wait until the reflex motor-gate is released (the operator
-      // moves the trigger out of view, or the watcher's cool-down
-      // expires). Lets demos pause-and-resume around reflex halts
-      // instead of bailing out of the loop.
-      awaitReflexGate,
-      // Forward ultrasonic distance in cm (or null when telemetry
-      // hasn't arrived yet). Demos use this to detect obstacles —
-      // firmware silently clips pure-forward motion when dist_cm<15
-      // and returns ok:true from move_motor, so an inattentive demo
-      // happily "drives" into a wall forever. Polling between
-      // segments lets the demo break the leg early and turn around.
-      getDistCm: () => state.devices.get(robotId)?.telemetry?.dist_cm ?? null,
     };
     try { await demo.run(ctx); }
     catch (err) {
@@ -480,11 +472,11 @@ async function runTurn(text, turnEl) {
     // safety floors (pulse caps, watchdog, ultrasonic clip) bound blast
     // radius — no executor-imposed observation cadence layered on top.
     maxIterations: 50,
-    onToolStart: ({ name }) => {
+    onToolStart: ({ name, input }) => {
       // Close out the current iteration's text bubble so the next
       // iteration's deltas land in a fresh one below the pill.
       currentReply = null;
-      pendingPill = appendStepPill(turnEl, name);
+      pendingPill = appendStepPill(turnEl, name, input);
     },
     onToolEnd: ({ name, input, result, error, durationMs }) => {
       finishStepPill(pendingPill, name, input, result, error, durationMs);
