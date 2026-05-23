@@ -14,7 +14,7 @@
 import { $ } from "../dom.js";
 import { state } from "../state.js";
 import { log } from "../log.js";
-import { openChannel, closePeer } from "../webrtc-robot.js";
+import { openChannel, closePeer } from "../webrtc/webrtc-robot.js";
 import { mountTerminal } from "./xterm-host.js";
 
 let _wired = false;

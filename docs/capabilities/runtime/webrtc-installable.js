@@ -8,7 +8,7 @@ import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { persist } from "../../state.js";
 import { fetchIceServers } from "../../pairing.js";
-import { registerExternalPc, unregisterExternalPc } from "../../webrtc-robot.js";
+import { registerExternalPc, unregisterExternalPc } from "../../webrtc/webrtc-robot.js";
 import { installPackage } from "./command.js";
 import { capSection } from "./cap-section.js";
 import { notifyRobotStreamChange } from "../../phones.js";

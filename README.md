@@ -14,7 +14,7 @@ Open a Chrome tab. Pair a robot over BLE. Write code that drives it.
 ## Architecture
 
 ```
-┌──────────────────┐         BLE GATT (always on)          ┌──────────────────┐
+┌──────────────────┐         BLE GATT (control plane)       ┌──────────────────┐
 │  Chrome browser  │ ◄────────────────────────────────────► │  Robot firmware  │
 │  (Web Bluetooth) │   commands · state · ops · triggers    │  (ESP32 or Pi)   │
 └──────────────────┘                                        └──────────────────┘

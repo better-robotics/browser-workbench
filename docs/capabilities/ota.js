@@ -122,7 +122,7 @@ async function streamOtaViaWebRTC(entry, bytes) {
   if (entry.fwType === "pi" && !entry.opsChar) {
     throw new Error("no ops channel — can't trigger apply");
   }
-  const { openChannel, closePeer } = await import("../webrtc-robot.js");
+  const { openChannel, closePeer } = await import("../webrtc/webrtc-robot.js");
   let channel;
   try {
     channel = await openChannel(entry.id, entry.name, "ota", {
