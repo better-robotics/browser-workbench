@@ -1,6 +1,6 @@
 # Notes
 
-Operator-facing notes — decisions, field positioning, feature design rationale. Public alongside the rest of the repo.
+Decisions, field positioning, feature design rationale.
 
 ---
 

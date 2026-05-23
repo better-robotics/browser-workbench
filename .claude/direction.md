@@ -98,23 +98,9 @@ does code get onto the robot" sets the tone for everything else.
 - Lane 2 works when browser and robot share a LAN. Most common case.
 - Lane 3 works when the fleet has a Pi (most Better Robotics fleets do).
 
-Dashboard tries fastest available, falls back automatically. User never
-picks a lane.
+Dashboard tries fastest available, falls back automatically. User never picks a lane.
 
-**What's baked in vs what's not:**
-- BLE-stream as a baseline works today (for Pi bundle OTA; for ESP32
-  single-binary OTA, the WithResponse variant is live and slow).
-- ESP32 already runs a raw `WiFiServer` (for MJPEG) — adding a `/ota`
-  endpoint on the same task is near-zero new code on the firmware side.
-- Pi-as-gateway is purely additive to `pi_robot.py` — every Pi ships
-  with it, no opt-in, just one more capability.
-- Dashboard-side lane selection: not yet written. Attempts lanes in
-  order, falls back on timeout/error.
-
-**Sequencing:**
-1. BLE-WithoutResponse first (universal, smallest change).
-2. PNA + ESP32 `/ota` endpoint second (big bang for effort).
-3. Pi-as-gateway when its orchestration/offline story earns it.
+**Sequencing.** BLE-WithoutResponse first (universal, smallest change). PNA + ESP32 `/ota` second (big bang for effort). Pi-as-gateway when its orchestration/offline story earns it.
 
 ## 4. ESP32 build-as-a-service (bold, later)
 
@@ -197,21 +183,7 @@ bounded planar pose. CLAUDE.md updates only after phase 2 lands and
 the validation criterion passes; claiming a capability before it
 works is the worst kind of scope drift.
 
-**Failure modes to watch:**
-- **Marker lost.** Phone is hand-held — will shake, tilt, occlude.
-  > 1 s loss → safety stop. Not optional; this IS the safety story
-  for this loop.
-- **"Phone overhead" geometry assumption.** If held at angle, the
-  floor isn't co-planar with the image. For short paths and small
-  angles, marker pixel position is good enough as a proxy. Larger
-  paths earn a homography (4 known floor points OR phone IMU +
-  marker scale) — defer until path length actually demands it.
-- **Detector latency budget.** Open-vocab "drive toward the yellow
-  cup" routes through Claude vision (~1–2 s round-trip), too slow
-  for a 5 Hz loop. A reflex-tier open-vocab detector earns its way
-  only when that specific use case lands — until then the ArUco-
-  pose loop is self-contained and MediaPipe COCO handles closed-
-  vocab reflex needs.
+**Failure modes to watch.** Marker lost > 1 s → safety stop (this IS the safety story for this loop). Phone-held-at-angle breaks the co-planar assumption: small angles tolerable, larger paths earn a homography. Open-vocab "drive toward the yellow cup" routes through Claude vision (~1–2 s) — too slow for a 5 Hz loop; ArUco-pose stays self-contained until reactive open-vocab earns its way.
 
 ## Rejected / deferred
 
