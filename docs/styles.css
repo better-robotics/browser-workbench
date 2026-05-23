@@ -3038,6 +3038,55 @@ body.phone-attached #phone-stop-btn {
   backdrop-filter: blur(6px);
 }
 
+/* Pip face — full-screen SVG rendered when the phone is in pip-face
+   mode (a sibling of attached/operator-cam mode). The face module
+   (mobile-pip-face.js) mounts an SVG with two eye rects into this
+   container; transform-box: fill-box lets each eye scale/translate
+   around its own center without manual cx/cy bookkeeping. */
+body.phone-face .phone-main > *:not(#pip-face):not(#phone-command):not(#phone-ask-dialog) {
+  display: none !important;
+}
+body.phone-face { background: #000; }
+.pip-face {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+body.phone-face .pip-face { display: flex; }
+.pip-face-svg {
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100dvh;
+}
+.pip-face-eye {
+  fill: #4dd0e1;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 220ms cubic-bezier(.2, .8, .2, 1), opacity 220ms;
+}
+/* Phone-face mode reuses the same sticky-Stop treatment as attached. */
+body.phone-face #phone-command {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 11;
+  margin: 0;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: transparent;
+  box-shadow: none;
+}
+body.phone-face #phone-stop-btn {
+  background: color-mix(in srgb, var(--danger) 78%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 78%, transparent);
+  backdrop-filter: blur(6px);
+}
+
 /* Pip accordion. Collapsed = just a row with title + status + unread dot;
    expanded = the chat bubble + input. Auto-expanded by mobile.js when Pip
    pushes a message worth reading. The "details > summary" pattern is

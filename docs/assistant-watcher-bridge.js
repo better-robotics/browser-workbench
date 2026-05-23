@@ -1,5 +1,6 @@
 import { escapeHtml } from "./dom.js";
 import { onWatcherFire } from "./watcher.js";
+import { sendPipFaceEvent } from "./phones.js";
 
 // L2 reflex-fire bridge. On every watcher fire-event:
 //   - queue a synthetic observation for askWithTools to drain on the
@@ -49,6 +50,12 @@ export function wireWatcherFireBridge({ turn, scrollToBottom }) {
         isReleaseShape = false;
     }
     turn.pushObservation(obsText);
+    // Send to any phone in pip-face mode so the eye state-machine
+    // flashes alert / happy. Fires regardless of mid-turn status — the
+    // face should react to the world's state, not the planner's state.
+    sendPipFaceEvent(isReleaseShape ? "watcher_clear" : "watcher_fire", {
+      label: det?.label || det?.gesture || null,
+    });
     if (!turn.isActive()) return;  // not mid-turn — planner sees it on the next user turn via convo replay
     const el = document.createElement("div");
     el.className = `pip-reflex-notice${isReleaseShape ? " pip-reflex-notice--clear" : ""}`;

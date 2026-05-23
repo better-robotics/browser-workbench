@@ -197,6 +197,11 @@
     <p id="phone-command-status" class="phone-command-status" hidden></p>
   </section>
 
+  <!-- Pip face — full-screen SVG eyes that animate per the robot's
+       state. Empty until applyScreenMode("pip-face") mounts the eye
+       primitive; pip-event messages from the desktop drive state. -->
+  <div id="pip-face" class="pip-face" hidden></div>
+
   <!-- Pip asks the user for help when confident enough to act but
        needs human judgment: directional disambiguation, label confirmation,
        "is this the thing you meant?". Modal so it preempts other UI. -->

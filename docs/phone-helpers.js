@@ -232,7 +232,13 @@ export function attachPhoneCameraTo(phoneId, robotId) {
     const ps = _phoneStreams.get(phoneId);
     if (ps?.stream) routeAttachedStream(phoneId, ps.stream);
     const robot = state.devices.get(robotId);
-    setPhoneScreenMode(phoneId, "attached", robot?.name || null);
+    // pip-face is the default rendering: works out-of-the-box, no
+    // operator-cam dependency. operator-cam still wins when a local
+    // "Send to phone" cam role is in use AND the user has set the
+    // preference. Single setting because most demos use one mount at
+    // a time; per-mount toggle is a future surface if the ask appears.
+    const mode = settings.phoneAttachedMode === "operator-cam" ? "operator-cam" : "pip-face";
+    setPhoneScreenMode(phoneId, mode, robot?.name || null);
   }
   render();
 }

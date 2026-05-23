@@ -12,6 +12,7 @@ import {
   showReconnect, hideReconnect, wireReconnect, cameraUnavailableReason,
 } from "./mobile-qr-scan.js";
 import { startNearbyDiscovery, deviceLabel } from "./mobile-nearby-discovery.js";
+import { mountPipFace, unmountPipFace, applyPipEvent } from "./mobile-pip-face.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 let _peer = null;
@@ -263,6 +264,7 @@ function onPeerMessage(msg) {
   if (msg.type === "ask") { showAsk(msg); return; }
   if (msg.type === "request-camera-share") { showCameraShareRequest(msg); return; }
   if (msg.type === "screen-mode") { applyScreenMode(msg.mode, msg.robotLabel); return; }
+  if (msg.type === "pip-event") { applyPipEvent(msg.event, msg); return; }
   if (msg.type === "available-sources") {
     _availableSources.set(msg.robotId, {
       sources: msg.sources || [], active: msg.active || null,
@@ -296,22 +298,33 @@ function onPeerMessage(msg) {
   }
 }
 
-// Attached-mode: phone is mounted on the robot, screen becomes the
-// robot's "face." Hide operator chrome; the incoming phone-cam-section
-// is what fills the viewport. Sticky Stop stays visible (semi-
-// transparent) so anyone in the room can still halt the robot without
-// having to find the operator. Desktop owns the toggle (set via
-// attachPhoneCameraTo → setPhoneScreenMode); phone-side has no local
-// override. Reset on peer.onClose so a disconnect leaves the user with
-// normal UI to reconnect from.
+// Phone-on-robot screen modes (set by the desktop via setPhoneScreenMode
+// when the operator mounts a phone via attachPhoneCameraTo):
+//   "operator-cam" — fullscreen incoming video (the operator's face if
+//     a local cam's "Send to phone" role is on; black otherwise).
+//   "pip-face"     — fullscreen SVG eyes that animate per pip-event.
+//   "default"      — normal operator companion UI.
+// In all attached modes the sticky Stop button stays visible (semi-
+// transparent) so anyone in the room can still halt the robot. Desktop
+// owns the choice; the phone has no local override. Reset on peer.
+// onClose so a disconnect leaves the user with normal UI to reconnect.
 function applyScreenMode(mode, robotLabel) {
   const body = document.body;
-  if (mode === "attached") {
+  body.classList.remove("phone-attached", "phone-face");
+  delete body.dataset.attachedTo;
+  unmountPipFace();
+  const face = $("pip-face");
+  if (face) face.hidden = true;
+  if (mode === "operator-cam" || mode === "attached") {
     body.classList.add("phone-attached");
     body.dataset.attachedTo = robotLabel || "";
-  } else {
-    body.classList.remove("phone-attached");
-    delete body.dataset.attachedTo;
+  } else if (mode === "pip-face") {
+    body.classList.add("phone-face");
+    body.dataset.attachedTo = robotLabel || "";
+    if (face) {
+      face.hidden = false;
+      mountPipFace(face);
+    }
   }
 }
 
