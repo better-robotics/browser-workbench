@@ -14,25 +14,21 @@ Open a Chrome tab. Pair a robot over BLE. Write code that drives it.
 ## Architecture
 
 ```
-┌──────────────────┐         BLE GATT (control plane)       ┌──────────────────┐
-│  Chrome browser  │ ◄────────────────────────────────────► │  Robot firmware  │
-│  (Web Bluetooth) │   commands · state · ops · triggers    │  (ESP32 or Pi)   │
+┌──────────────────┐                                        ┌──────────────────┐
+│  Chrome browser  │ ◄────── BLE GATT (control plane) ────► │  Robot firmware  │
+│  (Web Bluetooth) │            commands · state            │  (ESP32 or Pi)   │
 └──────────────────┘                                        └──────────────────┘
           ▲                                                           ▲
-          ├─────────── WiFi (data plane) ────────────────── ┤
-          │   camera (WebRTC ↔ HTTP MJPEG, per-camera toggle)         │
+          ├──────────────────── WiFi (data plane) ────────────────────┤
+          │                  camera (WebRTC · HTTP)                   │
           │                                                           │
-          └─────── USB-C (recovery plane, last-resort, Pi only) ───── ┘
-                    ECM ethernet · ACM serial console
+          └───────────────── USB-C (recovery plane) ──────────────────┘
+                        ECM ethernet · ACM serial console
 ```
 
 - **Control plane — BLE.** Always on. Commands, telemetry, state changes, ops. ~1–3 Mbps, reliable, network-free. Pairing UI is the gatekeeper; no credentials cross the air.
-- **Data plane — WiFi, optional.** Onboarded via BLE when needed. Carries video (per-camera toggle between WebRTC and HTTP MJPEG), large OTA, cloud LLM calls. Robots work fully without it.
-- **Recovery plane — USB-C, last-resort (Pi).** Composite USB gadget (ECM + ACM serial) under its own systemd unit, independent of robot firmware. Dashboard exposes an xterm.js terminal over this.
-
-**Why BLE for control:** classroom and demo WiFi rarely cooperates (blocked multicast, captive portals, client isolation). BLE sidesteps all three. Robot advertises on boot; laptop scans and sees every robot in the room.
-
-**Safety on disconnect.** Actuator characteristics (motor, servo, pump, relay) ship with a firmware watchdog. Every write resets a timer; if no write lands in the window, firmware reverts to a safe default. Silence is the trigger, not a redundant radio.
+- **Data plane — WiFi, optional.** Onboarded via BLE when needed. Carries video, large OTA, cloud LLM calls. Robots work fully without it.
+- **Recovery plane — USB-C.** Composite USB gadget (ECM + ACM serial) under its own systemd unit, independent of robot firmware. Dashboard exposes an xterm.js terminal over this.
 
 ## Quickstart
 
@@ -40,9 +36,9 @@ Open a Chrome tab. Pair a robot over BLE. Write code that drives it.
 
 1. Open [better-robotics.github.io](https://better-robotics.github.io/) in Chrome or Edge.
 2. Flash or prepare hardware:
-   - **ESP32 on USB:** click **Flash firmware** — bins come from GitHub Pages, no local toolchain.
-   - **Pi 4 with a flashed SD card:** click **Customize card** (or hit the URL with `?prepare`) and point it at the mounted boot partition.
-3. Click **Scan**, pair a robot, toggle LED, onboard WiFi, drive motors. Future updates go over BLE via **Update firmware**.
+   - **ESP32 on USB:** click **Flash firmware**
+   - **Pi 4 with a flashed SD card:** click **Customize card** and point it at the mounted boot partition.
+3. Click **Scan**, pair a robot, toggle LED, onboard WiFi, drive motors.
 
 ### Develop locally
 
@@ -51,10 +47,6 @@ make setup          # one-time ESP-IDF + arduino-cli setup (macOS)
 make flash          # build ESP32 firmware, upload over USB
 make preview        # serve the dashboard at http://localhost:8000
 ```
-
-Pi firmware is Python; see [`firmware/pi_robot/README.md`](firmware/pi_robot/README.md) for the SD-card prep flow and BLE service spec.
-
-Commit and push. CI rebuilds firmware artifacts on `firmware/**` changes and commits them back; devices pick up new versions via OTA.
 
 ## Repo layout
 
@@ -66,14 +58,7 @@ tests/                      Pure-function unit tests · make smoke
 .claude/                    Agent + project context
 ```
 
-ESP32 and Pi expose the same service UUID and characteristic UUIDs, so the dashboard talks to either without conditional logic. `docs/` is the GitHub Pages publish root — the site is the directory, no build step. The dashboard is flat by convention — naming prefixes carry subsystem boundaries; see `.claude/CLAUDE.md` for the subsystem map.
-
-## Further reading
-
-- [**Hardware guide**](HARDWARE.md) — recommended boards, board-specific knobs, driver notes.
-- [**Pi firmware**](firmware/pi_robot/README.md) — BLE service spec, SD-card prep details, Bookworm/Trixie troubleshooting.
-- [**User code**](USER-CODE.md) — how to write scripts in the browser; the `robot` API surface.
-- [**Developer reference**](DEV.md) — URL flags, console handles, Chrome `chrome://` diagnostic pages.
+ESP32 and Pi expose the same service UUID and characteristic UUIDs, so the dashboard talks to either without conditional logic. `docs/` is the GitHub Pages publish root — the site is the directory, no build step.
 
 ## Browser support
 
