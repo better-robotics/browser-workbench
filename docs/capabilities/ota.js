@@ -4,7 +4,7 @@
 import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson, encodeJson,
-} from "../ble.js";
+} from "../ble/ble.js";
 import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";

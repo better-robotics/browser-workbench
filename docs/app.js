@@ -6,7 +6,7 @@ import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index
 import { setOpen as capSetOpen } from "./capabilities/runtime/cap-section.js";
 import {
   setBleRenderers, loadPaired, scanForNew, connect, disconnect, forgetDevice,
-} from "./ble-lifecycle.js";
+} from "./ble/ble-lifecycle.js";
 import {
   formatUptime, formatWifiShort, formatResetReason,
   formatRssi, rssiSeverity, tempSeverity,
