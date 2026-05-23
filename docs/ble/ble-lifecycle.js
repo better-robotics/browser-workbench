@@ -7,8 +7,8 @@ import {
   state, persist, loadKnown,
   makeEntry, entryFor, attachDevice, setDisconnectHandler,
 } from "../state.js";
-import { ALL as CAPABILITIES } from "./capabilities/index.js";
-import { RUNTIMES } from "./capabilities/runtime/index.js";
+import { ALL as CAPABILITIES } from "../capabilities/index.js";
+import { RUNTIMES } from "../capabilities/runtime/index.js";
 import { dispatchOpsResponse } from "../ops-response.js";
 import { broadcastTargetInfo } from "../pair/phones.js";
 import { renderHelpers } from "../pair/phone-helpers.js";

@@ -9,7 +9,7 @@
 import { $ } from "../dom.js";
 import { log } from "../log.js";
 import { hostPairingRoom } from "./pairing.js";
-import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
+import { sendPairById, pickMotorsTarget } from "../capabilities/runtime/signed-pair.js";
 import { state } from "../state.js";
 import { setPhoneStream, getPhoneAttachment } from "./phone-helpers.js";
 import { reapplyPhoneScreenMode } from "./phone-screen-mode-plugin.js";

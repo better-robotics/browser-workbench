@@ -7,7 +7,7 @@
 // the latest pending color and flush after the in-flight BLE write
 // resolves so we don't pile up "GATT operation already in progress".
 
-import { UUIDS_BY_CAP } from "../../ble.js";
+import { UUIDS_BY_CAP } from "../../ble/ble.js";
 import { capSection } from "./cap-section.js";
 import { coalescedWrite } from "./coalesced-write.js";
 import { renderEntry } from "./render-bus.js";

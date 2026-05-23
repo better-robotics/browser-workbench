@@ -6,11 +6,11 @@
 //
 // Drop-intermediate-values write path: pointer moves and keyboard ticks
 // fire faster than BLE writes can complete.
-import { UUIDS_BY_CAP } from "../../ble.js";
+import { UUIDS_BY_CAP } from "../../ble/ble.js";
 import { escapeHtml } from "../../dom.js";
 import { log } from "../../log.js";
 import { state } from "../../state.js";
-import { attachJoypad, mix } from "../../joypad.js";
+import { attachJoypad, mix } from "../../input/joypad.js";
 import { capSection } from "./cap-section.js";
 import { coalescedWrite } from "./coalesced-write.js";
 import { renderEntry } from "./render-bus.js";

@@ -1,7 +1,7 @@
 import { $, escapeHtml } from "../dom.js";
-import { getConfig } from "./capabilities/runtime/command.js";
+import { getConfig } from "../capabilities/runtime/command.js";
 import { onOpsResponse } from "../ops-response.js";
-import { uploadFile } from "./capabilities/ota.js";
+import { uploadFile } from "../capabilities/ota.js";
 import { beginMotorsCalibration } from "../motors-calibrate.js";
 import { flattenPins, wireUpMotorChains, clearPinHighlight } from "./pinout-shared.js";
 

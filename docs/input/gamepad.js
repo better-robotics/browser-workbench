@@ -2,7 +2,7 @@
 import { $ } from "../dom.js";
 import { log } from "../log.js";
 import { state } from "../state.js";
-import { sendPairById } from "./capabilities/runtime/signed-pair.js";
+import { sendPairById } from "../capabilities/runtime/signed-pair.js";
 
 const GAMEPAD_DEADZONE = 0.10;
 let _gamepadTargetId = null;

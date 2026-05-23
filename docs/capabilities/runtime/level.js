@@ -7,7 +7,7 @@
 // each in-flight write resolves. Without it, dragging stalls with
 // "GATT operation already in progress".
 
-import { UUIDS_BY_CAP } from "../../ble.js";
+import { UUIDS_BY_CAP } from "../../ble/ble.js";
 import { capSection } from "./cap-section.js";
 import { coalescedWrite } from "./coalesced-write.js";
 import { renderEntry } from "./render-bus.js";

@@ -31,7 +31,7 @@ import {
 // aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.
-import "./aruco.js";
+import "./perception/aruco.js";
 import { watcherCap } from "./watcher.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,

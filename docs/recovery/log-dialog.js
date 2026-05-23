@@ -1,6 +1,6 @@
 import { $ } from "../dom.js";
 import { state } from "../state.js";
-import { getLog } from "./capabilities/runtime/command.js";
+import { getLog } from "../capabilities/runtime/command.js";
 import { onOpsResponse } from "../ops-response.js";
 
 let logTimeoutId = null;
