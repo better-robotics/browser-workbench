@@ -12,7 +12,7 @@ import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assista
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { releaseAllGates } from "../watcher.js";
-import { emit as busEmit } from "../event-bus.js";
+import { emit as busEmit, TOPICS } from "../event-bus.js";
 import { AUTH_URL } from "../endpoints.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
@@ -121,27 +121,43 @@ const turn = {
 // and the labelTool / summarizeTool name formatting.
 function appendStepPill(turnEl, name, input = null) {
   setAgentState(name === "ask_human" ? "asking" : "working");
-  // Tool-call event is emitted on the shared bus; subscribers (pip
-  // face plugin today, audit/log/OSC bridges later) attach without
-  // this function knowing about them.
-  busEmit("tool.call", { tool: name, input });
+  busEmit(TOPICS.TOOL_CALL, { tool: name, input });
   return _pip.appendToolPill(turnEl, name, { label: `${labelTool(name)} …` });
 }
 function finishStepPill(pill, name, input, result, error, durationMs) {
   setAgentState("thinking");
-  busEmit("tool.result", {
-    tool: name, input, result,
+  busEmit(TOPICS.TOOL_RESULT, {
+    tool: name,
     ok: !error && !(result?.error),
     error: error || result?.error || null,
-    durationMs,
   });
-  // null durationMs to summarizeTool — pip-core's pill renders elapsed in
-  // its own span; we keep the label semantic (name + arg summary) and
-  // let pip handle the right-edge timing.
+  // pip-core's pill renders elapsed time in its own span; we pass
+  // null durationMs to summarizeTool so the label stays semantic
+  // (name + arg summary) and pip handles right-edge timing.
   pill?.finish({
     label: summarizeTool(name, input, result, error, null),
     input, result, error, durationMs,
   });
+}
+
+// Render a pill + run a tool + finish the pill. Returns
+// { ok, result, error, thrown } — `thrown` distinguishes a real JS
+// exception from an in-band {error,...} result. runStep and the
+// voice-mid-turn path collapse onto this so they don't duplicate
+// startedAt + try/catch + isErr unwrap.
+async function executeWithPill(turnEl, tool, input) {
+  const pill = appendStepPill(turnEl, tool, input);
+  const startedAt = performance.now();
+  try {
+    const result = await executor(tool, input);
+    const isErr = result && (result.error || result.ok === false);
+    const errMsg = isErr ? (result.error || "failed") : null;
+    finishStepPill(pill, tool, input, result, errMsg, performance.now() - startedAt);
+    return { ok: !isErr, result, error: errMsg, thrown: false };
+  } catch (err) {
+    finishStepPill(pill, tool, input, null, err, performance.now() - startedAt);
+    return { ok: false, result: null, error: err, thrown: true };
+  }
 }
 
 function pickRobotId() {
@@ -174,18 +190,10 @@ async function injectVoiceMidTurn(text) {
       return true;
     }
     const input = { id: robotId, ...cmd.partialInput };
-    const pill = appendStepPill(turn.el, cmd.tool, input);
-    const startedAt = performance.now();
-    let resultStr;
-    try {
-      const result = await executor(cmd.tool, input);
-      const isErr = result && (result.error || result.ok === false);
-      finishStepPill(pill, cmd.tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
-      resultStr = isErr ? `error: ${result.error || "failed"}` : "ok";
-    } catch (err) {
-      finishStepPill(pill, cmd.tool, input, null, err, performance.now() - startedAt);
-      resultStr = `error: ${err?.message || err}`;
-    }
+    const r = await executeWithPill(turn.el, cmd.tool, input);
+    const resultStr = r.ok
+      ? "ok"
+      : `error: ${r.thrown ? (r.error?.message || r.error) : r.error}`;
     const ts = new Date().toISOString();
     turn.pushObservation(
       `[user-voice ${ts}] User said "${text}" — direct-dispatched ${cmd.tool}(${JSON.stringify(input)}) → ${resultStr}. ` +
@@ -410,17 +418,9 @@ async function runTurn(text, turnEl) {
   // affordance as LLM-driven tool calls, so direct commands and demo
   // sequences are visually indistinguishable from agent work.
   const runStep = async (tool, input) => {
-    const pill = appendStepPill(turnEl, tool, input);
-    const startedAt = performance.now();
-    try {
-      const result = await executor(tool, input);
-      const isErr = result && (result.error || result.ok === false);
-      finishStepPill(pill, tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
-      return result;
-    } catch (err) {
-      finishStepPill(pill, tool, input, null, err, performance.now() - startedAt);
-      throw err;
-    }
+    const r = await executeWithPill(turnEl, tool, input);
+    if (r.thrown) throw r.error;
+    return r.result;
   };
   const noRobot = () => {
     _pip.appendReplyBubble(turnEl).setHtml("No robot connected — pair one first.");

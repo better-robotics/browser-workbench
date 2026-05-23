@@ -310,16 +310,16 @@ function onPeerMessage(msg) {
 // onClose so a disconnect leaves the user with normal UI to reconnect.
 function applyScreenMode(mode, robotLabel) {
   const body = document.body;
-  body.classList.remove("phone-attached", "phone-face");
+  body.classList.remove("phone-mounted", "phone-attached", "phone-face");
   delete body.dataset.attachedTo;
   unmountPipFace();
   const face = $("pip-face");
   if (face) face.hidden = true;
   if (mode === "operator-cam" || mode === "attached") {
-    body.classList.add("phone-attached");
+    body.classList.add("phone-mounted", "phone-attached");
     body.dataset.attachedTo = robotLabel || "";
   } else if (mode === "pip-face") {
-    body.classList.add("phone-face");
+    body.classList.add("phone-mounted", "phone-face");
     body.dataset.attachedTo = robotLabel || "";
     if (face) {
       face.hidden = false;

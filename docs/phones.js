@@ -12,7 +12,7 @@ import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { state } from "./state.js";
 import { setPhoneStream, getPhoneAttachment } from "./phone-helpers.js";
-import { emit as busEmit } from "./event-bus.js";
+import { reapplyPhoneScreenMode } from "./phone-screen-mode-plugin.js";
 import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
@@ -246,33 +246,40 @@ export function setPhoneFeedStream(stream) {
   for (const p of _phones.values()) syncPhoneFeedToPhone(p);
 }
 
-// Tell a paired phone to flip its on-screen presentation. When the
-// phone is mounted on a robot (attachPhoneCameraTo in phone-helpers.js),
-// the operator chrome on the phone screen is dead weight — the phone
-// is now part of the robot's chassis. Modes:
-//   "operator-cam" — fullscreen incoming video (laptop cam → operator
-//      face, or black). Telepresence shape.
-//   "pip-face"    — fullscreen SVG eyes that animate per pip-event.
-//      Autonomy shape; works without operator-cam plumbing.
-//   "default"     — normal operator companion UI.
-// Mode is also cached on the phone object so pip-event fan-out can
-// skip phones that aren't currently rendering the face.
+// On-screen presentations the desktop can flip a phone into when it's
+// mounted on a robot. Wire-protocol strings shared between desktop
+// (this file) and phone (mobile.js applyScreenMode); phone-side keeps
+// matching literals since it's a separate module graph.
+export const SCREEN_MODES = Object.freeze({
+  DEFAULT:      "default",       // normal operator companion UI
+  OPERATOR_CAM: "operator-cam",  // fullscreen incoming video (telepresence)
+  PIP_FACE:     "pip-face",      // fullscreen SVG face that reacts to pip-events (autonomy)
+});
+
+// _pipFacePhones tracks the subset currently in pip-face mode so the
+// hot-path sendPipFaceEvent can early-return when nobody cares (the
+// steady-state when no robot has a phone mounted).
+const _pipFacePhones = new Set();
+
 export function setPhoneScreenMode(phoneId, mode, robotLabel = null) {
   const phone = _phones.get(phoneId);
   if (!phone || phone.status === "failed") return;
   phone.screenMode = mode;
+  if (mode === SCREEN_MODES.PIP_FACE) _pipFacePhones.add(phoneId);
+  else _pipFacePhones.delete(phoneId);
   try {
     phone.peer.send({ type: "screen-mode", mode, robotLabel });
   } catch {}
 }
 
-// Pip-event fan-out — sends the event to every phone currently in
-// pip-face mode. Called from assistant.js on tool dispatch and from
-// assistant-watcher-bridge.js on reflex fire/clear. No-op when nobody
-// is rendering the face, so it's safe to call unconditionally.
+// Hot path: invoked from every assistant tool-call emit. Cheap when no
+// phone is rendering the face (the common case), which is why the Set
+// guard above exists rather than a Map iteration with a string compare.
 export function sendPipFaceEvent(event, data = {}) {
-  for (const phone of _phones.values()) {
-    if (phone.screenMode !== "pip-face") continue;
+  if (_pipFacePhones.size === 0) return;
+  for (const phoneId of _pipFacePhones) {
+    const phone = _phones.get(phoneId);
+    if (!phone || phone.status === "failed") continue;
     try {
       phone.peer.send({ type: "pip-event", event, ...data });
     } catch {}
@@ -498,6 +505,7 @@ function _registerPairedPhone(id, peer, defaultLabel) {
       p.resolve({ ok: false, error: "phone disconnected before user responded" });
     }
     _phones.delete(id);
+    _pipFacePhones.delete(id);
     setPhoneStream(id, null);  // clear any helper-list entry for this phone's camera
     log("phone disconnected", "phone");
     renderPhones();
@@ -523,15 +531,13 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   }
   // And the laptop-cam feed, if the operator has it running.
   syncPhoneFeedToPhone(phone);
-  // Restore attached-mode if this phone was already mounted on a robot
-  // when it dropped + reconnected. Without this, a fleeting WebRTC
-  // hiccup leaves the on-robot phone showing operator chrome again.
-  // Mode resolution lives in phone-screen-mode-plugin; we just re-fire
-  // the attach event and the plugin re-derives the right mode.
+  // Restore attached-mode if this phone was mounted before the drop —
+  // without re-applying, a fleeting WebRTC hiccup leaves the on-robot
+  // phone showing operator chrome again.
   const attachedRobotId = getPhoneAttachment(id);
   if (attachedRobotId) {
     const robot = state.devices.get(attachedRobotId);
-    busEmit("phone.attached", { phoneId: id, robotId: attachedRobotId, robotLabel: robot?.name || null });
+    reapplyPhoneScreenMode(id, robot?.name || null);
   }
 }
 

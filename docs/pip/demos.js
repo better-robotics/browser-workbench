@@ -15,7 +15,8 @@
 // those directly. Less dictionary marshaling at the call site, and
 // each demo's actual dependencies are visible in its file's imports.
 
-import { onWatcherFire, awaitReflexGate } from "../watcher.js";
+import { awaitReflexGate } from "../watcher.js";
+import { on as busOn, TOPICS } from "../event-bus.js";
 import { state } from "../state.js";
 import { askAboutFrame } from "./claude.js";
 //
@@ -354,7 +355,7 @@ async function selfie(ctx) {
 //      The watcher's halt action is the firmware-level safety floor:
 //      the robot stops the *moment* it sees the sign, regardless of
 //      where we are in the loop. The demo also listens to the same
-//      fire event via ctx.onWatcherFire so it can break out of its
+//      fire event via the watcher.fire bus topic so it can break out of its
 //      sweep and narrate the catch.
 async function stopsignPatrol(ctx) {
   // Intentionally do NOT announce what we're watching for — the demo's
@@ -383,8 +384,8 @@ async function stopsignPatrol(ctx) {
   // still holding the sign while the watcher cool-down re-fires).
   let catchCount = 0;
   let lastAnnounceTs = 0;
-  const unsub = onWatcherFire((entry, det) => {
-    if (entry?.id === ctx.id && det?.label === "stop sign") firedThisCycle = true;
+  const unsub = busOn(TOPICS.WATCHER_FIRE, ({ entry, detection }) => {
+    if (entry?.id === ctx.id && detection?.label === "stop sign") firedThisCycle = true;
   });
   const breakLeg = () => firedThisCycle || ctx.shouldAbort?.();
 

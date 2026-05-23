@@ -123,22 +123,14 @@ const FOLLOW_GESTURE_SPEAK_SKIP = new Set(["None"]);
 const FOLLOW_REVERSE_MS = FOLLOW_DRIVE_MS;
 const FOLLOW_REVERSE_SPEED = FOLLOW_DRIVE_SPEED;
 
-// Fire-event listeners — assistant.js subscribes so it can inject a
-// synthetic observation into Pip's active turn (L2 "harness pushes state
-// to planner" pattern from Butter-Bench / ExploreVLM). `kind` is "fire"
-// (target entered frame) or "clear" (target left frame); only halt-mode
-// watchers emit "clear" — speak/notify have no concept of "stopped seeing."
-//
-// Fan-out goes through the shared event-bus topic "watcher.fire".
-// onWatcherFire is kept as a thin wrapper for callers that prefer the
-// (entry, det, kind) callback signature (demos.js, mostly); new
-// subscribers should `import { on } from "./event-bus.js"` directly.
-import { emit as _busEmit, on as _busOn } from "./event-bus.js";
-export function onWatcherFire(fn) {
-  return _busOn("watcher.fire", ({ entry, detection, kind }) => fn(entry, detection, kind));
-}
+// Fire-event fan-out via the shared event bus. `kind` is "fire"
+// (target entered frame), "clear" (target left frame), or one of the
+// follow-mode shapes ("gesture-detected", "follow-lost",
+// "follow-reacquire"). Only halt-mode watchers emit "clear" — speak/
+// notify have no concept of "stopped seeing."
+import { emit as _busEmit, TOPICS } from "./event-bus.js";
 function emitFire(entry, det, kind = "fire") {
-  _busEmit("watcher.fire", { entry, detection: det, kind });
+  _busEmit(TOPICS.WATCHER_FIRE, { entry, detection: det, kind });
 }
 
 // Per-entry motor gate. While `blocked`, motor tools in pip-tools.js await
