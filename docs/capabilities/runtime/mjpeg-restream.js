@@ -13,7 +13,7 @@
 // firmware serves Access-Control-Allow-Origin: * so this works out of the
 // box; non-compliant MJPEG sources will fall through to a silent stream.
 
-import { notifyRobotStreamChange } from "../../pair/phones.js";
+import { notifyRobotStreamChange } from "../../phones.js";
 
 const FPS = 15;
 

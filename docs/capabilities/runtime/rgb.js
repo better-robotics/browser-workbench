@@ -7,9 +7,10 @@
 // the latest pending color and flush after the in-flight BLE write
 // resolves so we don't pile up "GATT operation already in progress".
 
-import { UUIDS_BY_CAP } from "../../ble/ble.js";
+import { UUIDS_BY_CAP } from "../../ble.js";
+import { logFor } from "../../log.js";
 import { capSection } from "./cap-section.js";
-import { coalescedWrite } from "./coalesced-write.js";
+
 import { renderEntry } from "./render-bus.js";
 
 function toHex(r, g, b) {
@@ -25,7 +26,26 @@ function fromHex(hex) {
 }
 
 export async function setRgbValue(entry, hex) {
-  await coalescedWrite(entry, "rgb", fromHex(hex), ([r, g, b]) => Uint8Array.of(r, g, b));
+  const ch = entry.rgbChar;
+  if (!ch) return;
+  const [r, g, b] = fromHex(hex);
+  entry.rgbPending = [r, g, b];
+  if (entry.rgbSending) return;
+  entry.rgbSending = true;
+  try {
+    while (entry.rgbPending) {
+      const next = entry.rgbPending;
+      entry.rgbPending = null;
+      try {
+        await ch.writeValueWithResponse(Uint8Array.of(next[0], next[1], next[2]));
+      } catch (err) {
+        logFor(entry, `rgb write failed: ${err.message}`);
+        break;
+      }
+    }
+  } finally {
+    entry.rgbSending = false;
+  }
 }
 
 export function makeRgbCap(schema) {

@@ -4,7 +4,7 @@
 import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson, encodeJson,
-} from "../ble/ble.js";
+} from "../ble.js";
 import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
@@ -40,7 +40,8 @@ export async function uploadFile(id, filename, destPath, contentBytes, { restart
   }
 }
 
-import { renderEntry } from "./runtime/render-bus.js";
+let renderEntry = () => {};
+export function setRender(fn) { renderEntry = fn; }
 
 // Patch existing OTA section in place; avoids full innerHTML rewrite on
 // every progress tick (which would destroy hovered elements and flicker).
@@ -122,7 +123,7 @@ async function streamOtaViaWebRTC(entry, bytes) {
   if (entry.fwType === "pi" && !entry.opsChar) {
     throw new Error("no ops channel — can't trigger apply");
   }
-  const { openChannel, closePeer } = await import("../webrtc/webrtc-robot.js");
+  const { openChannel, closePeer } = await import("../webrtc-robot.js");
   let channel;
   try {
     channel = await openChannel(entry.id, entry.name, "ota", {

@@ -6,24 +6,39 @@
 //
 // Drop-intermediate-values write path: pointer moves and keyboard ticks
 // fire faster than BLE writes can complete.
-import { UUIDS_BY_CAP } from "../../ble/ble.js";
+import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
-import { log } from "../../log.js";
+import { log, logFor } from "../../log.js";
 import { state } from "../../state.js";
-import { attachJoypad, mix } from "../../input/joypad.js";
+import { attachJoypad, mix } from "../../joypad.js";
 import { capSection } from "./cap-section.js";
-import { coalescedWrite } from "./coalesced-write.js";
+
 import { renderEntry } from "./render-bus.js";
 
 // Clamp-on-write — callers don't have to check declared range.
 export async function setPairValue(entry, capName, left, right) {
+  const ch = entry[`${capName}Char`];
+  if (!ch) return;
   const range = entry.capSchema?.find(s => s.name === capName)?.range || [-100, 100];
   const [mn, mx] = range;
   const clamp = (v) => Math.max(mn, Math.min(mx, Math.round(Number(v) || 0)));
-  await coalescedWrite(
-    entry, capName, [clamp(left), clamp(right)],
-    ([l, r]) => Uint8Array.of(l & 0xff, r & 0xff),
-  );
+  entry[`${capName}Pending`] = [clamp(left), clamp(right)];
+  if (entry[`${capName}Sending`]) return;
+  entry[`${capName}Sending`] = true;
+  try {
+    while (entry[`${capName}Pending`]) {
+      const [l, r] = entry[`${capName}Pending`];
+      entry[`${capName}Pending`] = null;
+      try {
+        await ch.writeValueWithResponse(Uint8Array.of(l & 0xff, r & 0xff));
+      } catch (err) {
+        logFor(entry, `${capName} write failed: ${err.message}`);
+        break;
+      }
+    }
+  } finally {
+    entry[`${capName}Sending`] = false;
+  }
 }
 
 export function makeSignedPairCap(schema) {
@@ -86,11 +101,6 @@ export function makeSignedPairCap(schema) {
     cleanup(entry) {
       entry[charField] = null;
       entry[leftField] = entry[rightField] = 0;
-      // Match level/rgb cleanup — without this, a session that calls
-      // cleanup without re-running initEntry would leave Sending=true
-      // and block every future coalescedWrite forever.
-      entry[`${name}Sending`] = false;
-      entry[`${name}Pending`] = null;
     },
 
     renderSection(entry) {
