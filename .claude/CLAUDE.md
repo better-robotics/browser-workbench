@@ -47,7 +47,7 @@ Connection infrastructure (BLE, WiFi, USB-CDC) initializes before capability inf
 
 `docs/` is the GitHub Pages publish root — static ES modules live there directly. Repo-level docs (HARDWARE.md, SMOKE.md, etc.) live at the root or inside subsystems, not in `docs/`.
 
-- **Root holds primitives, subsystems hold vocabularies.** `docs/` root is for (a) HTML entry points, (b) app-shell singletons (`app.js`, `state.js`, `dom.js`, `event-bus.js`, `log.js`, `settings.js`), (c) cross-cutting primitives imported by ≥3 subsystems (`format.js`, `error-capture.js`). Everything else presumed to belong in a subsystem folder.
+- **Root holds primitives, subsystems hold vocabularies.** `docs/` root is for (a) HTML entry points, (b) app-shell singletons (`app.js`, `state.js`, `dom.js`, `event-bus.js`, `log.js`, `settings.js`), (c) cross-cutting primitives with fan-out beyond a single subsystem — `format.js` (app.js + pip/), `error-capture.js` (loaded via `<script src>` from both HTML entry points, before any subsystem's module graph exists to import into). Everything else presumed to belong in a subsystem folder.
 - **Promotion trigger: vocabulary closure.** Files belong in their own folder when they (1) share a naming prefix, (2) change together for the same reason, (3) expose ≤2 symbols outward. A 3-file sealed vocabulary (`pinout-*`) is more ready than a 6-file loose collection (`mobile-*`). When a prefix collects files that change for *different* reasons, split — don't folder.
 
 # Comment discipline
@@ -74,4 +74,4 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 - `.claude/field.md` — positioning analysis vs adjacent work.
 - `firmware/esp32_robot_idf/WEBRTC.md` — the four coordinated DTLS/SDP patches.
 - `firmware/pi_robot/SYSTEMD.md` — preconditions-belong-in-the-script pattern.
-- `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer.
+- `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids/gen-constants drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer. `protocol/constants.json` (`tools/gen-constants.py`) is the uuids.json pattern applied to numeric cross-firmware constants (safety timeouts, BLE chunk sizes) — edit the JSON, not the generated `protocol_constants.h`/`.py`/`docs/protocol-constants.js`.

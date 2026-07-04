@@ -71,10 +71,11 @@ stay — those are WebRTC-spec or chip-shape, not mbedTLS-bug workarounds.
 
 ## Opt-in via `CONFIG_BR_WEBRTC_ESP_PEER`
 
-`main/Kconfig.projbuild`, default y. Set =n to drop all WebRTC code — `select`
-chain removes the WebRTC-only mbedTLS bits, all call sites in webrtc_peer /
-app_main / gatt_svr / telemetry guard out with `#ifdef`, and the linker's
-`--gc-sections` strips libpeer.a from the image (~215 KB smaller binary).
-Useful for forks that only need HTTP MJPEG video. esp_peer always *registers*
-as a component (Kconfig values aren't visible to IDF's component-registration
-phase), but produces no live references when off, so the linker drops it.
+`main/Kconfig.projbuild`, default n — the `aithinker_cam_webrtc` board overrides
+it to y in its sdkconfig defaults. Set =y to add WebRTC video — the `select`
+chain pulls in the WebRTC-only mbedTLS bits and call sites in webrtc_peer /
+app_main / gatt_svr / telemetry activate via `#ifdef`. Off by default keeps
+forks that only need HTTP MJPEG video lean (~215 KB smaller binary). esp_peer
+always *registers* as a component (Kconfig values aren't visible to IDF's
+component-registration phase), but produces no live references when off, so
+the linker's `--gc-sections` drops it.

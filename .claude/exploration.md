@@ -31,8 +31,8 @@ Long-horizon shape decisions. Updated when the shape of the system changes.
 - fw-info.caps carries the typed schema (shipped)
 - Browser reads + stores `entry.capSchema` (shipped)
 - Each capability module exports its own `schema` for cross-check (shipped)
-- First type migrated: `toggle` → LED
-- Future types to migrate: `signed-pair`, `wifi-scan`, `bundle-ota`, `webrtc-installable`, `command`. Each is ~2–4 hours.
+- Migrated: `toggle`, `level`, `rgb`, `signed-pair`, `command`, `wifi-scan`, `webrtc-installable`, `mjpeg-stream`, `ble-snapshot` — see `docs/capabilities/runtime/index.js`'s `RUNTIMES` map.
+- Remaining: `bundle-ota` (OTA is still on the older per-capability pattern, `docs/capabilities/ota.js`).
 
 **Migration strategy.** Per-type, not per-capability. When we migrate `signed-pair`, both motors AND any future 2-axis input use the same runtime. The compound payoff is the Nth capability, not the first.
 
