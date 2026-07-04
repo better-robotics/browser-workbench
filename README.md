@@ -31,7 +31,7 @@ Browser is the IDE. Coding panel + capability cards. localStorage is the file sy
 
 ### Use it
 
-1. Open [better-robotics.github.io/browser-workbench](https://better-robotics.github.io/browser-workbench/) in Chrome or Edge.
+1. Open the dashboard — the **About** link on this repo — in Chrome or Edge.
 2. Flash or prepare hardware:
    - **ESP32 on USB:** click **Flash firmware**
    - **Pi 4 with a flashed SD card:** click **Customize card** and point it at the mounted boot partition.
