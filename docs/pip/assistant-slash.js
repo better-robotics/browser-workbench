@@ -7,13 +7,13 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
 //
 // Provider list mirrors pip-core's bundle taxonomy (`./bundle/anthropic`,
-// `./bundle/openai`) plus the dashboard-specific transports
-// (`bridge` = localhost ai-bridge proxy, `github` = GitHub Models).
-// Anthropic's Claude variants nest under `anthropic` rather than living
-// as sibling top-level entries — they're not providers.
-const PIP_PROVIDERS = ["github", "bridge", "anthropic", "openai"];
+// `./bundle/openai`) plus the dashboard-specific transport
+// (`bridge` = localhost ai-bridge proxy). Anthropic's Claude variants nest
+// under `anthropic` rather than living as sibling top-level entries —
+// they're not providers.
+const PIP_PROVIDERS = ["bridge", "anthropic", "openai"];
 
-export function registerSlashCommands({ pip, loadConnectGitHub }) {
+export function registerSlashCommands({ pip }) {
   pip.registerSlash({
     name: "voice",
     description: "start / stop voice dictation into the input",
@@ -44,7 +44,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
   //   /model anthropic | bridge            switch provider (current variant)
   //   /model anthropic opus                switch + set Claude variant
   //   /model bridge sonnet                 same for the bridge provider
-  //   /model openai | github
+  //   /model openai
   // Both providers in CLAUDE_BACKENDS (anthropic, bridge) accept the
   // /model <provider> <variant> two-token shape — they share pipClaudeModel.
   // Setup (OAuth, API key) happens inline via pip.collectSecret so the
@@ -114,16 +114,6 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
       // documented re-auth path, so we re-prompt even when the
       // credential already exists.
       const isReSetup = provider === settings.pipBackend;
-      if (provider === "github" && (!settings.githubAuth?.username || isReSetup)) {
-        try {
-          const connect = await loadConnectGitHub();
-          const auth = await connect("read:user", "better-robotics");
-          settings.githubAuth = { username: auth.username, token: auth.token };
-          window.__syncIdentityUI?.();
-        } catch (err) {
-          return { reply: `Sign-in failed: ${err.message || err}` };
-        }
-      }
       if (provider === "anthropic" && (!settings.pipApiKey || isReSetup)) {
         const key = await pip.collectSecret({ label: "Anthropic API key", format: "sk-ant-…" });
         if (!key) return { reply: "Cancelled — Anthropic needs an API key. Run `/model anthropic` to try again." };

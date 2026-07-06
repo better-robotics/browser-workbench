@@ -1,6 +1,5 @@
 import { $, escapeHtml } from "./dom.js";
 import { log } from "./log.js";
-import { settings } from "./settings.js";
 import { state } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
 import { setOpen as capSetOpen } from "./capabilities/runtime/cap-section.js";
@@ -993,10 +992,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Pip backend, API keys, GitHub auth, and vision all moved to slash
-  // commands (/model, /vision) — managed in assistant.js. /model is
-  // contextual: picking a backend that needs auth or a key prompts inline.
-  // Settings keeps only identity + advanced one-time setup.
+  // Pip backend, API keys, and vision all moved to slash commands
+  // (/model, /vision) — managed in assistant.js. /model is contextual:
+  // picking a backend that needs a key prompts inline. Settings keeps
+  // only identity + advanced one-time setup.
 
   // Profile — classroom-local identity (no auth, browser-only). Seeded hue from name hash.
   const seedColor = (str) => {
@@ -1039,26 +1038,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const nameInput = $("setting-name");
   const nameHint = $("setting-name-hint");
   function saveProfile() { localStorage.setItem("br-profile", JSON.stringify(profile)); }
-  // Identity flows from settings.githubAuth — one OAuth grant powers both
-  // the username display AND the GitHub Models Pip backend. /model github
-  // (in assistant.js) triggers the OAuth dance when not yet signed in.
   function displayName() {
-    return settings.githubAuth?.username || profile.name;
+    return profile.name;
   }
   function syncIdentityUI() {
-    const signedIn = !!settings.githubAuth?.username;
     nameInput.value = displayName();
-    nameInput.disabled = signedIn;
-    nameHint.textContent = signedIn
-      ? "Signed in with GitHub — name is from your account."
-      : "Stored in this browser only. Run /model github to sign in.";
+    nameHint.textContent = "Stored in this browser only. Used for robot labels and logs.";
     renderAvatar(displayName());
   }
-  // Exposed so the /model handler can refresh the UI after sign-in lands.
-  window.__syncIdentityUI = syncIdentityUI;
   syncIdentityUI();
   nameInput.addEventListener("input", () => {
-    if (settings.githubAuth) return;  // disabled, but defensive
     profile.name = nameInput.value.trim();
     saveProfile();
     renderAvatar(displayName());

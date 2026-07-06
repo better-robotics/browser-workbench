@@ -2,16 +2,13 @@
 const SETTINGS_KEY = "better-robotics:settings";
 
 export const settings = Object.assign(
-  // pipBackend: "github" (GitHub Models, default — OAuth via auth.neevs.io)
-  //   | "bridge" (AI Bridge localhost proxy at 127.0.0.1:7337, Keychain-backed)
-  //   | "anthropic" (direct, user's key) | "openai" (direct, user's key).
+  // pipBackend: "bridge" (AI Bridge localhost proxy at 127.0.0.1:7337,
+  //   Keychain-backed — default) | "anthropic" (direct, user's key)
+  //   | "openai" (direct, user's key).
   // pipApiKey:    Anthropic key — only when pipBackend === "anthropic".
   // pipOpenaiKey: OpenAI key    — only when pipBackend === "openai".
   // pipClaudeModel: which Claude variant to use on the bridge/anthropic
   //   backends — "claude-opus-4-7" | "claude-sonnet-4-6" | "claude-haiku-4-5-20251001".
-  // githubAuth:   { username, token } from GitHub OAuth. Backs BOTH
-  //   identity (avatar / robot labels) AND the GitHub Models Pip backend.
-  //   One grant, two purposes; sign-out clears both. 401 → re-connect prompt.
   // pipVisionEnabled: when true AND backend supports images, Pip gets
   //   view_robot_frame, sending the actual frame. ON by default — the
   //   "off by default, model still narrates 'let me check'" failure mode
@@ -32,17 +29,8 @@ export const settings = Object.assign(
   //   Lite0 via @mediapipe/tasks-vision) or "yolo26" (~10MB ONNX via
   //   onnxruntime-web + WebGPU). Switch via /detector <name>; persists
   //   here so the next session picks up the same backend.
-  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
-  (() => {
-    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    // Migration: pipGithubAuth → githubAuth (Identity + Pip share one OAuth
-    // grant now). Drop old key so migration fires once.
-    if (raw.pipGithubAuth && !raw.githubAuth) {
-      raw.githubAuth = raw.pipGithubAuth;
-      delete raw.pipGithubAuth;
-    }
-    return raw;
-  })(),
+  { pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
+  JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
 );
 
 export function saveSettings() {

@@ -13,7 +13,6 @@ import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { releaseAllGates } from "../watcher.js";
 import { emit as busEmit, TOPICS } from "../event-bus.js";
-import { AUTH_URL } from "../endpoints.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
 // module-load) so that a CDN failure on the jsdelivr URL cannot brick
@@ -211,19 +210,9 @@ async function injectVoiceMidTurn(text) {
 // Send + stop buttons live in pip-core 2.1.0+; we just toggle responding
 // state and provide an onAbort callback below.
 
-// Lazy GitHub OAuth helper — shared between /model handler and the
-// failure-recovery flow. Module-scope so both code paths reach it.
-let _connectGitHubFn = null;
-async function _loadConnectGitHub() {
-  if (_connectGitHubFn) return _connectGitHubFn;
-  const mod = await import(`${AUTH_URL}/connect.js`);
-  _connectGitHubFn = mod.connectGitHub;
-  return _connectGitHubFn;
-}
-
-// Bridge failure copy. github / anthropic / openai use the
-// inline-button + main-input recovery path in actOnFailure, so they
-// don't need text hints anymore.
+// Bridge failure copy. anthropic / openai use the inline-button +
+// main-input recovery path in actOnFailure, so they don't need text
+// hints anymore.
 function backendFailureHint(backend) {
   const hints = {
     bridge:
@@ -238,25 +227,6 @@ function backendFailureHint(backend) {
 // asking the user to type a slash command. Same input the user's already
 // looking at — no browser modal, no fragmentation.
 async function actOnFailure(backend, turnEl) {
-  if (backend === "github") {
-    const choice = await _pip.askInChat({
-      question: "GitHub Models needs sign-in (or token expired).",
-      options: ["Sign in", "Switch backend"],
-    }, turnEl);
-    if (choice === "Sign in") {
-      try {
-        const connect = await _loadConnectGitHub();
-        const auth = await connect("read:user", "better-robotics");
-        settings.githubAuth = { username: auth.username, token: auth.token };
-        saveSettings();
-        window.__syncIdentityUI?.();
-        return `Signed in as \`@${auth.username}\`. Try sending again.`;
-      } catch (err) {
-        return `Sign-in failed: ${err.message || err}`;
-      }
-    }
-    return "Run `/model` to pick a different backend.";
-  }
   if (backend === "anthropic" || backend === "openai") {
     const isAnthropic = backend === "anthropic";
     const label = isAnthropic ? "Anthropic" : "OpenAI";
@@ -289,7 +259,6 @@ async function actOnFailure(backend, turnEl) {
 // "proxy not running."
 function hasCredentialsForBackend(backend) {
   switch (backend) {
-    case "github":    return !!settings.githubAuth?.token;
     case "anthropic": return !!settings.pipApiKey;
     case "openai":    return !!settings.pipOpenaiKey;
     case "bridge":    return true;
@@ -297,14 +266,14 @@ function hasCredentialsForBackend(backend) {
   }
 }
 
-// First-message onboarding. The default backend is github with no auth,
-// so a brand-new user pressing send would otherwise eat a doomed request
-// + the generic recovery prompt. Surface the choice up front, route
-// through the same inline primitives the /model slash uses, and then
-// continue into the user's original message — no manual retry.
+// First-message onboarding. The default backend is bridge, which is
+// always treated as credentialed (see hasCredentialsForBackend), so this
+// only fires once the user has switched to anthropic/openai without a
+// key. Surface the choice up front, route through the same inline
+// primitives the /model slash uses, and then continue into the user's
+// original message — no manual retry.
 async function offerBackendChoice(turnEl) {
   const labels = {
-    github:    "GitHub Models (free · sign in)",
     anthropic: "Anthropic (paste API key)",
     openai:    "OpenAI (paste API key)",
   };
@@ -313,24 +282,6 @@ async function offerBackendChoice(turnEl) {
     options: Object.values(labels),
   }, turnEl);
 
-  if (choice === labels.github) {
-    // Narrow the try to OAuth only — a localStorage quota or post-auth UI
-    // glitch shouldn't surface as "Sign-in failed" and bury the actual cause.
-    let auth;
-    try {
-      const connect = await _loadConnectGitHub();
-      auth = await connect("read:user", "better-robotics");
-    } catch (err) {
-      _pip.appendReplyBubble(turnEl).setText(`Sign-in failed: ${err?.message || err}`);
-      return false;
-    }
-    settings.githubAuth = { username: auth.username, token: auth.token };
-    settings.pipBackend = "github";
-    saveSettings();
-    window.__syncIdentityUI?.();
-    _pip.setModelLabel?.(activeModelForBackend("github"));
-    return true;
-  }
   if (choice === labels.anthropic || choice === labels.openai) {
     const isAnthropic = choice === labels.anthropic;
     const label = isAnthropic ? "Anthropic" : "OpenAI";
@@ -562,7 +513,7 @@ export async function initAssistant() {
     // instant-fire (onChunk) and mid-turn injection (onFinal).
     mic: makeMicConfig(),
   });
-  registerSlashCommands({ pip: _pip, loadConnectGitHub: _loadConnectGitHub });
+  registerSlashCommands({ pip: _pip });
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
   // Background-fetch the cached audio for every hardcoded demo phrase
   // on first load (cache hits skip the network entirely on subsequent

@@ -1,9 +1,7 @@
 // Pip backend dispatch — picks how to reach the LLM based on user setting:
-//   github    — GitHub Models inference (default; OAuth via neevs.io,
-//               OpenAI-compatible request shape, no API key to manage).
 //   bridge    — AI Bridge localhost proxy at 127.0.0.1:7337 (Keychain-backed
 //               creds, token never visible to the page). Requires the proxy
-//               launchd agent (`make install-proxy` in ai-bridge).
+//               launchd agent (`make install-proxy` in ai-bridge). Default.
 //   anthropic — direct fetch() to api.anthropic.com using the user's API key
 //               from settings. Browser-stored, "user's responsibility" model.
 //   openai    — direct fetch() to api.openai.com (chat/completions, function-
@@ -29,13 +27,13 @@ function currentClaudeModel() {
 
 // API-shape partition. CLAUDE_BACKENDS speak the Anthropic messages API
 // (used directly, or proxied through ai-bridge); OPENAI_SHAPED_BACKENDS
-// speak /chat/completions (OpenAI direct + GitHub Models). Centralizing
-// the predicate stops the `=== "bridge" || === "anthropic"` ladder from
-// drifting between call sites. Note: do NOT alias this to "supports
+// speak /chat/completions (OpenAI direct). Centralizing the predicate
+// stops the `=== "bridge" || === "anthropic"` ladder from drifting
+// between call sites. Note: do NOT alias this to "supports
 // vision" or "supports tool_result images" — those happen to coincide
 // today but are separate facts (see pip-tools.js's VISION_BACKENDS).
 export const CLAUDE_BACKENDS = new Set(["bridge", "anthropic"]);
-export const OPENAI_SHAPED_BACKENDS = new Set(["openai", "github"]);
+export const OPENAI_SHAPED_BACKENDS = new Set(["openai"]);
 
 // User-facing model identifier per backend. Single source of truth for
 // what name shows up in the Pip placeholder ("Ask Pip… · gpt-4o-mini")
@@ -201,30 +199,13 @@ async function callAnthropic(body) {
   return bridgeRequest({ path: "/v1/messages", method: "POST", body });
 }
 
-// OpenAI-compatible chat-completions request. Used by two backends:
-//   - "openai":  api.openai.com (user's key)
-//   - "github":  models.github.ai/inference (GitHub OAuth token; vendor-
-//                prefixed model id like "openai/gpt-4o-mini")
-// Body shape is identical, only URL + auth + model id differ.
+// OpenAI-compatible chat-completions request: api.openai.com (user's key).
 const OPENAI_MODEL = "gpt-4o-mini";        // cheap default for direct OpenAI
-const GITHUB_MODEL = "openai/gpt-4o-mini"; // GitHub Models requires vendor prefix
 async function callOpenai(body) {
-  // GitHub Models requires the vendor-prefixed model id, so override body.model
-  // when calling them.
-  const isGithub = settings.pipBackend === "github";
-  let url, token;
-  if (isGithub) {
-    const auth = settings.githubAuth;
-    if (!auth?.token) return { status: 401, body: '{"error":"GitHub not signed in — open Settings and Sign in with GitHub"}' };
-    url = "https://models.github.ai/inference/chat/completions";
-    token = auth.token;
-    body = { ...body, model: GITHUB_MODEL };  // override regardless of caller default
-  } else {
-    const key = settings.pipOpenaiKey;
-    if (!key) return { status: 401, body: '{"error":"no OpenAI API key configured in Settings"}' };
-    url = "https://api.openai.com/v1/chat/completions";
-    token = key;
-  }
+  const key = settings.pipOpenaiKey;
+  if (!key) return { status: 401, body: '{"error":"no OpenAI API key configured in Settings"}' };
+  const url = "https://api.openai.com/v1/chat/completions";
+  const token = key;
   try {
     const resp = await fetch(url, {
       method: "POST",
@@ -301,10 +282,9 @@ function withPromptCache(body) {
 // useful content back. Names the active backend so the message points at the
 // right thing to investigate.
 function logBackendError(label, res) {
-  const b = settings.pipBackend || "github";
+  const b = settings.pipBackend || "bridge";
   const which = b === "anthropic" ? "anthropic-direct"
               : b === "openai"    ? "openai-direct"
-              : b === "github"    ? "github-models"
               :                     "bridge";
   if (!res)           console.info(`[claude/${which}] ${label}: unreachable`);
   else if (res.error) console.warn(`[claude/${which}] ${label}: ${res.error}`);
@@ -322,8 +302,8 @@ export async function ask(userText, opts = {}) {
 // the full askWithTools tool-loop. Image is sent as a base64 content
 // block alongside the prompt. Returns the response text, or null on
 // any failure. Bridge backend only (the path that proxies through
-// 127.0.0.1:7337); falls through to null on github/openai backends
-// since they don't share the same vision content-block protocol.
+// 127.0.0.1:7337); falls through to null on the openai backend since
+// it doesn't share the same vision content-block protocol.
 export async function askAboutFrame(imageDataUrl, prompt, { maxTokens = 100, system } = {}) {
   if (!CLAUDE_BACKENDS.has(settings.pipBackend)) return null;
   const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec(imageDataUrl || "");
