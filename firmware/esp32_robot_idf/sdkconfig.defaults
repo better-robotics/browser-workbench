@@ -27,18 +27,13 @@ CONFIG_BT_BLUEDROID_ENABLED=n
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=2
 CONFIG_BT_NIMBLE_MAX_CCCDS=24
 
-# Networking — bigger LWIP buffers help SCTP throughput on data channels.
+# Networking — buffer sizes tuned during the (since-removed) WebRTC/libpeer
+# era for SCTP + video-frame UDP bursts. Left in place: they haven't caused
+# problems for HTTP MJPEG or BLE OTA, and re-tuning without a WebRTC-shaped
+# workload to validate against would be guessing. Revisit if flash/heap
+# budget pressure calls for reclaiming this headroom.
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
 CONFIG_LWIP_TCP_WND_DEFAULT=16384
-# UDP send-side: libpeer's video-frame sends spammed "sendto: ENOMEM"
-# on classic ESP32 with default WiFi TX buffers. Doubling the dynamic
-# tx pool + raising the lwIP pbuf pool from 10→32 gives the WiFi TX
-# path room to drain JPEG bursts without ENOMEM cascades. The video
-# pump also chunks at ~900 B with a 2ms delay between chunks so the
-# producer paces the consumer; this just adds headroom.
-# Trimmed from 64/16/32 to free internal heap for the camera's 32 KB DMA
-# buffer. Original tuning was for libpeer's video-as-server burst sends;
-# now that we're DTLS client and sending small SCTP records, less is needed.
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=8
 CONFIG_LWIP_PBUF_POOL_SIZE=16
@@ -47,8 +42,8 @@ CONFIG_LWIP_PBUF_POOL_SIZE=16
 # centralized gateway that adds 100-300 ms to lateral traffic between
 # residents — but the ISP delegates each device a global IPv6 address,
 # and IPv6 packets between devices on the same /64 route directly via
-# neighbor discovery. Enabling v6 lets WebRTC ICE pair host-v6↔host-v6,
-# bypassing the slow v4 NAT entirely.
+# neighbor discovery. Enabling v6 lets any peer-to-peer LAN traffic pair
+# host-v6↔host-v6, bypassing the slow v4 NAT entirely.
 CONFIG_LWIP_IPV6=y
 CONFIG_LWIP_IPV6_AUTOCONFIG=y
 # DHCPv6 stateless. WhiteSky-Beckon (and likely other apt-WiFi) doesn't
@@ -57,28 +52,15 @@ CONFIG_LWIP_IPV6_AUTOCONFIG=y
 CONFIG_LWIP_IPV6_DHCP6=y
 
 # mbedTLS — hardware AES/SHA always on (free on this chip, used by both
-# WiFi WPA and any future TLS). WebRTC-specific mbedTLS knobs
-# (DTLS-SRTP, ECDSA, GCM, X509_CREATE, HKDF, SHA1, CIPHER_MODE_CTR…)
-# are pulled in via `select` from main/Kconfig.projbuild's
-# BR_WEBRTC_ESP_PEER, so a no-WebRTC build drops them automatically.
+# WiFi WPA and any future TLS).
 CONFIG_MBEDTLS_HARDWARE_AES=y
 CONFIG_MBEDTLS_HARDWARE_SHA=y
 
-# Trim mbedTLS record buffers from the 16 KiB default to fit the chip's
-# actual handshake. As DTLS client the chip *sends* the ClientHello
-# (small) and only *receives* server-side handshake messages, which are
-# individually smaller than ServerHello+Cert+ServerKeyExchange combined
-# (~1.5–2 KiB). 2 KiB IN buffer is enough; OUT can shrink to 1500 since
-# chip's TLS records are all tiny. Saves ~28 KiB internal heap per
-# session — feeds the camera DMA's 32 KiB contiguous request.
+# Trim mbedTLS record buffers from the 16 KiB default to save internal
+# heap that feeds the camera DMA's 32 KiB contiguous request.
 CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=2048
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1500
-
-# mbedTLS DTLS-SRTP enables live in sdkconfig.defaults.board.aithinker_cam_webrtc
-# — putting them here cost ~1 KB of IRAM that overflowed the no-WebRTC AI-Thinker
-# build. EXCLUDE_COMPONENTS in CMakeLists handles skipping the esp_peer compile
-# on no-WebRTC variants, so these symbols only need to exist when WebRTC is on.
 
 # Partition table — OTA needs two app slots + factory.
 CONFIG_PARTITION_TABLE_CUSTOM=y

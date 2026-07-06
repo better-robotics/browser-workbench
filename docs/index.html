@@ -400,17 +400,12 @@
   <!-- Pick state. Shown after chip-detect succeeds. -->
   <div class="esp-flash-pick" id="esp-flash-pick" hidden>
     <div class="esp-flash-boards" role="radiogroup" aria-label="Board" id="esp-flash-boards"></div>
-    <label class="esp-flash-webrtc" id="esp-flash-webrtc-wrap" hidden>
-      <input type="checkbox" id="esp-flash-webrtc-cb" checked>
-      <span class="esp-flash-webrtc-title">WebRTC video</span>
-      <span class="meta">Browser ↔ robot live camera over BLE-signaled DTLS. Without this, video falls back to HTTP MJPEG (~215 KB smaller image).</span>
-    </label>
     <p class="meta esp-flash-empty" id="esp-flash-empty" hidden>
       No supported board matches the detected chip. We don't yet ship a firmware bundle for this variant.
     </p>
     <!-- Bundle version line — fetched from the picked board's manifest.json
          so the operator knows what they're about to flash. Updates on
-         board / WebRTC checkbox change. -->
+         board change. -->
     <div class="meta esp-flash-version" id="esp-flash-version"></div>
   </div>
   <!-- Progress state. Replaces pick once Install is clicked. -->

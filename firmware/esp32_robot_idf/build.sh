@@ -6,39 +6,29 @@
 #
 # Usage:
 #   BOARD=aithinker_cam ./build.sh
-#   BOARD=aithinker_cam_webrtc ./build.sh
 #   BOARD=devkit ./build.sh
 #   BOARD=c3_supermini ./build.sh
 
 set -euo pipefail
 
-BOARD="${BOARD:?BOARD env var required (aithinker_cam | aithinker_cam_webrtc | devkit | c3_supermini)}"
+BOARD="${BOARD:?BOARD env var required (aithinker_cam | devkit | c3_supermini)}"
 
 case "$BOARD" in
   aithinker_cam)
     TARGET=esp32
     DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.board.aithinker_cam"
     BOOTLOADER_OFFSET="0x1000"
-    WANT_ESP_PEER=0
-    ;;
-  aithinker_cam_webrtc)
-    TARGET=esp32
-    DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.board.aithinker_cam;sdkconfig.defaults.board.aithinker_cam_webrtc"
-    BOOTLOADER_OFFSET="0x1000"
-    WANT_ESP_PEER=1
     ;;
   devkit)
     TARGET=esp32
     DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.board.devkit"
     BOOTLOADER_OFFSET="0x1000"
-    WANT_ESP_PEER=0
     ;;
   c3_supermini)
     TARGET=esp32c3
     DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.board.c3_supermini"
     # esp32c3 has no ROM bootloader stub at 0x1000 — boot ROM jumps to 0x0.
     BOOTLOADER_OFFSET="0x0"
-    WANT_ESP_PEER=0
     ;;
   *)
     echo "Unknown BOARD=$BOARD" >&2
@@ -50,20 +40,6 @@ esac
 # docker -e flag. That clashes with `idf.py set-target esp32c3` (IDF
 # refuses to override a target specified by the environment). Unset
 # here so set-target picks the per-board target without interference.
-unset IDF_TARGET
-
-# Drive component inclusion via env var, not Kconfig. project()'s
-# EXCLUDE_COMPONENTS has to be set before project() runs, but CONFIG_*
-# vars from sdkconfig.cmake aren't populated until project() does. And
-# in main/CMakeLists.txt, `if(CONFIG_*)` during idf_component_register
-# was unreliable in the multi-overlay setup. Env var is set once here
-# and consumed by both project-root and main CMakeLists.
-if [ "$WANT_ESP_PEER" = "1" ]; then
-  export BR_WANT_ESP_PEER=1
-else
-  unset BR_WANT_ESP_PEER
-fi
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 

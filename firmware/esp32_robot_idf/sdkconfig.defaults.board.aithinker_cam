@@ -1,19 +1,17 @@
 # AI-Thinker ESP32-CAM — classic ESP32 with OV2640/OV3660 camera, 4 MB
-# SPI PSRAM, no hardware H.264 (camera path falls back to MJPEG-in-RTP
-# for WebRTC video tracks). The "headline" board.
+# SPI PSRAM, camera streams over HTTP MJPEG. The "headline" board.
 CONFIG_BR_BOARD_AITHINKER_CAM=y
 
-# Classic ESP32 max — DTLS encryption + SCTP packing are CPU-bound on
-# this chip (no HW AES-GCM); 240 MHz is a free linear speedup over the
-# IDF 160 MHz default.
+# Classic ESP32 max — 240 MHz is a free linear speedup over the IDF
+# 160 MHz default; camera JPEG encode + WiFi/BLE coex both benefit.
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
 CONFIG_ESP32_SPIRAM_SUPPORT=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
-# Push allocations to PSRAM by default. mbedTLS contexts, libpeer SCTP/SRTP
-# buffers, NimBLE non-critical state — none of these need internal-only RAM.
+# Push allocations to PSRAM by default. mbedTLS contexts (HTTPS OTA),
+# NimBLE non-critical state — none of these need internal-only RAM.
 # Default threshold (16 KB) keeps everything <16 KB internal, which fragments
 # the heap and starves the camera DMA's 32 KB contiguous request.
 # - ALWAYSINTERNAL=256 — only allocations <256 B forced internal (small,

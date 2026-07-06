@@ -70,10 +70,9 @@ static bool do_init(void) {
         .grab_mode    = CAMERA_GRAB_LATEST,
         .fb_location  = psram ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM,
         // QVGA 320×240 @ jpeg_quality 18: ~5–15 KB/frame from the
-        // OV3660's HW JPEG encoder. Small enough that DTLS encryption
-        // (the WebRTC bottleneck on classic ESP32) doesn't stall, and
-        // OK on bandwidth for HTTP MJPEG. fb_count=2 lets the driver
-        // capture frame N+1 while the pump sends N.
+        // OV3660's HW JPEG encoder — comfortably within HTTP MJPEG
+        // bandwidth. fb_count=2 lets the driver capture frame N+1 while
+        // the pump sends N.
         .frame_size   = FRAMESIZE_QVGA,
         .jpeg_quality = 18,
         .fb_count     = psram ? 2 : 1,

@@ -35,7 +35,7 @@ Pattern: control = BLE, observe = wifi/discover, recover = USB.
 - **Typed ops over BLE** — structured verbs on a single characteristic (`get-log`, `get-config`, `restart-service`, `wifi-scan`, `wifi-join`). Each verb is a deliberate, reviewable decision instead of a real-shell transport.
 - **WebRTC** — two distinct flows.
   - *Phone ↔ desktop*: signaled via `wss://signal.neevs.io` (cross-network — operator may not be physically near the phone). Pair-ceremony authenticated (Ed25519 pubkey + signed pair-request). Carries camera frames, ask-human responses, robot-command relays.
-  - *Robot ↔ desktop* (Pi or ESP32): signaled over the BLE `SIGNAL` characteristic — no internet rendezvous, no Mixed-Content/PNA gate. BLE pair = signal = auth. Carries OTA bundles, log tail, PTY shell (Pi), and camera video. See `firmware/esp32_robot_idf/WEBRTC.md` for the ESP32-side patches.
+  - *Robot ↔ desktop* (Pi only — ESP32 has no signal char): signaled over the BLE `SIGNAL` characteristic — no internet rendezvous, no Mixed-Content/PNA gate. BLE pair = signal = auth. Carries OTA bundles, log tail, and PTY shell. ESP32 camera is HTTP MJPEG only (`:81/stream`); the ESP32-side WebRTC peer (esp_peer/libpeer, camera video + WebRTC OTA) was removed 2026-07 — git history has the four-patch DTLS shape if reviving it.
 - **Wifi-presence** — Pi exposes `<name>.local:81/health`; dashboard probes it for the "on wifi" badge + service-crash detection. ESP32 presence shows up only when BLE-paired (wifi-status notify). No internet rendezvous for robot presence.
 - **USB-CDC** — recovery plane. Last-resort serial console, runs as its own systemd unit so a `pi-robot.service` crash doesn't take recovery with it. Bounded by physical access.
 
@@ -72,6 +72,5 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 - `.claude/direction.md` — what we're committing to close for the course pilot.
 - `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.
 - `.claude/field.md` — positioning analysis vs adjacent work.
-- `firmware/esp32_robot_idf/WEBRTC.md` — the four coordinated DTLS/SDP patches.
 - `firmware/pi_robot/SYSTEMD.md` — preconditions-belong-in-the-script pattern.
 - `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids/gen-constants drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer. `protocol/constants.json` (`tools/gen-constants.py`) is the uuids.json pattern applied to numeric cross-firmware constants (safety timeouts, BLE chunk sizes) — edit the JSON, not the generated `protocol_constants.h`/`.py`/`docs/protocol-constants.js`.

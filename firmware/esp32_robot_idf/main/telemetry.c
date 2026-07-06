@@ -14,9 +14,6 @@
 #include "ble_host.h"
 #include "encoders.h"
 #include "gatt_svr.h"
-#ifdef CONFIG_BR_WEBRTC_ESP_PEER
-#include "webrtc_peer.h"
-#endif
 
 static const char *TAG = "telemetry";
 
@@ -45,13 +42,6 @@ static const char *reset_reason_label(esp_reset_reason_t r) {
 }
 
 static void on_tick(void *arg) {
-#ifdef CONFIG_BR_WEBRTC_ESP_PEER
-    // Skip notifies while video is streaming. Each telemetry notify
-    // bursts ~250 B over BLE, and during active streaming it competes
-    // with WiFi for radio time — observed as "wifi:m f null" mgmt-frame
-    // drops. Resume cadence resumes the moment video stops.
-    if (webrtc_peer_video_active()) return;
-#endif
     char ip[16] = {0};
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif) {
@@ -61,10 +51,10 @@ static void on_tick(void *arg) {
         }
     }
     // free_heap_internal / min_free_heap_internal split out internal SRAM
-    // from the SPIRAM-augmented total. WebRTC esp_peer_open and DTLS/SCTP
-    // buffers allocate from internal heap only; if the chip shows 4 MB free
-    // overall but internal-min has hit ~20 KB, esp_peer_open returns
-    // ESP_PEER_ERR_NO_MEM and the total number is misleading.
+    // from the SPIRAM-augmented total. The camera's 32 KB DMA buffer
+    // allocates from internal heap only; if the chip shows 4 MB free
+    // overall but internal-min has hit ~20 KB, camera_acquire() fails
+    // and the total number is misleading.
     int o = snprintf(s_buf, TELEMETRY_BUF_SIZE,
         "{\"uptime_ms\":%llu,\"free_heap\":%u,\"min_free_heap\":%u,"
         "\"free_heap_internal\":%u,\"min_free_heap_internal\":%u,"

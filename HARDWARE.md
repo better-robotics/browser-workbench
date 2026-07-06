@@ -12,12 +12,9 @@ Buy: AI Thinker ESP32-CAM-MB on Amazon and AliExpress. Confirm the listing inclu
 
 ### Camera on the CAM-MB
 
-The 24-pin socket accepts OV2640, OV3660, and OV5640 modules; Espressif's `esp_camera` driver auto-detects. Firmware uses the stock AI-Thinker pin map (XCLK 0, SIOD 26, SIOC 27, data 5/18/19/21/36/39/34/35, VSYNC 25, HREF 23, PCLK 22, PWDN 32). QVGA (320×240) JPEG at quality 18, fb_count=2 in PSRAM. Two transports, user-toggleable per camera in the dashboard:
+The 24-pin socket accepts OV2640, OV3660, and OV5640 modules; Espressif's `esp_camera` driver auto-detects. Firmware uses the stock AI-Thinker pin map (XCLK 0, SIOD 26, SIOC 27, data 5/18/19/21/36/39/34/35, VSYNC 25, HREF 23, PCLK 22, PWDN 32). QVGA (320×240) JPEG at quality 18, fb_count=2 in PSRAM. One transport: **HTTP MJPEG** — `:81/stream` once WiFi joins; dashboard opens the stream as `<img>`. Same-LAN only.
 
-- **WebRTC** (default) — frames over an esp_peer data channel; works cross-NAT via STUN/TURN.
-- **HTTP MJPEG** — `:81/stream` once WiFi joins; dashboard opens the stream as `<img>`. Same-LAN only.
-
-Either way, firmware advertises a `camera` capability and broadcasts the LAN IP on `wifi-status`.
+Firmware advertises a `camera` capability and broadcasts the LAN IP on `wifi-status`.
 
 ### Motor wiring (L298N)
 

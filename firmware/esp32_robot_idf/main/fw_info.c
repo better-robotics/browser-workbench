@@ -20,8 +20,9 @@ static const char *TAG = "fw_info";
 //   chip    — IDF target. Binary-compat constraint; what esptool checks.
 //   board   — hardware variant. Pin-map constraint; drives the visual
 //             pin editor and the dashboard's board-aware UI.
-//   variant — board + feature toggle. Disambiguates the OTA bundle so
-//             self-OTA preserves the user's WebRTC choice.
+//   variant — board + feature toggle. Disambiguates the OTA bundle url;
+//             currently always equal to board (no per-board feature
+//             toggles left).
 #if CONFIG_IDF_TARGET_ESP32
 #  define BR_CHIP_STR "esp32"
 #elif CONFIG_IDF_TARGET_ESP32C3
@@ -31,12 +32,8 @@ static const char *TAG = "fw_info";
 #endif
 
 #if CONFIG_BR_BOARD_AITHINKER_CAM
-#  define BR_BOARD_STR "aithinker_cam"
-#  if CONFIG_BR_WEBRTC_ESP_PEER
-#    define BR_VARIANT_STR "aithinker_cam_webrtc"
-#  else
-#    define BR_VARIANT_STR "aithinker_cam"
-#  endif
+#  define BR_BOARD_STR   "aithinker_cam"
+#  define BR_VARIANT_STR "aithinker_cam"
 #elif CONFIG_BR_BOARD_DEVKIT
 #  define BR_BOARD_STR   "devkit"
 #  define BR_VARIANT_STR "devkit"
@@ -60,15 +57,6 @@ void fw_info_init(const pin_config_t *pins) {
         "{\"type\":\"esp32\","                  // hardware-class id, stable across chip families
         "\"chip\":\"" BR_CHIP_STR "\","         // esptool-visible identity (binary-compat)
         "\"board\":\"" BR_BOARD_STR "\","       // pin-map identity (UI editor)
-        // webrtc: build-time toggle for the libpeer + DTLS-SRTP path.
-        // Dashboard reads this to gate its transport selector; MJPEG-only
-        // builds shouldn't offer a WebRTC option that will fail at the
-        // signal-characteristic probe.
-#if CONFIG_BR_WEBRTC_ESP_PEER
-        "\"webrtc\":true,"
-#else
-        "\"webrtc\":false,"
-#endif
         "\"url\":\"firmware/bins/" BR_VARIANT_STR "/firmware.bin\","
         "\"version\":\"%s\",\"caps\":[", version);
 

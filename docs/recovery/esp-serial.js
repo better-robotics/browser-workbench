@@ -225,17 +225,10 @@ async function disconnect() {
 
 // BOARDS catalog is imported from boards.js — single source of truth
 // shared with pinout.js. The picker UI here consumes id, chip, label,
-// sub, usbHints, webrtc; pinout.js consumes pinsTop/pinsBot/pcbLabel/
+// sub, usbHints; pinout.js consumes pinsTop/pinsBot/pcbLabel/
 // footerNote/cameraReservedGpios from the same entries.
 
 const LAST_BOARD_KEY = "esp-flash:last-board";
-
-function resolveBundleId(board, webrtcChecked) {
-  if (board.webrtc.capable) {
-    return webrtcChecked ? board.webrtc.on : board.webrtc.off;
-  }
-  return board.id;
-}
 
 // Install-dialog state machine. One <dialog> hosts the full arc —
 // connecting → picking → flashing → done — so the operator sees one
@@ -278,7 +271,6 @@ function resetFlashDialog() {
   $("esp-flash-cancel").disabled = false;
   $("esp-flash-cancel").textContent = "Cancel";
   $("esp-flash-empty").hidden = true;
-  $("esp-flash-webrtc-wrap").hidden = true;
   $("esp-flash-boards").innerHTML = "";
   setFlashSubtitle("");
   $("esp-flash-status").classList.remove("success", "error");
@@ -346,7 +338,6 @@ function pickBoardInDialog({ chip, chipName, portInfo = {} }) {
     boardsEl.innerHTML = "";
     if (compatible.length === 0) {
       $("esp-flash-empty").hidden = false;
-      $("esp-flash-webrtc-wrap").hidden = true;
       $("esp-flash-install").disabled = true;
     } else {
       $("esp-flash-empty").hidden = true;
@@ -373,7 +364,6 @@ function pickBoardInDialog({ chip, chipName, portInfo = {} }) {
       }
       $("esp-flash-install").disabled = false;
     }
-    syncWebrtcVisibility();
     syncBundleVersion();
     // Subtitle: prefer the preselected board's friendly label over the
     // bare chip name set during detect.
@@ -385,12 +375,6 @@ function pickBoardInDialog({ chip, chipName, portInfo = {} }) {
     // button after the boards render so power users can hit Enter.
     $("esp-flash-install").focus();
   });
-}
-
-function syncWebrtcVisibility() {
-  const picked = $("esp-flash-boards").querySelector("input[name='esp-flash-board']:checked");
-  const board  = picked && BOARDS.find(b => b.id === picked.value);
-  $("esp-flash-webrtc-wrap").hidden = !(board && board.webrtc.capable);
 }
 
 // Bundle version line. Reflects what's about to be flashed — fetched
@@ -415,7 +399,7 @@ async function syncBundleVersion() {
   if (!picked) { versionEl.textContent = ""; return; }
   const board = BOARDS.find(b => b.id === picked.value);
   if (!board) { versionEl.textContent = ""; return; }
-  const bundleId = resolveBundleId(board, $("esp-flash-webrtc-cb").checked);
+  const bundleId = board.id;
 
   const token = ++_versionFetchToken;
   versionEl.textContent = "Loading bundle…";
@@ -583,7 +567,7 @@ export function init() {
     if (!picked) return;
     const board = BOARDS.find(b => b.id === picked.value);
     localStorage.setItem(LAST_BOARD_KEY, board.id);
-    _pickerResolve(resolveBundleId(board, $("esp-flash-webrtc-cb").checked));
+    _pickerResolve(board.id);
   });
   $("esp-flash-cancel").addEventListener("click", () => {
     if (_pickerResolve) _pickerResolve(null);
@@ -594,13 +578,11 @@ export function init() {
     $("esp-flash-modal").close();
   });
   $("esp-flash-boards").addEventListener("change", () => {
-    syncWebrtcVisibility();
     syncBundleVersion();
     const picked = $("esp-flash-boards").querySelector("input[name='esp-flash-board']:checked");
     const board  = picked && BOARDS.find(b => b.id === picked.value);
     if (board) setFlashSubtitle(board.label);
   });
-  $("esp-flash-webrtc-cb").addEventListener("change", syncBundleVersion);
   // Lazy-render the esptool trace on disclosure open. Buffer is appended
   // to throughout the install with no DOM cost; the textContent assignment
   // here is one shot.

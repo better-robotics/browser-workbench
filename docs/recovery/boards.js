@@ -5,8 +5,8 @@
 // is a single-file change: append an entry below, plus the firmware
 // side gets a matching CONFIG_BR_BOARD_* + sdkconfig.defaults overlay
 // + build.sh case. Anything UI-facing that distinguishes boards
-// (chooser label, USB hint, pin map, WebRTC capability, camera-pin
-// reservations, footer note) lives in this object.
+// (chooser label, USB hint, pin map, camera-pin reservations, footer
+// note) lives in this object.
 //
 // Status vocabulary on pin entries — keep these aligned with the
 // CSS classes in styles.css (`esp-${status}`):
@@ -124,9 +124,6 @@ const C3_PINS_BOT = [
 //   label / sub        — install picker UI text
 //   usbHints           — VID list that auto-selects this board in the
 //                        chooser. Tightened so each VID maps unique.
-//   webrtc             — { capable, on?, off? }: install picker decides
-//                        whether to show the WebRTC checkbox; on/off
-//                        give the bundle ids per setting.
 //   pcbLabel           — text rendered inside the SVG board outline
 //   pinsTop / pinsBot  — header rows (see status vocabulary above)
 //   footerNote         — read-only note below the pinout editor rows
@@ -162,7 +159,6 @@ export const BOARDS = [
     // here — otherwise the hint is ambiguous with DevKitV1 and the
     // picker can't auto-select either way.
     usbHints: [0x0403],
-    webrtc: { capable: true, on: "aithinker_cam_webrtc", off: "aithinker_cam" },
     pcbLabel: "ESP32 · camera · µSD",
     pinsTop: AITHINKER_PINS_TOP,
     pinsBot: AITHINKER_PINS_BOT,
@@ -185,7 +181,6 @@ export const BOARDS = [
     sub: "Classic ESP32 module. No camera, ~25 usable GPIOs.",
     // CH340 on cheap clones, CP210x on better DevKits.
     usbHints: [0x1a86, 0x10c4],
-    webrtc: { capable: false },
     pcbLabel: "ESP32 DevKitV1 · WROOM-32",
     pinsTop: DEVKIT_PINS_TOP,
     pinsBot: DEVKIT_PINS_BOT,
@@ -207,7 +202,6 @@ export const BOARDS = [
     label: "ESP32-C3 SuperMini",
     sub: "RISC-V single core, native USB. No camera.",
     usbHints: [0x303a],  // Espressif native USB-CDC-JTAG
-    webrtc: { capable: false },
     pcbLabel: "ESP32-C3 SuperMini",
     pinsTop: C3_PINS_TOP,
     pinsBot: C3_PINS_BOT,

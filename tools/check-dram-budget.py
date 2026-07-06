@@ -3,9 +3,8 @@
 
 Called from .github/workflows/build-firmware.yml after the build. The
 classic ESP32-CAM has ~125 KB DRAM; everything beyond ~100 KB starts
-starving lwIP's pbuf pool, and UDP sends from libpeer return ENOMEM
-(WebRTC video silently breaks). Failing the build at PR time beats
-finding out by reflashing.
+starving lwIP's pbuf pool or the camera's contiguous DMA buffer request.
+Failing the build at PR time beats finding out by reflashing.
 
 Usage: idf.py size 2>&1 | python3 tools/check-dram-budget.py
 """

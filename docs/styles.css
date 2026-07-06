@@ -1830,23 +1830,6 @@ body.phone .segmented .mode-btn { min-height: 44px; }
 .esp-flash-board-option input[type="radio"] { grid-row: 1 / 3; align-self: center; }
 .esp-flash-board-title { font-weight: 500; }
 .esp-flash-board-sub { font-size: 12px; }
-.esp-flash-webrtc {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 10px;
-  row-gap: 2px;
-  padding: 10px 12px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  margin: 0 0 12px;
-  cursor: pointer;
-}
-.esp-flash-webrtc input[type="checkbox"] { grid-row: 1 / 3; align-self: center; }
-.esp-flash-webrtc-title { font-weight: 500; }
-/* `display: grid` above beats the [hidden] attribute on specificity, so
-   .hidden=true alone leaves the checkbox visible on no-camera boards.
-   Explicit attribute-selector rule restores the expected behavior. */
-.esp-flash-webrtc[hidden] { display: none; }
 .esp-flash-actions { justify-content: flex-end; }
 .esp-flash-empty { margin: 0 0 12px; }
 .esp-flash-version { font-size: 11px; margin: 0 0 12px; opacity: 0.7; font-family: var(--mono, ui-monospace, monospace); }

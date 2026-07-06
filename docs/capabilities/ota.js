@@ -1,6 +1,6 @@
-// Routes updates: ESP32 → WebRTC OTA (seconds, P2P, no rendezvous)
-// with BLE-stream fallback (~30 s for 1.6 MB, works anywhere). Pi
-// follows its own bundle path.
+// Routes updates: ESP32 → BLE-stream only (~30 s for 1.6 MB, works
+// anywhere; ESP32 has no WebRTC signal char). Pi → WebRTC OTA (seconds,
+// P2P, no rendezvous) with BLE-stream fallback, via its own bundle path.
 import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson, encodeJson,
@@ -104,23 +104,14 @@ function patchOtaSectionThrottled(entry) {
   });
 }
 
-// Stream bundle to the robot's WebRTC peer over a DataChannel.
-//
-// Pi: RTC daemon (low priv `robot`) stages to /tmp/...json, replies
-// "staged"; we BLE-trigger apply-staged-ota which root pi_robot.py picks
-// up. Two-step because of privilege boundaries — bulk at user privs,
-// apply at root.
-//
-// ESP32: webrtc_peer.c routes the channel directly into the same
-// esp_ota_* state as BLE/HTTP. On commit, chip restarts itself 500 ms
-// after sending "staged". No apply-staged-ota call (chip is already
-// rebooting). "staged" reply doubles as "we're about to reboot."
+// Stream bundle to the Pi's WebRTC peer over a DataChannel. RTC daemon
+// (low priv `robot`) stages to /tmp/...json, replies "staged"; we
+// BLE-trigger apply-staged-ota which root pi_robot.py picks up. Two-step
+// because of privilege boundaries — bulk at user privs, apply at root.
 //
 // Throws on any failure — caller falls back to BLE-stream.
 async function streamOtaViaWebRTC(entry, bytes) {
-  // Pi requires the ops channel to trigger the privileged apply. ESP32
-  // commits inline (see comment above), so the ops channel is unused.
-  if (entry.fwType === "pi" && !entry.opsChar) {
+  if (!entry.opsChar) {
     throw new Error("no ops channel — can't trigger apply");
   }
   const { openChannel, closePeer } = await import("../webrtc/webrtc-robot.js");
@@ -128,7 +119,6 @@ async function streamOtaViaWebRTC(entry, bytes) {
   try {
     channel = await openChannel(entry.id, entry.name, "ota", {
       onStatus: (s) => logFor(entry, `ota webrtc: ${s}`),
-      robotType: entry.fwType,
       signalChar: entry.signalChar,
     });
   } catch (err) {
@@ -183,18 +173,15 @@ async function streamOtaViaWebRTC(entry, bytes) {
     entry.otaSent = bytes.length;
     patchOtaSection(entry);
 
-    if (entry.fwType === "pi") {
-      // Pi-only: trigger the privileged apply. The existing _apply_bundle
-      // path runs as root and drives the OTA status notifies the dashboard
-      // already renders. Body matches the apply-staged-ota verb's args
-      // shape (path is allowlisted on the Pi side).
-      const applyMsg = encodeJson({
-        op: "apply-staged-ota",
-        args: { path: "/tmp/pi-robot-staged-ota.json" },
-      });
-      await entry.opsChar.writeValueWithResponse(applyMsg);
-    }
-    // ESP32: chip is restarting on its own; nothing more to do.
+    // Trigger the privileged apply. The existing _apply_bundle path runs
+    // as root and drives the OTA status notifies the dashboard already
+    // renders. Body matches the apply-staged-ota verb's args shape (path
+    // is allowlisted on the Pi side).
+    const applyMsg = encodeJson({
+      op: "apply-staged-ota",
+      args: { path: "/tmp/pi-robot-staged-ota.json" },
+    });
+    await entry.opsChar.writeValueWithResponse(applyMsg);
   } finally {
     try { channel?.close(); } catch {}
     closePeer(entry.id);
@@ -333,27 +320,13 @@ export async function updateFirmware(id) {
   }
   await acquireWakeLock();
   try {
-    // Two transports for ESP32 OTA, fastest first:
-    //   1. WebRTC P2P (BLE-signaled or wss): seconds, no Mixed-Content/PNA
-    //      exposure. Firmware commits inline and restarts; "staged" reply
-    //      then BLE link drops as chip reboots into new firmware.
-    //   2. BLE-stream: slow (~30s for 1.6 MB) but works anywhere.
-    let webrtcOk = false;
+    // ESP32 has no WebRTC signal char — BLE-stream is the only transport.
+    logFor(entry, `OTA streaming over BLE (~30s for ~1.6 MB)…`);
     try {
-      await streamOtaViaWebRTC(entry, bytes);
-      webrtcOk = true;
-      logFor(entry, "OTA committed via WebRTC — click Reconnect when the robot's back");
+      await streamOtaBytes(entry, bytes);
+      logFor(entry, "OTA commit sent — click Reconnect when the robot's back");
     } catch (err) {
-      logFor(entry, `WebRTC OTA failed: ${err.message} — falling back to BLE`);
-    }
-    if (!webrtcOk) {
-      logFor(entry, `OTA streaming over BLE (~30s for ~1.6 MB)…`);
-      try {
-        await streamOtaBytes(entry, bytes);
-        logFor(entry, "OTA commit sent — click Reconnect when the robot's back");
-      } catch (err) {
-        logFor(entry, `OTA failed: ${err.message}`);
-      }
+      logFor(entry, `OTA failed: ${err.message}`);
     }
   } finally {
     await releaseWakeLock();

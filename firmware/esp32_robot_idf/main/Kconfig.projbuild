@@ -34,23 +34,4 @@ config BR_HAS_CAMERA
 config BR_HAS_PSRAM
     bool
 
-config BR_WEBRTC_ESP_PEER
-    bool "WebRTC video (esp_peer / vendored libpeer)"
-    depends on BR_HAS_CAMERA
-    default n
-    help
-        Adds the WebRTC peer (video over BLE-signaled DTLS-SRTP) and the
-        vendored esp_peer / libpeer blob. Only meaningful on boards with
-        a camera; depends on BR_HAS_CAMERA. Off saves ~215 KB of flash
-        (libpeer .a + DTLS-SRTP code that linker --gc-sections strips
-        when no live references remain).
-
-        The mbedTLS bits libpeer needs (MBEDTLS_SSL_DTLS_SRTP,
-        ECDHE_ECDSA, ECDSA_C, ECP_DP_SECP256R1, etc.) are enabled in
-        sdkconfig.defaults rather than via select chain — esp_peer is
-        a vendored component in components/, auto-compiled whenever
-        IDF sees it, so the symbols must exist regardless of this flag.
-        Off paths use EXCLUDE_COMPONENTS in the project CMakeLists.txt
-        to actually skip the build of esp_peer.
-
 endmenu

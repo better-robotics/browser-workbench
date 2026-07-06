@@ -94,7 +94,7 @@ function makeBufferingTerminal(onTrace) {
 // Callbacks the caller supplies:
 //   onLog(text)                  — user-facing status line (one short message)
 //   onProgress(fileIndex, pct)   — progress bar update during writeFlash
-//   pickBoard({chip, chipName})  — returns variant id ("aithinker_cam_webrtc"
+//   pickBoard({chip, chipName})  — returns variant id ("aithinker_cam"
 //                                  etc.) or null to cancel
 //
 // Returns { board, chip } on success, null on cancel.
