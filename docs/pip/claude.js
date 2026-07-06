@@ -14,10 +14,10 @@ const BRIDGE_PROXY_URL = "http://127.0.0.1:7337";
 // are what the user types into `/model`; the id is what goes on the wire.
 export const CLAUDE_VARIANTS = [
   { alias: "opus",   id: "claude-opus-4-7" },
-  { alias: "sonnet", id: "claude-sonnet-4-6" },
+  { alias: "sonnet", id: "claude-sonnet-5" },
   { alias: "haiku",  id: "claude-haiku-4-5-20251001" },
 ];
-const CLAUDE_DEFAULT = "claude-sonnet-4-6";
+const CLAUDE_DEFAULT = "claude-sonnet-5";
 const CLAUDE_IDS = new Set(CLAUDE_VARIANTS.map(v => v.id));
 
 function currentClaudeModel() {

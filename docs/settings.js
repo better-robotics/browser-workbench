@@ -8,7 +8,7 @@ export const settings = Object.assign(
   // pipApiKey:    Anthropic key — only when pipBackend === "anthropic".
   // pipOpenaiKey: OpenAI key    — only when pipBackend === "openai".
   // pipClaudeModel: which Claude variant to use on the bridge/anthropic
-  //   backends — "claude-opus-4-7" | "claude-sonnet-4-6" | "claude-haiku-4-5-20251001".
+  //   backends — "claude-opus-4-7" | "claude-sonnet-5" | "claude-haiku-4-5-20251001".
   // pipVisionEnabled: when true AND backend supports images, Pip gets
   //   view_robot_frame, sending the actual frame. ON by default — the
   //   "off by default, model still narrates 'let me check'" failure mode
@@ -29,7 +29,7 @@ export const settings = Object.assign(
   //   Lite0 via @mediapipe/tasks-vision) or "yolo26" (~10MB ONNX via
   //   onnxruntime-web + WebGPU). Switch via /detector <name>; persists
   //   here so the next session picks up the same backend.
-  { pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
+  { pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-5", pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
   JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
 );
 
