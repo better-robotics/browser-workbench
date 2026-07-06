@@ -47,8 +47,10 @@ export function registerSlashCommands({ pip }) {
   //   /model openai
   // Both providers in CLAUDE_BACKENDS (anthropic, bridge) accept the
   // /model <provider> <variant> two-token shape — they share pipClaudeModel.
-  // Setup (OAuth, API key) happens inline via pip.collectSecret so the
-  // user never leaves the chat surface to enter credentials.
+  // Setup (API key) happens inline: an askInChat confirmation card first
+  // (same card the failure-recovery path in assistant.js shows), then
+  // pip.collectSecret for the actual paste — so the user never leaves
+  // the chat surface, and never lands in the masked field with no warning.
   const CLAUDE_ALIASES = CLAUDE_VARIANTS.map(v => v.alias);
   pip.registerSlash({
     name: "model",
@@ -113,16 +115,34 @@ export function registerSlashCommands({ pip }) {
       // selection untouched. Re-running `/model <current>` is the
       // documented re-auth path, so we re-prompt even when the
       // credential already exists.
+      //
+      // Slash handlers don't get a turnEl (see /demo below), so a card
+      // that needs one — the askInChat confirmation before collectSecret
+      // — has to make its own via pip.startTurn(), then render its own
+      // reply through setReplyText + clearedUI:true instead of the
+      // normal {reply} return, or pip-core would also auto-create the
+      // default echo+reply turn and we'd get two.
       const isReSetup = provider === settings.pipBackend;
-      if (provider === "anthropic" && (!settings.pipApiKey || isReSetup)) {
-        const key = await pip.collectSecret({ label: "Anthropic API key", format: "sk-ant-…" });
-        if (!key) return { reply: "Cancelled — Anthropic needs an API key. Run `/model anthropic` to try again." };
-        settings.pipApiKey = key;
-      }
-      if (provider === "openai" && (!settings.pipOpenaiKey || isReSetup)) {
-        const key = await pip.collectSecret({ label: "OpenAI API key", format: "sk-…" });
-        if (!key) return { reply: "Cancelled — OpenAI needs an API key. Run `/model openai` to try again." };
-        settings.pipOpenaiKey = key;
+      let ownTurnEl = null;
+      const needsAnthropicKey = provider === "anthropic" && (!settings.pipApiKey || isReSetup);
+      const needsOpenaiKey    = provider === "openai"    && (!settings.pipOpenaiKey || isReSetup);
+      if (needsAnthropicKey || needsOpenaiKey) {
+        const label  = needsAnthropicKey ? "Anthropic" : "OpenAI";
+        const format = needsAnthropicKey ? "sk-ant-…" : "sk-…";
+        ownTurnEl = pip.startTurn({ echo: `/model ${trimmed}` });
+        const choice = await pip.askInChat({
+          question: `${label} needs ${isReSetup ? "a new" : "an"} API key.`,
+          options: [isReSetup ? "Re-enter key" : "Enter key", "Cancel"],
+        }, ownTurnEl);
+        const key = (choice === "Enter key" || choice === "Re-enter key")
+          ? await pip.collectSecret({ label: `${label} API key`, format })
+          : null;
+        if (!key) {
+          pip.setReplyText(ownTurnEl, `Cancelled — ${label} needs an API key. Run \`/model ${provider}\` to try again.`, true);
+          return { clearedUI: true };
+        }
+        if (needsAnthropicKey) settings.pipApiKey = key;
+        else settings.pipOpenaiKey = key;
       }
 
       // All gates passed (no cancellation, no auth failure). Commit the
@@ -133,7 +153,12 @@ export function registerSlashCommands({ pip }) {
       pip.setModelLabel?.(activeModelForBackend(provider));
 
       const modelLabel = activeModelForBackend(provider);
-      return { reply: `Backend set to \`${provider}\`${provider !== modelLabel ? ` · model: \`${modelLabel}\`` : ""}.` };
+      const replyText = `Backend set to \`${provider}\`${provider !== modelLabel ? ` · model: \`${modelLabel}\`` : ""}.`;
+      if (ownTurnEl) {
+        pip.setReplyText(ownTurnEl, replyText, true);
+        return { clearedUI: true };
+      }
+      return { reply: replyText };
     },
   });
 
