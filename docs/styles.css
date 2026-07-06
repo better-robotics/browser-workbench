@@ -412,18 +412,6 @@ a.menu-item { text-decoration: none; }
 }
 .type-badge.type-pi    { color: var(--success-text); }
 .type-badge.type-esp32 { color: var(--link); }
-/* Lightweight network-lane hint on the collapsed row. Signals "fast OTA path
-   available" without the user having to expand. */
-.transport-chip {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--border-subtle);
-  color: var(--success);
-}
-
 /* Card-style robot tile. Padding generous enough to read as a card (not a
    single-line pill). Left edge stripe carries status — colored stripe is more
    substantive than the previous in-row dot, and survives next to the action
@@ -500,22 +488,6 @@ a.menu-item { text-decoration: none; }
 .warning-chip.warning-warm { color: #d4a44a; }
 .warning-chip.warning-weak { color: #d4a44a; }
 .warning-chip.warning-bad  { color: #d97a5a; }
-
-/* Stale-handle hint — appears under the Re-pair button when Chrome's
-   per-origin permission for this device has expired. Sets the user's
-   expectation that the next click opens the OS chooser, and that the
-   robot-side bond is fine. Same .meta visual register as the secondary
-   row, indented to align with the body's content edge so it reads as
-   "extra info about this card" rather than a top-level state line. */
-.robot-stale-hint {
-  margin: 8px 0 0 26px;
-  max-width: 60ch;
-  line-height: 1.4;
-}
-.telemetry:empty { display: none; }
-.robot-cta {
-  margin-left: auto;  /* right-aligns even when meta is empty */
-}
 
 /* Whole row is a generous click target — cursor hints it, but the visual
    hover lives on the label-btn only (the row whitespace is forgiveness, not
@@ -698,7 +670,6 @@ details.tray.has-alert > summary::after {
 .empty-state .empty-title { font-size: 17px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
 .empty-state .empty-sub { font-size: 14px; color: var(--ink-muted); margin: 0; line-height: 1.45; }
 .empty-state .empty-actions { display: flex; gap: 8px; justify-content: center; }
-.gamepad-dot { font-size: 12px; margin-left: 4px; vertical-align: middle; }
 
 #robot-list {
   display: grid;
@@ -805,48 +776,6 @@ details.tray.has-alert > summary::after {
 }
 @media (prefers-reduced-motion: reduce) { .cap-chevron { transition: none; } }
 
-/* Camera profile picker — sits at the bottom of the camera body when fw-info
-   advertises a profile menu. Compact: label + select inline + meta hint. */
-.cap-profile {
-  margin-top: 10px;
-  font-size: 13px;
-}
-.cap-profile label { display: inline-flex; align-items: center; gap: 6px; }
-.cap-profile select {
-  font-size: 13px;
-  padding: 2px 6px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  color: var(--ink);
-}
-.cap-profile .meta { display: block; margin-top: 4px; }
-
-/* Pip backend selector + API-key row in Settings. Same shape as other
-   settings-item blocks; key input shows only when backend is "anthropic". */
-.settings-select {
-  width: 100%;
-  margin-top: 6px;
-  padding: 6px 8px;
-  font-size: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--ink);
-}
-.pip-key-row { margin-top: 12px; }
-.pip-key-row input[type="password"] {
-  width: 100%;
-  margin-top: 6px;
-  padding: 6px 8px;
-  font: inherit;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--ink);
-}
 /* Service-worker update banner. Sits at the bottom-center of the viewport
    when a new dashboard version is waiting. Dismissable, never auto-applies. */
 #sw-update-banner {
@@ -1028,14 +957,6 @@ details.tray.has-alert > summary::after {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   padding: 1px 4px;
   border-radius: 3px;
-}
-
-/* Telemetry — ambient vitals line (uptime · mem · temp). Muted monospace. */
-.telemetry {
-  margin-top: 4px;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  color: var(--ink-muted);
 }
 
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
@@ -1655,10 +1576,6 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   font: 600 11px ui-monospace, "SF Mono", Menlo, monospace;
   fill: #e5e5e5;
 }
-.pinout-svg .driver-sublabel {
-  font: 500 9px ui-monospace, "SF Mono", Menlo, monospace;
-  fill: #999;
-}
 /* Inline GPIO inputs sitting below each driver terminal in edit mode.
    Embedded via <foreignObject>. Dark, semi-transparent so they read as
    silkscreen labels you can type into — keeps the PCB metaphor intact. */
@@ -1898,21 +1815,6 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   white-space: pre-wrap;
   word-break: break-all;
 }
-/* Inline text-link affordance for the post-empty-picker escape hatch.
-   Quiet by default (yielding lens) — only earns ink when the user
-   has hit the dead-end the filtered picker leaves. */
-.link-btn {
-  background: none;
-  border: none;
-  color: var(--ink-muted);
-  font: inherit;
-  font-size: 12px;
-  padding: 0;
-  min-height: auto;
-  text-decoration: underline;
-  cursor: pointer;
-}
-.link-btn:hover { color: var(--ink); }
 .recovery-term {
   background: #1e1e1e;
   flex: 1;
@@ -2157,7 +2059,6 @@ dialog[open]::backdrop { opacity: 1; }
   /* No border-bottom — the next .settings-item's border-top is the divider. */
 }
 .avatar-preview { margin-top: 18px; }  /* pin avatar to the input row, not the stack center */
-.settings-signin { margin-top: 10px; }
 .avatar-preview {
   width: 48px;
   height: 48px;
@@ -2219,7 +2120,6 @@ dialog[open]::backdrop { opacity: 1; }
 .settings-item.key-row { grid-template-columns: 1fr; gap: 6px; }
 .settings-item.key-row .key-fingerprint { word-break: break-all; }
 .settings-item.passwords-row { grid-template-columns: 1fr; gap: 6px; }
-.settings-item.pip-backend-row { grid-template-columns: 1fr; gap: 6px; }
 
 /* Disclosure-row pattern — Advanced section uses <details> so one-time
    setup tasks (key, passwords) collapse to a one-line summary by default.
@@ -2533,16 +2433,6 @@ body.phone textarea {
   margin: 12px 2px;
   line-height: 1.4;
 }
-.phone-install {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-top: 14px;
-  text-align: center;
-}
-.phone-install .hint { font-size: 12px; margin: 0; }
-
 /* Presence — desktop subscribes to "phone-ready" ads on the same wifi
    and surfaces this small badge so the user can see discovery is live
    even before they open the pair dialog. */
