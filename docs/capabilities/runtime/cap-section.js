@@ -60,7 +60,7 @@ export function capSection({
   const labelHtml = `
     ${transportIcon}
     <span class="cap-label">${escapeHtml(label)}</span>
-    ${state ? `<span class="cap-state">${escapeHtml(state)}</span>` : ""}
+    ${state ? `<span class="cap-state" title="${escapeHtml(state)}">${escapeHtml(state)}</span>` : ""}
   `;
   const head = hasBody
     ? `<button class="cap-toggle" data-cap-toggle="${escapeHtml(name)}" aria-expanded="${open}" type="button">

@@ -209,6 +209,31 @@ button.sm { min-height: 36px; padding: 6px 12px; font-size: 14px; }
    the scanner-active state, and ask-dialog Send/Skip are confirmation
    gestures that need accurate targeting. */
 body.phone button.sm { min-height: 44px; padding: 10px 14px; }
+
+/* Link that must sit in a button slot (cap-section action) and read as one —
+   the Camera cap swaps its Start button for an "Open in new tab ↗" anchor
+   when mixed content blocks the inline stream. */
+a.secondary.sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 10px;
+  min-height: 36px;
+  font-size: 14px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  transition: filter 0.2s;
+}
+a.secondary.sm:hover { background: var(--border-subtle); filter: brightness(1.08); }
+a.secondary.sm:active { filter: brightness(0.94); }
+body.phone a.secondary.sm { min-height: 44px; padding: 10px 14px; }
+
 button.danger { background: var(--danger); }
 /* Destructive + secondary — bordered, no fill, danger-red text. Apple HIG
    pattern for "risky but not the primary action." Used on Regenerate next to

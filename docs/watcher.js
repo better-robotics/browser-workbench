@@ -642,11 +642,11 @@ function renderSection(entry) {
              ${enabled ? "disabled" : ""}>
       <datalist id="${datalistId}">${datalistOpts}</datalist>
     </div>
+    <div class="meta">Only what's typed above will trigger detection.</div>
     <details class="watcher-coco">
-      <summary>All ${vocab.length} classes</summary>
+      <summary>All ${vocab.length} recognizable classes</summary>
       <div class="watcher-coco-list">${cocoListHtml}</div>
     </details>
-    <div class="meta">Closed-vocab — only the classes above will trigger.</div>
   `;
   const body = `
     <div class="watcher-body">
