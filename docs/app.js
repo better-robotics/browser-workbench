@@ -743,8 +743,20 @@ setupServiceWorker({ onUnsolicitedUpdate: showSwUpdateBanner });
 async function openConsole(mode) {
   const m = mode || localStorage.getItem("console-mode") || "pi";
   await _setConsoleMode(m);
-  if (!$("console-modal").open) $("console-modal").showModal();
+  // .show() not .showModal(): a modal dialog's showModal() promotes it into
+  // the browser's "top layer", which paints above Pip's popover-based bubble
+  // regardless of DOM/z-index order — leaving Pip unclickable (and stuck
+  // that way past close, if anything about the modal state lingers). The
+  // console is full-bleed with no backdrop dimming already, so it doesn't
+  // need modal semantics; non-modal keeps it in normal stacking order,
+  // where Pip's top-layer popover always wins.
+  if (!$("console-modal").open) $("console-modal").show();
 }
+// .show() doesn't get native Escape-to-close (that's showModal()-only) —
+// wire it manually to match every other dialog's close affordance.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("console-modal").open) $("console-modal").close();
+});
 async function _setConsoleMode(mode) {
   $("console-pi-section").hidden = mode !== "pi";
   $("console-esp-section").hidden = mode !== "esp";

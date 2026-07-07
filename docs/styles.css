@@ -1700,7 +1700,14 @@ body.phone .segmented .mode-btn { min-height: 44px; }
    dimmed backdrop. flex-column so the active section's term container has
    a measurable size for FitAddon; recovery.js's ResizeObserver re-fits
    xterm on any viewport resize. */
-#console-modal {
+/* [open]-scoped: an unscoped #console-modal rule would out-specificity the
+   UA's `dialog:not([open]) { display: none }` (ID beats attribute+element),
+   leaving a full-viewport `position: fixed` box laid out — invisible via
+   the shared `dialog { opacity: 0 }` transition rule, but still `pointer-
+   events: auto` and hit-testable, silently eating every click on the page
+   while "closed". Scoping to [open] lets the UA rule govern the closed
+   state normally. */
+#console-modal[open] {
   position: fixed;
   inset: var(--topbar-height) 0 0 0;
   margin: 0;
