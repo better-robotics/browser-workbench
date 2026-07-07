@@ -1,93 +1,14 @@
-// ESP32 USB serial console + flash. Companion to recovery.js (Pi USB-CDC);
-// shares xterm.js + Web Serial primitives via xterm-host.js.
+// ESP32 firmware flashing (esptool-js). Console monitoring for both Pi and
+// ESP32 lives in console.js now — this module owns only the install/flash
+// flow, which both the setup card and the console's Flash firmware button
+// route through via installEsp32().
 import { $ } from "../dom.js";
 import { log } from "../log.js";
-import { mountTerminal } from "./xterm-host.js";
-import { BOARDS, boardsForChip } from "./boards.js";
+import { BOARDS, boardsForChip, ESP_USB_VIDS } from "./boards.js";
 
 let _wired = false;
-let _port = null;
-let _reader = null;
-let _writer = null;
-let _readPump = null;
-let _term = null;
-let _fit = null;
-let _resizeObs = null;
 
-const ENCODER = new TextEncoder();
-
-// state: "" (idle/disconnected) | "connected" | "connecting" | "error".
-// Drives the dot color; text only renders for non-default detail messages.
-function setStatus(state, text = "") {
-  const dot = $("esp-serial-status-dot");
-  const el = $("esp-serial-status");
-  if (dot) dot.className = `dot${state ? ` ${state}` : ""}`;
-  if (el) el.textContent = text;
-}
-
-// ESP32 USB-UART bridges + native USB. Filtering on these keeps an
-// authorized Pi gadget from being silently picked when the user clicks
-// Connect in ESP mode, and narrows the picker to ESP-class chips.
-//   - 0x10c4 Silicon Labs CP210x  (ESP32-CAM, most ESP32-DevKit)
-//   - 0x1a86 WCH CH340/CH341       (cheap ESP32-WROOM clones)
-//   - 0x0403 FTDI FT232            (older boards)
-//   - 0x303a Espressif native USB  (ESP32-S3 / -C3)
-const ESP_FILTERS = [
-  { usbVendorId: 0x10c4 },
-  { usbVendorId: 0x1a86 },
-  { usbVendorId: 0x0403 },
-  { usbVendorId: 0x303a },
-];
-function isEspPort(port) {
-  try {
-    const { usbVendorId } = port.getInfo();
-    return ESP_FILTERS.some(f => f.usbVendorId === usbVendorId);
-  } catch { return false; }
-}
-function knownEspPorts(ports) {
-  return ports.filter(isEspPort);
-}
-async function pickOrRequestPort({ unfiltered = false, forcePrompt = false } = {}) {
-  if (unfiltered) {
-    // Escape hatch: filtered picker came back empty. Honour the user's
-    // choice but warn if VID isn't in our known-ESP list — keeps the
-    // "Pi gadget got picked in ESP mode" footgun contained as a
-    // post-pick warning instead of a pre-pick block.
-    const port = await navigator.serial.requestPort();
-    const info = (() => { try { return port.getInfo(); } catch { return {}; } })();
-    if (!ESP_FILTERS.some(f => f.usbVendorId === info.usbVendorId)) {
-      log(`ESP: picked port vid=0x${(info.usbVendorId||0).toString(16)} pid=0x${(info.usbProductId||0).toString(16)} — not a known ESP USB-UART VID, connecting anyway`);
-    }
-    return port;
-  }
-  // Multi-board awareness: skip the shortcut when there are two or more
-  // authorized ESP ports — Chrome's chooser shows them all so the user
-  // can pick which board to connect/install on. Exactly one authorized
-  // port keeps the auto-reconnect ergonomics (the common single-board
-  // case). forcePrompt forces the chooser regardless (install always
-  // uses it; the console keeps the count-based shortcut).
-  if (!forcePrompt) {
-    let known = [];
-    try { known = await navigator.serial.getPorts(); } catch {}
-    const espPorts = knownEspPorts(known);
-    if (espPorts.length === 1) return espPorts[0];
-  }
-  return await navigator.serial.requestPort({ filters: ESP_FILTERS });
-}
-// Two-attempt open: macOS occasionally fails the first open() right after
-// a previous disconnect because the kernel hasn't fully released the
-// /dev/cu.usbserial node; and a SerialPort that came back already-open
-// from a prior tab/page session needs an explicit close() before retry.
-async function openWithRetry(port) {
-  try { await port.open({ baudRate: 115200 }); }
-  catch (err) {
-    if (err.name === "InvalidStateError") {
-      try { await port.close(); } catch {}
-    }
-    await new Promise((r) => setTimeout(r, 200));
-    await port.open({ baudRate: 115200 });
-  }
-}
+const ESP_FILTERS = ESP_USB_VIDS.map((usbVendorId) => ({ usbVendorId }));
 
 // Hand a closed port to esptool-js; let it run its own reset sequence.
 // An earlier version did an open()→close() probe here, but each open()
@@ -112,115 +33,6 @@ function isPortLockedError(err) {
   // reader/writer was never released (e.g. resetChip() skipped after an
   // earlier throw) — same wedged-port condition, different error shape.
   return err.name === "InvalidStateError" || msg.includes("already open") || msg.includes("locked to a reader");
-}
-
-async function connect({ unfiltered = false } = {}) {
-  if (_port) return;
-  if (!("serial" in navigator)) {
-    setStatus("error", "unsupported browser");
-    log("Web Serial not supported — use Chrome or Edge on desktop");
-    return;
-  }
-  setStatus("connecting", "opening…");
-  try {
-    _port = await pickOrRequestPort({ unfiltered });
-  } catch (err) {
-    if (err.name !== "NotFoundError") setStatus("error", `pick cancelled: ${err.message}`);
-    else setStatus("");
-    if (err.name === "NotFoundError" && !unfiltered) {
-      $("esp-serial-show-all").hidden = false;
-    }
-    return;
-  }
-  $("esp-serial-show-all").hidden = true;
-  try {
-    await openWithRetry(_port);
-    // Deassert DTR/RTS — ESP32-CAM (and most ESP32 dev boards) wire those
-    // through transistors to EN + GPIO0. Chrome's default asserted state
-    // on open() pulses them, which resets the chip and kills any active
-    // BLE session.
-    try { await _port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
-  } catch (err) {
-    setStatus("error", `open failed: ${err.message}`);
-    _port = null;
-    return;
-  }
-
-  ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("esp-serial-console-host")));
-  _term.focus();
-
-  _term.onData(async (data) => {
-    if (!_writer) return;
-    try { await _writer.write(ENCODER.encode(data)); }
-    catch (err) { _term?.writeln(`\r\n[write error: ${err.message}]`); }
-  });
-
-  _writer = _port.writable.getWriter();
-  _reader = _port.readable.getReader();
-  _readPump = (async () => {
-    try {
-      while (true) {
-        const { value, done } = await _reader.read();
-        if (done) break;
-        if (value) _term?.write(value);
-      }
-    } catch (err) {
-      _term?.writeln(`\r\n[read error: ${err.message}]`);
-    }
-  })();
-
-  $("esp-serial-connect").textContent = "Disconnect";
-  // Show which board this port belongs to in the status row — when two
-  // ESPs are plugged in, the operator otherwise can't tell which console
-  // they're looking at. VID/PID → board hint via the BOARDS catalog;
-  // fall back to the bridge name when a single VID maps to multiple
-  // boards (CP210x is on DevKit but could also be on a standalone CAM).
-  const info = (() => { try { return _port.getInfo(); } catch { return {}; } })();
-  setStatus("connected", portLabel(info));
-}
-
-function portLabel(info) {
-  const vid = info.usbVendorId;
-  if (vid === undefined) return "";
-  const matches = BOARDS.filter(b => b.usbHints.includes(vid));
-  const bridge = vid === 0x0403 ? "FT232"
-              : vid === 0x10c4 ? "CP210x"
-              : vid === 0x1a86 ? "CH340"
-              : vid === 0x303a ? "USB-CDC"
-              : `vid=0x${vid.toString(16).padStart(4, "0")}`;
-  if (matches.length === 1) return `${matches[0].label} (${bridge})`;
-  return bridge;
-}
-
-async function disconnect() {
-  // Release order matters — same dance recovery.js does. Reader.cancel()
-  // resolves before the in-flight read() promise settles, so releaseLock()
-  // must wait for the read pump to actually exit, otherwise port.close()
-  // rejects with "stream is locked" and the port stays in an "open" limbo
-  // that blocks a subsequent flash attempt with InvalidStateError.
-  try { await _reader?.cancel(); } catch {}
-  try { await _readPump; } catch {}
-  try { _reader?.releaseLock(); } catch {}
-  try { _writer?.releaseLock(); } catch {}
-  if (_port) {
-    try { await _port.close(); }
-    catch {
-      await new Promise((r) => setTimeout(r, 500));
-      try { await _port.close(); } catch {}
-    }
-  }
-  await new Promise((r) => setTimeout(r, 100));
-  _reader = _writer = _readPump = _port = null;
-  _resizeObs?.disconnect();
-  _resizeObs = null;
-  _fit?.dispose();
-  _fit = null;
-  _term?.dispose();
-  _term = null;
-  $("esp-serial-console-host").innerHTML = "";
-  $("esp-serial-connect").textContent = "Connect";
-  $("esp-serial-show-all").hidden = true;
-  setStatus("");
 }
 
 // BOARDS catalog is imported from boards.js — single source of truth
@@ -434,24 +246,22 @@ export async function installEsp32() {
   }
   // init() binds the install-dialog button listeners. Idempotent (the
   // _wired flag short-circuits repeat calls), but must be called here
-  // because front-page entry can fire before the user opens the console
-  // modal — and the console modal's mode-switch is the other init trigger.
+  // because front-page entry can fire before the user ever opens the
+  // console dialog. Callers (setup card, console's Flash button) are
+  // responsible for releasing any console port they hold first — Web
+  // Serial open() throws if the port is already in use elsewhere in
+  // this tab, and this module no longer tracks a console port itself.
   init();
-  // Release any console port we hold — Web Serial open() throws if the
-  // port is already in use by another caller in this tab.
-  if (_port) await disconnect();
 
-  // pickOrRequestPort must be called synchronously from the user-gesture
+  // requestPort() must be called synchronously from the user-gesture
   // handler. The dialog opens *after* the port is in hand so a port-pick
-  // cancel doesn't leave an empty dialog on screen.
-  //
-  // forcePrompt: skip the getPorts() shortcut so users with multiple
-  // ESPs plugged in get the full Chrome chooser and can pick which one
-  // to flash. Without this, install auto-returns whichever board was
-  // authorized first and the second board is invisible.
+  // cancel doesn't leave an empty dialog on screen. Always the full
+  // chooser (no getPorts() shortcut) — with two ESPs plugged in, the
+  // operator needs to pick which one to flash, not auto-get whichever
+  // was authorized first.
   let port;
   try {
-    port = await pickOrRequestPort({ forcePrompt: true });
+    port = await navigator.serial.requestPort({ filters: ESP_FILTERS });
   } catch (err) {
     if (err.name !== "NotFoundError") log(`ESP port pick: ${err.message}`);
     return null;
@@ -539,26 +349,9 @@ export async function installEsp32() {
   return result;
 }
 
-// Same purpose as recovery.releasePort — see comment there.
-export async function releasePort() { if (_port) await disconnect(); }
-
 export function init() {
   if (_wired) return;
   _wired = true;
-  $("console-close").addEventListener("click", () => $("console-modal").close());
-  $("esp-serial-connect").addEventListener("click", () => _port ? disconnect() : connect());
-  $("esp-serial-show-all")?.addEventListener("click", () => connect({ unfiltered: true }));
-  // Serial-console Flash button: install, then reopen the console if the
-  // user had it connected before. installEsp32 handles its own disconnect.
-  $("esp-serial-flash").addEventListener("click", async () => {
-    const wasConnected = !!_port;
-    await installEsp32();
-    if (wasConnected) await connect();
-  });
-  // Auto-disconnect when the dialog closes — leaving the port open across
-  // dialog hides would block other tools (Flash button) from reusing it.
-  $("console-modal").addEventListener("close", () => { if (_port) disconnect(); });
-
   // Install-dialog button wiring — bound once, driven by state. Cancel
   // doubles as Close in done/error states (its label changes accordingly).
   $("esp-flash-install").addEventListener("click", () => {

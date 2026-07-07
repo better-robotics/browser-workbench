@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "45caef79";
+const VERSION = "b02f88bf";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -38,13 +38,21 @@ const BOOTSTRAP = [
   // Phone companion is installable too (iOS A2HS); phone.html is the
   // scope-root start_url when installed from /phone.html.
   "./phone.html", "./mobile.js",
-  // Dynamic-imported by app.js. Precache so first open of Recovery /
-  // Scripts / Pinout / ESP serial / SD prep loads from cache, and works
-  // offline.
-  "./recovery.js", "./prepare.js", "./scripts.js", "./pinout.js", "./esp-serial.js",
+  // Dynamic-imported by app.js. Precache so first open of the console /
+  // Scripts / Pinout / SD prep loads from cache, and works offline. These
+  // (bar scripts.js) live under recovery/ — cache.addAll is atomic, so a
+  // wrong relative path here silently no-ops the *entire* BOOTSTRAP list,
+  // not just these entries (caught 2026-07: had been "./recovery.js" etc.
+  // with no "recovery/" prefix since these files moved into that folder).
+  "./scripts.js", "./recovery/console.js", "./recovery/prepare.js",
+  "./recovery/pinout.js", "./recovery/esp-serial.js",
   // pinout.js statically imports these — precache so the dynamic-import
   // arc for Pinout still warms the whole module graph in one shot.
-  "./pinout-pi.js", "./pinout-esp32.js", "./pinout-shared.js",
+  "./recovery/pinout-pi.js", "./recovery/pinout-esp32.js", "./recovery/pinout-shared.js",
+  // Other recovery/ modules dynamic-imported by app.js/console.js/
+  // esp-serial.js but not yet listed above.
+  "./recovery/boards.js", "./recovery/flasher.js", "./recovery/shell.js",
+  "./recovery/log-dialog.js", "./recovery/xterm-host.js",
 ];
 
 // Cross-origin URLs we DO cache. Default is pass-through (host owns

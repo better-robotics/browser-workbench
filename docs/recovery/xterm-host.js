@@ -23,7 +23,7 @@ export async function ensureXtermLoaded() {
 const BASE_OPTS = {
   fontSize: 13,
   fontFamily: '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace',
-  theme: { background: "#1e1e1e", foreground: "#e4e4e4", cursor: "#e4e4e4" },
+  theme: { foreground: "#e4e4e4", cursor: "#e4e4e4" },  // background: xterm's own default (#000)
 };
 
 // Mount a Terminal into `container` with the project's standard theme.

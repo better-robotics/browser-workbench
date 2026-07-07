@@ -239,6 +239,26 @@ a.secondary.sm:hover { background: var(--border-subtle); filter: brightness(1.08
 a.secondary.sm:active { filter: brightness(0.94); }
 body.phone a.secondary.sm { min-height: 44px; padding: 10px 14px; }
 
+/* Tertiary text-link action sitting in a button slot — no dedicated style
+   existed before because it only ever appeared conditionally (post-failure
+   escape hatch); now that "Show all serial ports" is always visible next
+   to Connect, it needs to read as a quiet secondary affordance rather than
+   inheriting the bare-button default (solid accent fill, 44px) and out-
+   competing the actual primary action. */
+.link-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-height: auto;
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:not(:disabled):hover { color: var(--ink); filter: none; }
+.link-btn:active { transform: none; }
+
 button.danger { background: var(--danger); }
 /* Destructive + secondary — bordered, no fill, danger-red text. Apple HIG
    pattern for "risky but not the primary action." Used on Regenerate next to
@@ -833,15 +853,6 @@ details.tray.has-alert > summary::after {
 .robot-state.sticky::before { animation: none; background: var(--ink-muted); }
 @keyframes robot-state-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-/* ESP32 serial monitor — xterm.js host (same primitive as .recovery-term).
-   min-height: 0 so the flex column actually shrinks past the default
-   `min-height: auto` content size. */
-.esp-serial-console {
-  background: #1e1e1e;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
 
 /* User-script editor: see USER-CODE.md. Browser-resident, no Pi upload.
    Workspace-shaped dialog (vs one-shot task dialog): tighter chrome, bigger
@@ -1726,11 +1737,9 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   overflow: hidden;
 }
 #console-modal::backdrop { background: transparent; }
-/* Single toolbar row replaces the old header + mode-row + actions-row
-   stack — one row of chrome instead of three leaves far more height for
-   the terminal itself. Mode switcher lives left of center; the connect/
-   status/flash controls for whichever mode is active live right, next to
-   close, so the eye reads left-to-right as "what → how connected → done". */
+/* Single toolbar row: title left, status/connect/flash/close right. No
+   mode switcher — console.js auto-detects Pi vs ESP32 from the connected
+   port, so there's nothing to pick before connecting. */
 .console-toolbar {
   display: flex;
   align-items: center;
@@ -1740,12 +1749,11 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   border-bottom: 1px solid var(--border-subtle);
   flex: none;
 }
-.console-toolbar-left, .console-toolbar-right, .console-toolbar-group { display: flex; align-items: center; gap: 10px; }
-.console-toolbar-group[hidden] { display: none; }
+.console-toolbar-left, .console-toolbar-right { display: flex; align-items: center; gap: 10px; }
 /* Destructive Flash firmware trails Connect rather than sharing its
    margin-left:auto isolation trick from the old stacked layout — with
-   only two-to-four controls on one toolbar side, proximity plus the
-   .danger color is enough separation (Apple HIG: safe action first). */
+   only a few controls on one toolbar side, proximity plus the .danger
+   color is enough separation (Apple HIG: safe action first). */
 .console-section {
   display: flex;
   flex-direction: column;
@@ -1835,7 +1843,7 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   word-break: break-all;
 }
 .recovery-term {
-  background: #1e1e1e;
+  background: #000;  /* match xterm's own default theme background */
   flex: 1;
   min-height: 0;  /* default `min-height: auto` on flex items prevents shrinking below content */
   overflow: hidden;

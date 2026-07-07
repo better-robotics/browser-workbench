@@ -232,6 +232,32 @@ export function boardsForChip(chip) {
   return BOARDS.filter((b) => b.chip === chip);
 }
 
+// Every USB-UART bridge/native-USB VID any known board ships with — the
+// union of usbHints above. Single source of truth for "is this port an
+// ESP32": esp-serial.js's install picker and console.js's auto-detect both
+// filter/classify against this instead of keeping their own copies of the
+// same VID list (0x10c4 CP210x, 0x1a86 CH340, 0x0403 FTDI, 0x303a
+// Espressif native — see each board's usbHints comment above for why).
+export const ESP_USB_VIDS = [...new Set(BOARDS.flatMap((b) => b.usbHints))];
+
+// Friendly "board (bridge)" label for a connected port's VID — used by
+// console.js's status row once a connection auto-detects as ESP32. Falls
+// back to the bare bridge name when a VID maps to more than one board
+// (CP210x is common to both AI-Thinker and DevKitV1, so the hint alone
+// can't disambiguate — pickBoardInDialog's post-chip-detect flow resolves
+// that ambiguity properly; this is just a best-effort connect-time label).
+export function portLabel(vid) {
+  if (vid === undefined) return "";
+  const matches = BOARDS.filter((b) => b.usbHints.includes(vid));
+  const bridge = vid === 0x0403 ? "FT232"
+              : vid === 0x10c4 ? "CP210x"
+              : vid === 0x1a86 ? "CH340"
+              : vid === 0x303a ? "USB-CDC"
+              : `vid=0x${vid.toString(16).padStart(4, "0")}`;
+  if (matches.length === 1) return `${matches[0].label} (${bridge})`;
+  return bridge;
+}
+
 // Camera-reserved set as a Set (membership test is the only usage).
 // Empty on no-camera boards by design.
 export function cameraReservedSet(boardId) {

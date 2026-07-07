@@ -326,41 +326,28 @@
   <div id="scripts-output" class="scripts-output"></div>
 </dialog>
 
+<!-- Unified Pi+ESP32 console (console.js) — auto-detects which device is
+     connected from the picked port's USB vendor ID rather than making the
+     operator pre-declare it. One connect/terminal/status for both; Flash
+     firmware is a separate always-available action (esptool-js targets
+     ESP chips only, but doesn't require this session to have detected one
+     — it does its own independent port pick). -->
 <dialog id="console-modal" class="prepare-dialog">
   <div class="console-toolbar">
     <div class="console-toolbar-left">
       <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-terminal"/></svg>Serial console</div>
-      <div class="segmented" role="tablist" aria-label="Connect to">
-        <button class="mode-btn" id="console-mode-pi" data-mode="pi" aria-pressed="true">Raspberry Pi</button>
-        <button class="mode-btn" id="console-mode-esp" data-mode="esp" aria-pressed="false">ESP32</button>
-      </div>
     </div>
     <div class="console-toolbar-right">
-      <!-- Pi mode controls (recovery.js operates on these IDs). -->
-      <div class="console-toolbar-group" id="console-pi-controls">
-        <span class="dot" id="recovery-status-dot"></span>
-        <span class="meta" id="recovery-status"></span>
-        <button class="link-btn" id="recovery-show-all" hidden>Show all serial ports</button>
-        <button class="secondary sm" id="recovery-connect">Connect</button>
-      </div>
-      <!-- ESP32 mode controls (esp-serial.js). Flash firmware lives here
-           (not Pi mode) — esptool-js targets ESP chips only. -->
-      <div class="console-toolbar-group" id="console-esp-controls" hidden>
-        <span class="dot" id="esp-serial-status-dot"></span>
-        <span class="meta" id="esp-serial-status"></span>
-        <button class="link-btn" id="esp-serial-show-all" hidden>Show all serial ports</button>
-        <button class="secondary sm" id="esp-serial-connect">Connect</button>
-        <button class="secondary sm danger" id="esp-serial-flash">Flash firmware</button>
-      </div>
+      <span class="dot" id="console-status-dot"></span>
+      <span class="meta" id="console-status"></span>
+      <button class="link-btn" id="console-show-all">Show all serial ports</button>
+      <button class="secondary sm" id="console-connect">Connect</button>
+      <button class="secondary sm danger" id="esp-serial-flash">Flash firmware</button>
       <button class="icon" id="console-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
     </div>
   </div>
-  <!-- xterm.js mounts into #recovery-term / #esp-serial-console-host on Connect. -->
-  <div class="console-section" id="console-pi-section">
-    <div id="recovery-term" class="recovery-term"></div>
-  </div>
-  <div class="console-section" id="console-esp-section" hidden>
-    <div id="esp-serial-console-host" class="esp-serial-console"></div>
+  <div class="console-section">
+    <div id="console-term" class="recovery-term"></div>
   </div>
 </dialog>
 

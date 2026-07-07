@@ -25,7 +25,7 @@ let _fit = null;
 let _resizeObs = null;
 
 // state: "" (idle) | "connecting" | "connected" | "error". Same shape
-// as recovery.js / esp-serial.js — keeps the patterns parallel.
+// as console.js — keeps the patterns parallel.
 function setStatus(s, text = "") {
   $("shell-status-dot").className = `dot${s ? ` ${s}` : ""}`;
   $("shell-status").textContent = text;

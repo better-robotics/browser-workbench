@@ -549,7 +549,7 @@ function renderEntry(entry) {
   const disconnectBtn = entry.node.querySelector('[data-action="disconnect"]');
   if (disconnectBtn) disconnectBtn.addEventListener("click", () => disconnect(id));
   const recoveryBtn = entry.node.querySelector('[data-action="open-recovery"]');
-  if (recoveryBtn) recoveryBtn.addEventListener("click", () => openConsole("pi"));
+  if (recoveryBtn) recoveryBtn.addEventListener("click", () => openConsole());
   const menuBtn = entry.node.querySelector('[data-action="menu"]');
   if (menuBtn) menuBtn.addEventListener("click", () => openMenu(menuBtn, id));
   const toggleExpand = () => {
@@ -737,12 +737,12 @@ function showSwUpdateBanner(worker) {
 }
 setupServiceWorker({ onUnsolicitedUpdate: showSwUpdateBanner });
 
-// Console (Pi USB-C + ESP32 USB serial) — unified entry point. Mode is
-// remembered across sessions via localStorage; explicit mode argument
-// wins (e.g. firmware-down banner opens Pi mode regardless).
-async function openConsole(mode) {
-  const m = mode || localStorage.getItem("console-mode") || "pi";
-  await _setConsoleMode(m);
+// Console (Pi USB-C + ESP32 USB serial, unified) — console.js auto-detects
+// which device is plugged in from the picked port's VID, so there's no
+// mode to pass or remember here.
+async function openConsole() {
+  const mod = await import("./recovery/console.js");
+  mod.init();
   // .show() not .showModal(): a modal dialog's showModal() promotes it into
   // the browser's "top layer", which paints above Pip's popover-based bubble
   // regardless of DOM/z-index order — leaving Pip unclickable (and stuck
@@ -757,21 +757,6 @@ async function openConsole(mode) {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("console-modal").open) $("console-modal").close();
 });
-async function _setConsoleMode(mode) {
-  $("console-pi-section").hidden = mode !== "pi";
-  $("console-esp-section").hidden = mode !== "esp";
-  $("console-pi-controls").hidden = mode !== "pi";
-  $("console-esp-controls").hidden = mode !== "esp";
-  $("console-mode-pi")?.setAttribute("aria-pressed", String(mode === "pi"));
-  $("console-mode-esp")?.setAttribute("aria-pressed", String(mode === "esp"));
-  if (mode === "pi") {
-    const mod = await import("./recovery/recovery.js");
-    mod.init();
-  } else {
-    const mod = await import("./recovery/esp-serial.js");
-    mod.init();
-  }
-}
 
 // Recovery menu (BetterRobotics dropdown) — wired FIRST in DOMContentLoaded
 // inside try/catch so a failure later in init can never strand the user
@@ -946,13 +931,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("serial-console-btn").addEventListener("click", () => {
     openConsole();
   });
-  for (const id of ["console-mode-pi", "console-mode-esp"]) {
-    $(id)?.addEventListener("click", async (e) => {
-      const mode = e.currentTarget.dataset.mode;
-      localStorage.setItem("console-mode", mode);
-      await _setConsoleMode(mode);
-    });
-  }
   $("menu-scripts").addEventListener("click", async () => {
     $("avatar-menu").hidePopover();
     const mod = await import("./scripts.js");
@@ -1116,10 +1094,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // its job by routing us into installEsp32.
         $("setup-dialog").close();
         // Release any console-held port before installEsp32 picks a new one.
-        await Promise.all([
-          import("./recovery/recovery.js").then(m => m.releasePort?.()).catch(() => {}),
-          import("./recovery/esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
-        ]);
+        await import("./recovery/console.js").then(m => m.releasePort?.()).catch(() => {});
         const { installEsp32 } = await import("./recovery/esp-serial.js");
         await installEsp32();
       });
