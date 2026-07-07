@@ -11,7 +11,7 @@ PUBLISH_DIR := docs/firmware/bins
 # auto-sourcing so `make flash` works in a vanilla terminal.
 IDF_EXPORT  := command -v idf.py >/dev/null 2>&1 || . ~/esp/esp-idf/export.sh >/dev/null
 
-.PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids gen-constants install-hooks push
+.PHONY: help setup compile flash flash-all monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids gen-constants install-hooks push
 
 help:
 	@echo ""
@@ -21,6 +21,7 @@ help:
 	@echo "\033[2mFirmware (ESP32 local dev loop — wraps idf.py)\033[0m"
 	@echo "  \033[36mcompile\033[0m        Compile firmware/esp32_robot_idf"
 	@echo "  \033[36mflash\033[0m          Compile + upload over USB — fast dev iteration"
+	@echo "  \033[36mflash-all\033[0m      Compile + upload to every ESP32 on USB, skipping non-ESP32 ports"
 	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200 (idf.py — pulses DTR/RTS, resets chip)"
 	@echo "  \033[36mmonitor-noreset\033[0m Live tail without resetting chip (safe alongside an active BLE session)"
 	@echo "  \033[36mflash-monitor\033[0m  Flash then open monitor"
@@ -74,6 +75,9 @@ compile: gen-uuids gen-constants
 flash: compile
 	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*. Is it plugged in?" && exit 1)
 	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py -p "$(PORT)" flash
+
+flash-all: compile
+	$(IDF_EXPORT); python3 tools/flash-all.py
 
 monitor:
 	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*" && exit 1)
