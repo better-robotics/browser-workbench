@@ -748,6 +748,8 @@ async function openConsole(mode) {
 async function _setConsoleMode(mode) {
   $("console-pi-section").hidden = mode !== "pi";
   $("console-esp-section").hidden = mode !== "esp";
+  $("console-pi-controls").hidden = mode !== "pi";
+  $("console-esp-controls").hidden = mode !== "esp";
   $("console-mode-pi")?.setAttribute("aria-pressed", String(mode === "pi"));
   $("console-mode-esp")?.setAttribute("aria-pressed", String(mode === "esp"));
   if (mode === "pi") {

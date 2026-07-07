@@ -30,6 +30,7 @@
   --focus: var(--duke-light-blue);  /* focus indicators — 3.1-3.5:1 on bg/surface; royal is 2:1, below the 3:1 floor */
   --radius: 8px;  /* tighter — reads as panel, not floating card */
   --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.5);
+  --topbar-height: 52px;
 
   /* Pip-core tokens — map the shared assistant module's vars onto our palette. */
   --pip-surface: var(--surface);
@@ -65,7 +66,7 @@ html, body {
   align-items: center;
   gap: 12px;
   padding: 0 20px;
-  height: 52px;
+  height: var(--topbar-height);
   flex-shrink: 0;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
@@ -1690,52 +1691,60 @@ body.phone .segmented .mode-btn { min-height: 44px; }
 .pinout-svg.esp32 .pin-dot.esp-reserved  { fill: #6b7280; stroke: #1f2937; }
 .pinout-svg.esp32 .pin-dot.esp-forbidden { fill: #b91c1c; stroke: #450a0a; }
 
-/* Console (Pi USB-C + ESP32 USB serial unified) — sized for ~110-col
-   terminal at 13px (iTerm2-shape), flex-column so the active section's
-   term container has a measurable size for FitAddon. The mode picker
-   swaps which section is visible (.console-section); both share the
-   dialog shell and lifecycle. resize: both lets power users grow the
-   window past defaults; recovery.js's ResizeObserver re-fits xterm. */
+/* Console (Pi USB-C + ESP32 USB serial unified) — docked full-bleed under
+   the topbar rather than a centered floating modal: a terminal session is
+   a workspace, not a quick prompt, so it claims the whole viewport below
+   "BetterRobotics" instead of competing with it for attention behind a
+   dimmed backdrop. flex-column so the active section's term container has
+   a measurable size for FitAddon; recovery.js's ResizeObserver re-fits
+   xterm on any viewport resize. */
 #console-modal {
+  position: fixed;
+  inset: var(--topbar-height) 0 0 0;
+  margin: 0;
+  width: 100vw;
+  height: calc(100dvh - var(--topbar-height));
+  max-width: none;
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
-  width: min(960px, calc(100vw - 32px));
-  height: min(720px, calc(100vh - 64px));
-  min-width: 480px;
-  min-height: 360px;
-  resize: both;
   overflow: hidden;
 }
-.console-mode-row {
+#console-modal::backdrop { background: transparent; }
+/* Single toolbar row replaces the old header + mode-row + actions-row
+   stack — one row of chrome instead of three leaves far more height for
+   the terminal itself. Mode switcher lives left of center; the connect/
+   status/flash controls for whichever mode is active live right, next to
+   close, so the eye reads left-to-right as "what → how connected → done". */
+.console-toolbar {
   display: flex;
   align-items: center;
-  margin: 0 0 12px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
 }
+.console-toolbar-left, .console-toolbar-right, .console-toolbar-group { display: flex; align-items: center; gap: 10px; }
+.console-toolbar-group[hidden] { display: none; }
+/* Destructive Flash firmware trails Connect rather than sharing its
+   margin-left:auto isolation trick from the old stacked layout — with
+   only two-to-four controls on one toolbar side, proximity plus the
+   .danger color is enough separation (Apple HIG: safe action first). */
 .console-section {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  padding: 16px 20px 20px;
 }
 .console-section[hidden] { display: none; }
-.console-statusbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 0 0;
-  margin-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 12px;
-  color: var(--ink-muted);
-}
-.console-statusbar .meta { font-size: 12px; }
-.console-statusbar-sep { opacity: 0.5; }
-/* Toolbar row: Connect + status grouped at the left, destructive Flash
-   firmware isolated on the right. Apple HIG separates destructive
-   actions from benign ones so the operator's eye lands on the safe
-   action by default. */
-.recovery-actions { margin: 0 0 12px; align-items: center; }
-.recovery-actions #esp-serial-flash { margin-left: auto; }
 
 /* Install dialog (esp-flash-modal). One <dialog> hosts the full arc:
    connecting → board pick → write progress → done. The pick and
