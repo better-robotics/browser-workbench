@@ -14,32 +14,6 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 const PIP_PROVIDERS = ["bridge", "anthropic", "openai"];
 
 export function registerSlashCommands({ pip }) {
-  pip.registerSlash({
-    name: "voice",
-    description: "start / stop voice dictation into the input",
-    handler: () => {
-      if (!pip.micSupported) {
-        return { reply: "Voice input isn't supported in this browser. Chrome / Edge / Safari only." };
-      }
-      pip.toggleMic();
-      return { reply: "" };
-    },
-  });
-
-  pip.registerSlash({
-    name: "scan",
-    description: "open the BLE chooser to pair a robot",
-    // Synthetic click on the scan button — keeps requestDevice's user-
-    // activation chain (Enter keypress → click event) intact across browsers
-    // without re-implementing the chooser flow here.
-    handler: () => {
-      const btn = document.getElementById("scan-btn");
-      if (!btn) return { reply: "Scan button isn't on this page." };
-      btn.click();
-      return { reply: "Opened the BLE chooser." };
-    },
-  });
-
   // /model — pick a provider, optionally with a sub-arg.
   //   /model anthropic | bridge            switch provider (current variant)
   //   /model anthropic opus                switch + set Claude variant
