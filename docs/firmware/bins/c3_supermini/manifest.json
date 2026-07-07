@@ -1,8 +1,8 @@
 {
   "board": "c3_supermini",
   "chip": "esp32c3",
-  "version": "c2e2e42",
-  "built_at": "2026-07-07T15:12:43Z",
+  "version": "a92db22",
+  "built_at": "2026-07-07T16:17:29Z",
   "files": [
     { "path": "bootloader.bin",  "offset": "0x0" },
     { "path": "partitions.bin",  "offset": "0x8000" },
