@@ -184,7 +184,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_robot_detections",
-    description: "Closed-vocab detector on the robot's camera frame, scored against the active backend's vocabulary (defaults to COCO 80; switch via the `/vision detector <name>` slash command). Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no class in `queries` was seen (this also means: queries containing terms not in the active vocabulary will always return empty). Per-camera bboxes are not comparable across cameras.",
+    description: "Closed-vocab detector on the robot's camera frame, scored against the active backend's vocabulary (defaults to COCO 80; switch via the `/detector <name>` slash command). Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no class in `queries` was seen (this also means: queries containing terms not in the active vocabulary will always return empty). Per-camera bboxes are not comparable across cameras.",
     input_schema: {
       type: "object",
       properties: {
