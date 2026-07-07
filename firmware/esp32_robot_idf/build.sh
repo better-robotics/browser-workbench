@@ -40,6 +40,7 @@ esac
 # docker -e flag. That clashes with `idf.py set-target esp32c3` (IDF
 # refuses to override a target specified by the environment). Unset
 # here so set-target picks the per-board target without interference.
+unset IDF_TARGET
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
