@@ -79,7 +79,6 @@ html, body {
 .topbar-title-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   background: transparent;
   border: none;
   padding: 4px 6px;
@@ -95,7 +94,10 @@ html, body {
   width: 12px;
   height: 12px;
   color: var(--ink-muted);
-  margin-left: 2px;
+  /* No flex `gap` on the button — that would also land between .logo-accent
+     and .logo-base, splitting "BetterRobotics" into two words. This margin
+     is the caret's own spacing (was 2px flex-gap + 2px margin combined). */
+  margin-left: 6px;
 }
 /* Wordmark: "Better" (bold Duke navy/light-blue) + "Robotics" (regular ink).
    Hue shift (blue vs base text) + weight gives clear separation without color noise. */
@@ -1742,7 +1744,6 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 16px 20px 20px;
 }
 .console-section[hidden] { display: none; }
 
@@ -2382,7 +2383,6 @@ body.phone textarea {
 .phone-brand-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   background: transparent;
   border: none;
   /* Tap target is at least 44pt vertical (HIG floor). Negative margin
@@ -2397,7 +2397,7 @@ body.phone textarea {
   cursor: pointer;
 }
 .phone-brand-btn:hover { background: var(--line); }
-.phone-brand-caret { width: 14px; height: 14px; color: var(--ink-muted); }
+.phone-brand-caret { width: 14px; height: 14px; color: var(--ink-muted); margin-left: 6px; }
 .phone-status {
   display: inline-flex;
   align-items: center;
