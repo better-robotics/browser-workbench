@@ -101,7 +101,7 @@ export function tryMatchCommand(text) {
     if (after.length > 0) return null;
     return {
       intent: p.name,
-      tool: "move_motor",
+      tool: "drive",
       partialInput: p.build(trimmed),
     };
   }

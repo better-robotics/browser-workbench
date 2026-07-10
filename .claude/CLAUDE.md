@@ -31,6 +31,12 @@ Different model shapes are good at different jobs — distinct primitives, not i
 
 Pattern: control = BLE, observe = wifi/discover, recover = USB.
 
+Channel semantics are shared with the classroom hub: the BLE↔MQTT mapping
+(MOTOR↔pwm incl. the ±100-percent vs ±255-duty scale, LED+RGB↔set_led,
+TELEMETRY↔sys, the 4000 ms drive cap) is canonical in `better-robotics/hub`
+CONTRACT.md § "The BLE transport (workbench)" — keep it in sync when a mapped
+payload changes here.
+
 - **BLE** — control plane. Low latency, proximity-authenticated, lossy. Anything that sets motor speed, toggles an LED, commits state.
 - **Typed ops over BLE** — structured verbs on a single characteristic (`get-log`, `get-config`, `restart-service`, `wifi-scan`, `wifi-join`). Each verb is a deliberate, reviewable decision instead of a real-shell transport.
 - **WebRTC** — two distinct flows.

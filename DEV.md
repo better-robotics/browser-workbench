@@ -7,6 +7,19 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
 ### Dashboard (`index.html`)
 - `?prepare` — opens the Customize-card SD-prep dialog on load. Implementation: `app.js`.
 - `?robot=<name>` — pre-selects a robot by name (useful for direct-link workflows). Implementation: `app.js`.
+- `?hub=<host>[&hubuser=<team>&hubpass=<code>]` — connects to a classroom hub's
+  MQTT broker over WebSockets (`ws://<host>:9001`, `better-robotics/hub`
+  CONTRACT.md) and surfaces its rovers as robot cards: joypad/keyboard drive,
+  LED toggle, sys-derived telemetry, and the Pip/user-code motion tools all
+  work through the same capability runtimes as BLE robots. Anonymous (no
+  `hubuser`) is the broker-ACL read-only fleet view — cards appear, drive
+  publishes are silently dropped. **http-served pages only**: a https page
+  (github.io) can't open `ws://` (mixed content), so use a local dev server
+  or a hub-served copy. Covered: motors, led, telemetry. Not covered (BLE/
+  WebRTC-only): camera, OTA, ops, wifi provisioning. Card gotcha: Disconnect
+  on a hub card is futile — the next `sys` beat (2 s) re-marks it connected;
+  use `window.hub.disconnect()` to leave the hub. Implementation:
+  `docs/hub/hub-transport.js` (lazy-imported by `app.js`).
 
 ### Phone (`phone.html`)
 - `#pair=<uuid>` — the pairing room id, normally injected by the QR. Required for the phone to find the room. Implementation: `mobile.js`.
@@ -33,6 +46,7 @@ Live on both desktop and phone while `pairing.js` is loaded.
 - `window.lastPairDiagnostic()` — **async**, returns a Promise. Local + remote ICE candidates from this side's most recent pair attempt, plus role/roomId/iceServers, **plus a live `pc.getStats()` snapshot** (candidate-pair states, transport, certificates, dataChannel) and the four pc state strings. Same data `chrome://webrtc-internals/` shows, no privileged-page hop. Resets on each new `hostPairingRoom`/`joinPairingRoom` call. DevTools console auto-awaits the Promise — `await window.lastPairDiagnostic()` from elsewhere.
 - `window.probeNetwork({ timeoutMs })` — runs a unilateral STUN probe on demand and returns `{stunReachable, candidateTypes, publicIp, mdnsObfuscated, candidates, durationMs}`. Stashes the result in `window.lastNetProbe()`.
 - `window.lastNetProbe()` — last `probeNetwork()` result, or `null` if never run.
+- `window.hub` — `{ client, disconnect() }`, present only when `?hub=` is active. `client.publish(topic, json)` / `client.subscribe(filter)` for raw contract-topic poking; `disconnect()` closes the broker session (the per-card Disconnect button can't — see URL flags).
 - `window.probeIceReachability(iceServers, { timeoutMs })` — per-server reachability + first-hit latency. Returns `[{urls, reachable, latencyMs, types}]`. Pass the array `fetchIceServers()` returns to test the TURN-enabled config a real pair uses.
 
 ## Robot endpoints

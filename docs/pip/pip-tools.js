@@ -9,6 +9,8 @@ import {
 import { pulseMotors } from "../capabilities/runtime/signed-pair.js";
 import { setRgbValue } from "../capabilities/runtime/rgb.js";
 import { setLevelValue } from "../capabilities/runtime/level.js";
+import { setToggleValue } from "../capabilities/runtime/toggle.js";
+import { LLM_MAX_DURATION_MS } from "../protocol-constants.js";
 import { notePipRgbOverride } from "./agent-light.js";
 import {
   listCameraSources,
@@ -201,23 +203,43 @@ const ALL_TOOLS = [
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
   },
   {
-    name: "move_motor",
-    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 2000]. Firmware auto-stops at end of window and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.",
+    name: "drive",
+    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 4000]. Firmware auto-stops at end of window and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.",
     input_schema: {
       type: "object",
       properties: {
         id:          { type: "string" },
         l:           { type: "number", minimum: -100, maximum: 100 },
         r:           { type: "number", minimum: -100, maximum: 100 },
-        duration_ms: { type: "number", minimum: 50, maximum: 2000 },
+        duration_ms: { type: "number", minimum: 50, maximum: LLM_MAX_DURATION_MS },
       },
       required: ["id", "l", "r", "duration_ms"],
     },
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
+    name: "stop",
+    description: "Immediately halt a robot's motors. Returns { ok, applied }.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "set_led",
+    description: "Toggle a robot's status LED on or off (the plain LED; use set_rgb for the RGB light).",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string" }, on: { type: "boolean" } },
+      required: ["id", "on"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
     name: "drive_distance_cm",
-    description: "Drive forward (positive cm) or backward (negative cm) a target distance at fixed speed. Auto-chains move_motor pulses if the distance exceeds one max pulse (~175cm at speed 100). Forward still auto-clips at dist_cm<15 (firmware floor). Returns { ok, requested_cm, executed_pulses, results }. Use when you KNOW how far to go (e.g. 'drive 50cm') — saves a frame+reframe between sub-pulses.",
+    description: "Drive forward (positive cm) or backward (negative cm) a target distance at fixed speed. Auto-chains drive pulses if the distance exceeds one max pulse (~175cm at speed 100). Forward still auto-clips at dist_cm<15 (firmware floor). Returns { ok, requested_cm, executed_pulses, results }. Use when you KNOW how far to go (e.g. 'drive 50cm') — saves a frame+reframe between sub-pulses.",
     input_schema: {
       type: "object",
       properties: {
@@ -231,7 +253,7 @@ const ALL_TOOLS = [
   },
   {
     name: "approach_until",
-    description: "Closed-loop forward approach run inside the executor at ~3 Hz. Drives in pulses, optionally centering on a COCO target between them. Halts on the FIRST of three stop predicates: (a) ultrasonic dist_cm < stop_dist_cm — useful for walls / large flat targets; (b) target bbox area >= stop_bbox_area — the reliable signal for small / short / off-axis targets (bottles, cups) that the ultrasonic cone misses; (c) target lost 3 consecutive frames after being seen — prevents blindly driving past an overshot target. Returns { ok, reason, steps, final_dist_cm, trajectory }. Use INSTEAD of repeated move_motor + view_robot_frame cycles when approaching something.",
+    description: "Closed-loop forward approach run inside the executor at ~3 Hz. Drives in pulses, optionally centering on a COCO target between them. Halts on the FIRST of three stop predicates: (a) ultrasonic dist_cm < stop_dist_cm — useful for walls / large flat targets; (b) target bbox area >= stop_bbox_area — the reliable signal for small / short / off-axis targets (bottles, cups) that the ultrasonic cone misses; (c) target lost 3 consecutive frames after being seen — prevents blindly driving past an overshot target. Returns { ok, reason, steps, final_dist_cm, trajectory }. Use INSTEAD of repeated drive + view_robot_frame cycles when approaching something.",
     input_schema: {
       type: "object",
       properties: {
@@ -591,10 +613,10 @@ async function dispatch(name, input) {
       const status = watcherStatus(e);
       return { ok: true, status };
     }
-    case "move_motor": {
-      // Each pulse is firmware-bounded (duration 50–2000 ms, watchdog
-      // auto-stop, dist_cm forward-clip). The planner decides when to
-      // look or ask for help — no executor-imposed observation cadence
+    case "drive": {
+      // Each pulse is firmware-bounded (duration 50–LLM_MAX_DURATION_MS,
+      // watchdog auto-stop, dist_cm forward-clip). The planner decides when
+      // to look or ask for help — no executor-imposed observation cadence
       // between pulses. Stamp the action so subsequent get_robot_state
       // returns can flag motion-invalidated telemetry.
       const gateErr = await awaitMotorGate(input.id);
@@ -602,6 +624,20 @@ async function dispatch(name, input) {
       const e = state.devices.get(input.id);
       if (e) e.lastMotorActionAt = Date.now();
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
+    }
+    case "stop": {
+      // Deliberately NOT gated on awaitMotorGate — halting must never wait.
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      e.lastMotorActionAt = Date.now();
+      return await pulseMotors(input.id, 0, 0, 50);
+    }
+    case "set_led": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      if (!e.ledChar) return { error: "robot has no LED cap configured" };
+      await setToggleValue(e, "led", !!input.on);
+      return { ok: true, applied: { on: !!input.on } };
     }
     case "drive_distance_cm": {
       const e = state.devices.get(input.id);
@@ -738,7 +774,7 @@ async function dispatch(name, input) {
               // spinning will surface it — bail and let Pip narrate the
               // dead end (try view_robot_frame, reposition, ask_human).
               if (!everSeen && lostCount >= MAX_NEVER_SEEN) {
-                reason = `target '${target}' never detected in ${MAX_NEVER_SEEN} scan attempts — MediaPipe's closed-vocab detector likely can't see it at this angle / occlusion / lighting. Try view_robot_frame to confirm it's actually in view, or approach manually with move_motor.`;
+                reason = `target '${target}' never detected in ${MAX_NEVER_SEEN} scan attempts — MediaPipe's closed-vocab detector likely can't see it at this angle / occlusion / lighting. Try view_robot_frame to confirm it's actually in view, or approach manually with drive.`;
                 break;
               }
               // Small scan-spin to try re-acquiring; don't drive forward
@@ -770,7 +806,7 @@ async function dispatch(name, input) {
         const r = await pulseMotors(input.id, speed, speed, driveMs);
         e.lastMotorActionAt = Date.now();
         trajectory.push({ action: "drive", ms: driveMs, area: +bboxArea.toFixed(2), ok: !!r?.ok });
-        if (!r?.ok) { reason = `move_motor failed: ${r?.error || "unknown"}`; break; }
+        if (!r?.ok) { reason = `drive failed: ${r?.error || "unknown"}`; break; }
         // Wait for pulse + a small extra so telemetry has a chance to
         // refresh before the next dist_cm read.
         await new Promise(res => setTimeout(res, driveMs + 100));

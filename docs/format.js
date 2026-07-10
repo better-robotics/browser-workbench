@@ -20,7 +20,7 @@ export function labelTool(name) {
 // pip-tools dispatcher returns. Used by the Pip chat trace renderer.
 //
 // durationMs is wall-clock for the call (BLE/WebRTC roundtrip + executor
-// work). Distinct from any duration_ms inside results (e.g. move_motor's
+// work). Distinct from any duration_ms inside results (e.g. drive's
 // firmware-applied pulse length). Suffix in parens so the two read as
 // annotation, not as another result field.
 export function summarizeTool(name, input, result, error, durationMs) {
@@ -28,7 +28,7 @@ export function summarizeTool(name, input, result, error, durationMs) {
   const dur = durationMs == null ? "" : ` (${formatCallDur(durationMs)})`;
   if (error) return `${lbl} · ${shorten(error, 80)}${dur}`;
   const r = result || {};
-  if (name === "move_motor") {
+  if (name === "drive" || name === "stop") {
     const a = r.applied || input || {};
     return `${lbl} · L${a.l ?? a.left ?? "?"} R${a.r ?? a.right ?? "?"} · ${a.duration_ms ?? "?"}ms${dur}`;
   }

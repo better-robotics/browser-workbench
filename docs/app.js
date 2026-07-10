@@ -1131,6 +1131,24 @@ document.addEventListener("DOMContentLoaded", () => {
   if (new URLSearchParams(location.search).get("prepare") !== null) {
     import("./recovery/prepare.js").then(m => m.openDialog());
   }
+  // Classroom-hub transport (MQTT-over-WebSockets): ?hub=<host> surfaces the
+  // hub's rovers as robot cards. Lazy — costs nothing without the flag.
+  // http-served pages only (a https page can't open ws://); see DEV.md.
+  {
+    const q = new URLSearchParams(location.search);
+    const hubHost = q.get("hub");
+    if (hubHost) {
+      import("./hub/hub-transport.js")
+        .then(m => m.connectHub(hubHost, {
+          username: q.get("hubuser") || undefined,
+          password: q.get("hubpass") || undefined,
+        }))
+        .catch(err => {
+          console.error("[hub]", err);
+          log(`hub connect failed: ${err.message}`, "hub");
+        });
+    }
+  }
   loadPaired().then(() => {
     highlightKnownRobotFromUrl();
   });

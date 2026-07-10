@@ -18,6 +18,10 @@ export function setDisconnectHandler(fn) { _onDisconnectedById = fn; }
 export function persist() {
   const out = [];
   for (const e of state.devices.values()) {
+    // Hub-transport entries are presence-driven and session-scoped —
+    // persisting them would leave zombie BLE-looking cards on the next
+    // (hub-less) load.
+    if (e.ephemeral) continue;
     out.push({
       id: e.id, name: e.name, fwType: e.fwType || null,
       // Phones.js's "most recently active dashboard" tiebreaker reads this.

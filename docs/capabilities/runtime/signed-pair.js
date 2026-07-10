@@ -14,6 +14,7 @@ import { attachJoypad, mix } from "../../input/joypad.js";
 import { capSection } from "./cap-section.js";
 import { coalescedWrite } from "./coalesced-write.js";
 import { renderEntry } from "./render-bus.js";
+import { LLM_MAX_DURATION_MS } from "../../protocol-constants.js";
 
 // Clamp-on-write — callers don't have to check declared range.
 async function setPairValue(entry, capName, left, right) {
@@ -161,16 +162,17 @@ export async function sendPairById(id, capName, left, right) {
 }
 
 // LLM pulse — 4-byte [l, r, dur_hi, dur_lo]. Firmware parses the wider
-// length as a time-bounded pulse and auto-stops at duration. Dashboard
-// clamps are defense-in-depth; firmware enforces the actual caps
-// (magnitude 40, duration 2000ms). See .claude/CLAUDE.md → Control-loop
-// invariants.
+// length as a time-bounded pulse and auto-stops at duration. Clamps here
+// mirror the wire envelope (±100 percent, 50–LLM_MAX_DURATION_MS ms) —
+// the duration bound, not a reduced magnitude, is what bounds a bad
+// planner decision (.claude/CLAUDE.md → Control-loop architecture);
+// firmware re-enforces both independently.
 export async function pulseMotors(id, left, right, durationMs) {
   const entry = state.devices.get(id);
   if (!entry?.motorsChar) return { ok: false, error: "no motors characteristic on this robot" };
-  const l = Math.max(-40, Math.min(40, Math.round(Number(left) || 0)));
-  const r = Math.max(-40, Math.min(40, Math.round(Number(right) || 0)));
-  const d = Math.max(50, Math.min(2000, Math.round(Number(durationMs) || 0)));
+  const l = Math.max(-100, Math.min(100, Math.round(Number(left) || 0)));
+  const r = Math.max(-100, Math.min(100, Math.round(Number(right) || 0)));
+  const d = Math.max(50, Math.min(LLM_MAX_DURATION_MS, Math.round(Number(durationMs) || 0)));
   const buf = new Uint8Array(4);
   buf[0] = l & 0xff;
   buf[1] = r & 0xff;

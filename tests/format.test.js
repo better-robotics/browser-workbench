@@ -26,7 +26,7 @@ test("labelTool: strips common prefixes and snake-case", () => {
   assert.equal(labelTool("get_log"), "log");
   assert.equal(labelTool("ask_human_via_phone"), "human via phone");
   assert.equal(labelTool("set_camera_profile"), "camera profile");
-  assert.equal(labelTool("move_motor"), "move motor");  // no prefix to strip
+  assert.equal(labelTool("drive"), "drive");  // no prefix to strip
   assert.equal(labelTool(""), "");
 });
 
@@ -35,13 +35,13 @@ test("summarizeTool: error wins over result", () => {
   assert.match(out, /timeout/);
 });
 
-test("summarizeTool: move_motor picks applied over input", () => {
-  const out = summarizeTool("move_motor",
-    { l: 100, r: 100, duration_ms: 5000 },
-    { applied: { l: 40, r: 40, duration_ms: 2000 } },
+test("summarizeTool: drive picks applied over input", () => {
+  const out = summarizeTool("drive",
+    { l: 100, r: 100, duration_ms: 9000 },
+    { applied: { l: 100, r: 100, duration_ms: 4000 } },
     null);
   // Firmware clamps; the trace should reflect what actually went out.
-  assert.match(out, /L40 R40 · 2000ms/);
+  assert.match(out, /L100 R100 · 4000ms/);
 });
 
 test("summarizeTool: ask_human surfaces transport", () => {

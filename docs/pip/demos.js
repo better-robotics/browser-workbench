@@ -5,7 +5,7 @@
 //
 // Each demo's `run(ctx)` is async and orchestrates calls to ctx.exec()
 // (the executor with pill rendering) and ctx.sleep(). Demos can issue
-// `move_motor`, `speak`, `start_robot_camera`, `start_robot_watcher`,
+// `drive`, `speak`, `start_robot_camera`, `start_robot_watcher`,
 // `get_robot_detections`, `view_robot_frame` — same primitives the LLM
 // uses. So a demo step renders in the chat the same way an LLM-issued
 // tool call does.
@@ -39,7 +39,8 @@ import { askAboutFrame } from "./claude.js";
 // magnitude (only duration + watchdog + dist_cm clip remain as the
 // safety floor), so demos run at the same max the joypad reaches.
 const SPEED = 100;
-const MAX = 2000;        // firmware duration cap per pulse (move_motor schema cap)
+const MAX = 2000;        // demo pulse unit — SPIN_180_MS calibration below is tuned
+                         // to it; NOT the schema cap (that's LLM_MAX_DURATION_MS)
 // 180° spin at the current SPEED on this chassis, derived from the
 // empirical calibration at speed 40 (1 MAX pulse = 180°). Lets the few
 // demo beats with a specific angular intent (turn-around, "spin" verb)
@@ -48,11 +49,11 @@ const MAX = 2000;        // firmware duration cap per pulse (move_motor schema c
 // energetic," which fits the demo brief.
 const SPIN_180_MS = Math.round(MAX * 40 / SPEED);
 
-// pulse-and-settle: move_motor is bounded; we wait the pulse duration
+// pulse-and-settle: drive is bounded; we wait the pulse duration
 // plus a small settle so we don't queue pulses on top of each other
 // (firmware would cancel-and-replace and motion would jerk).
 async function pulse(ctx, l, r, ms) {
-  await ctx.exec("move_motor", { id: ctx.id, l, r, duration_ms: ms });
+  await ctx.exec("drive", { id: ctx.id, l, r, duration_ms: ms });
   await ctx.sleep(ms + 30);
 }
 
