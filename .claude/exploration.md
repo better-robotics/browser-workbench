@@ -1,6 +1,6 @@
 # Exploration
 
-Open architectural directions, design rationale, runtime state under validation, and forks evaluated but not taken. The thinking-in-progress layer. Committed work lives in `direction.md`; positioning research in `field.md`.
+Open architectural directions, design rationale, runtime state under validation, and forks evaluated but not taken. The thinking-in-progress layer. Live pilot state lives in the pinned tracker (issue #45); positioning research in `field.md`.
 
 ---
 
@@ -8,7 +8,7 @@ Open architectural directions, design rationale, runtime state under validation,
 
 Long-horizon shape decisions. Updated when the shape of the system changes.
 
-## 1. Generic typed-characteristic runtime (in flight)
+## 1. Generic typed-characteristic runtime
 
 **Claim.** Every capability today exists in ~3 places (browser module, Pi handler, ESP32 handler). 80% of those files are boilerplate isomorphic to the capability's TYPE, not its identity. A generic runtime keyed on type eliminates the boilerplate.
 
@@ -27,16 +27,11 @@ Long-horizon shape decisions. Updated when the shape of the system changes.
 
 **Firmware-side direction (farther out).** Pi and ESP32 firmware have identical ceremony: register char, parse read/write, notify on change, gate on config. A "typed char runtime" on firmware reads the capability declaration and handles generic typed chars with a small driver binding per capability (`{ on_write: fn, on_read: fn }`).
 
-**Progress so far:**
-- fw-info.caps carries the typed schema (shipped)
-- Browser reads + stores `entry.capSchema` (shipped)
-- Each capability module exports its own `schema` for cross-check (shipped)
-- Migrated: `toggle`, `level`, `rgb`, `signed-pair`, `command`, `wifi-scan`, `webrtc-installable`, `mjpeg-stream`, `ble-snapshot` — see `docs/capabilities/runtime/index.js`'s `RUNTIMES` map.
-- Remaining: `bundle-ota` (OTA is still on the older per-capability pattern, `docs/capabilities/ota.js`).
+**Where it stands** is readable from the code: `docs/capabilities/runtime/index.js`'s `RUNTIMES` map lists the migrated types; OTA (`docs/capabilities/ota.js`) is the one capability still on the older per-capability pattern.
 
 **Migration strategy.** Per-type, not per-capability. When we migrate `signed-pair`, both motors AND any future 2-axis input use the same runtime. The compound payoff is the Nth capability, not the first.
 
-## 2. AI-maintained documentation (cheap, deferred)
+## 2. AI-maintained documentation
 
 **Claim.** `README.md`, `HARDWARE.md`, `firmware/pi_robot/README.md`, and per-capability comments all describe what `fw-info.caps` + the code already know. They drift. An AI agent watching the schema + commit log can regenerate docs per release.
 
@@ -44,17 +39,17 @@ Long-horizon shape decisions. Updated when the shape of the system changes.
 
 **Not urgent.** Doc drift isn't causing failures today. Worth doing when the project has contributors outside the core, or when we promise backward-compatibility guarantees that require accurate docs.
 
-## 3. Transparent-data-plane OTA (partially in flight)
+## 3. Transparent-data-plane OTA
 
 **Claim.** Every robot should have three OTA lanes with a clear fallback order. The dashboard picks the fastest available without user intervention. Iteration-loop speed is the core dev experience; "how fast does code get onto the robot" sets the tone for everything else.
 
 **The three lanes, decreasing friction:**
 
-1. **BLE-stream** — always works, no WiFi needed, no LAN co-location required. Baseline for every robot on every network. Today: `writeValueWithResponse` + ATT ack per 180-byte frame → 3-10 min for a 1.6 MB bin. Switching to `writeValueWithoutResponse` + software flow control over `ota-status` gets it to ~30 sec. **Not yet implemented.**
+1. **BLE-stream** — always works, no WiFi needed, no LAN co-location required. Baseline for every robot on every network. Today: `writeValueWithResponse` + ATT ack per 180-byte frame → 3-10 min for a 1.6 MB bin. Switching to `writeValueWithoutResponse` + software flow control over `ota-status` gets it to ~30 sec.
 
-2. **PNA direct to target robot** — dashboard fetches `http://<robot-ip>/ota` straight from the browser. Chrome/Edge's Private Network Access (shipped 2022) gates the first request on a one-time user consent per origin. No TLS on the robot, no cert ceremony, no crypto IRAM pressure. ~1 sec for a 1.6 MB bin over LAN. Works whenever the dashboard and robot share a network. **Not yet implemented on ESP32** (Pi doesn't need this lane — BLE bundle OTA is already fast enough for Pi-sized updates).
+2. **PNA direct to target robot** — dashboard fetches `http://<robot-ip>/ota` straight from the browser. Chrome/Edge's Private Network Access (shipped 2022) gates the first request on a one-time user consent per origin. No TLS on the robot, no cert ceremony, no crypto IRAM pressure. ~1 sec for a 1.6 MB bin over LAN. Works whenever the dashboard and robot share a network. (Pi doesn't need this lane — BLE bundle OTA is already fast enough for Pi-sized updates.)
 
-3. **Pi-as-gateway** — for multi-robot orchestration and offline-first classroom deployments. Pi runs an `aioquic` WebTransport server with a self-signed cert; dashboard uses `serverCertificateHashes` pinning (cert sha256 published in Pi's fw-info) to connect without PKI ceremony. Pi proxies raw TCP to the target ESP32 on the LAN. Same ~1 sec speed as PNA direct, with bonus orchestration surface (mesh multiple ESP32s, serve dashboard offline). **Not yet implemented.** Earns its slot when multi-robot coord or offline-first use cases land, not purely for OTA speed.
+3. **Pi-as-gateway** — for multi-robot orchestration and offline-first classroom deployments. Pi runs an `aioquic` WebTransport server with a self-signed cert; dashboard uses `serverCertificateHashes` pinning (cert sha256 published in Pi's fw-info) to connect without PKI ceremony. Pi proxies raw TCP to the target ESP32 on the LAN. Same ~1 sec speed as PNA direct, with bonus orchestration surface (mesh multiple ESP32s, serve dashboard offline). Earns its slot when multi-robot coord or offline-first use cases land, not purely for OTA speed.
 
 **Why the three-lane shape:**
 - Lane 1 works on BLE only. No WiFi assumption.
@@ -65,7 +60,7 @@ Dashboard tries fastest available, falls back automatically. User never picks a 
 
 **Sequencing.** BLE-WithoutResponse first (universal, smallest change). PNA + ESP32 `/ota` second (big bang for effort). Pi-as-gateway when its orchestration/offline story earns it.
 
-## 4. ESP32 build-as-a-service (bold, later)
+## 4. ESP32 build-as-a-service
 
 **Claim.** ESP32 firmware is purely deterministic from `{board, caps}`. Users currently install `arduino-cli` + core + toolchain to compile. If a service accepts a config and returns a signed `.bin`, the dashboard's "Flash firmware" button fetches a per-robot-config binary; no local dev environment is needed for adding capabilities.
 
@@ -74,6 +69,21 @@ Dashboard tries fastest available, falls back automatically. User never picks a 
 **The compound effect.** Combined with #1, adding an ESP32 capability becomes: declare schema, bind driver code in a capability driver DSL, click Flash. No C++, no toolchain, no linker flags.
 
 **Worth it when.** Project has contributors who want to add capabilities without learning the ESP32 toolchain. Today the audience is small enough that `make flash` is fine.
+
+## 5. NFC tap-to-pair
+
+The original NFC role (handing the phone the puck's SoftAP creds) died with BLE-first. Tags still earn a slot as a *tap-to-pair-this-specific-robot* shortcut — collapses "scan → find robot-7 in a list of 12 → confirm" to a single tap.
+
+- **Tag content:** NDEF URL → `https://better-robotics.github.io/workbench/?pair=<robot-id>`. Dashboard reads `pair` from `location.search`, filters the BLE scan to that device.
+- **Android Chrome:** tap → URL → filtered scan → confirm.
+- **iPhone:** iOS opens the URL but Web Bluetooth is unavailable. Workaround rides the phone↔desktop pair layer (hub-broker signaling + signed pair-request, `phone.html`): encode `phone.html?pair=<robot-id>`; the phone forwards `{type:"pair-robot", robotId}` over WebRTC and the desktop surfaces a "Phone wants to pair robot-7 — click to confirm" banner (the desktop click is required — `navigator.bluetooth.requestDevice` needs a user gesture). Same-LAN only: both devices on the hub's network.
+- **Bootstrap caveat:** first-ever use still needs the phone↔desktop pair ceremony.
+
+## Open questions
+
+- **Visual / block-based authoring tier.** Capability cards and `pip.ask` are the only non-code surfaces — no block editor for "when distance < 30cm, stop and turn right." XRP and MicroBlocks (`field.md`) ship Blockly. Do cards + Pip cover non-coder authoring, or is a drag-drop tier needed?
+- **Inter-robot messaging.** Every message fans out through the browser as hub — no robot↔robot path. Tied to the pub/sub direction but a separate architectural commitment.
+- **Coordinate frames + time sync.** Required for sensor fusion and any multi-robot localization. Nothing in the scaffold addresses them.
 
 ## Rejected / deferred
 
@@ -95,7 +105,7 @@ Inputs, all same-origin:
 
 - Robot telemetry — firmware version drift, last-seen timestamps, which robots are `firmware-down` vs `connected`, which capabilities have never been exercised.
 - User scripts (`scripts.js` + localStorage) — saved but never run, errored on last run, related to a stalled goal.
-- Project intent — `.claude/CLAUDE.md` and `.claude/working.md` when present.
+- Project intent — `.claude/CLAUDE.md`.
 
 One short observation, tied to a user-activity boundary (session start, session end, robot reconnect after > 24h), not a wall-clock cron. Dismissable without consequence.
 

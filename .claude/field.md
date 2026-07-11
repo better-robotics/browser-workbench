@@ -4,7 +4,7 @@ Adjacent work that defines what positioning BetterRobotics can claim. Frame: "wh
 
 ## schematik.io — not in this lane
 
-[schematik.io](https://schematik.io) bills itself as "Cursor for Hardware": AI code-generation emitting firmware/schematic-adjacent code from natural language for Arduino, ESP32, Raspberry Pi (~$4.6M pre-seed). Not a pairing UI, not a control plane, not a dashboard. A *potential input* for authoring firmware like ours, not a parallel to the runtime-control story.
+[schematik.io](https://schematik.io) bills itself as "Cursor for Hardware": AI code-generation emitting firmware/schematic-adjacent code from natural language for Arduino, ESP32, Raspberry Pi. Not a pairing UI, not a control plane, not a dashboard. A *potential input* for authoring firmware like ours, not a parallel to the runtime-control story.
 
 ## The real candidates
 
@@ -20,14 +20,14 @@ Adjacent work that defines what positioning BetterRobotics can claim. Frame: "wh
 - **Overlap:** Web Bluetooth pairing of BOLT+/BOLT/Mini/RVR ([help.sphero.com](https://help.sphero.com/sphero-support/connecting-robots-in-the-sphero-edu-web-app)).
 - **Divergence:** Sphero account required, their robots only. No user-owned firmware, no recovery plane, no LLM surface.
 - **Ships today that we don't:** polished UI, k-12 marketplace presence, iOS native fallback.
-- **Decision impact:** reinforces the "no account" moat — account-gating is exactly the friction this project refuses.
+- **Decision impact:** reinforces the no-account stance — account-gating is exactly the friction this project refuses.
 
 ### Makeblock (mBlock + mBot family)
 - **Claims:** same K-12 classroom decision — at the largest scale claim of any vendor in this list (200k+ schools).
 - **Overlap:** mBlock 5 web at [ide.mblock.cc](https://ide.mblock.cc/) runs in Chrome/Edge, connects to mBot/CyberPi/Codey Rocky over Web Bluetooth + WebSerial without a helper app ([Makeblock support](https://support.makeblock.com/hc/en-us/articles/19412317319191-Introduction-to-Direct-Connection-of-mBlock-5-on-the-web)). Block + Python.
-- **Divergence:** account-required walled garden. Programs run on closed proprietary firmware. Hardware lock-in to Makeblock kits. No LLM, no recovery plane.
+- **Divergence:** account-required, closed ecosystem. Programs run on closed proprietary firmware. Hardware lock-in to Makeblock kits. No LLM, no recovery plane.
 - **Ships today that we don't:** scale (200k schools), educator curriculum, hardware breadth (CyberPi has its own screen + sensors), Chinese-market depth, multi-platform (PC/mobile/web).
-- **Decision impact:** confirms Web-Bluetooth-from-browser is the dominant K-12 STEAM pattern, not contrarian. Reinforces the "no account, no proprietary kit" wedge: every major K-12 vendor (LEGO, Sphero, Makeblock) is account-gated and kit-locked. The combination "browser-paired AND user-owned hardware AND no account" remains unoccupied.
+- **Decision impact:** confirms Web-Bluetooth-from-browser is the dominant K-12 STEAM pattern, not contrarian. Every major K-12 vendor (LEGO, Sphero, Makeblock) is account-gated and kit-locked; the combination "browser-paired AND user-owned hardware AND no account" remains unoccupied.
 
 ### MicroBlocks (microblocks.fun)
 - **Claims:** browser IDE to program a BLE/serial-connected microcontroller with blocks.
@@ -48,14 +48,14 @@ Adjacent work that defines what positioning BetterRobotics can claim. Frame: "wh
 - **Overlap:** browser dashboard, camera streaming, live control ([viam.com](https://www.viam.com/product/platform-overview)). gRPC/WebRTC to a device-resident `viam-server`. Modular components, multi-language SDKs.
 - **Divergence:** server-resident B2B cloud SaaS. `viam-server` fetches config from Viam cloud at startup ([docs.viam.com](https://docs.viam.com/operate/reference/viam-server/)). Different buyer (software engineer at an industrial outfit, fleet operator), different distribution shape (account-anchored cloud product vs. static-site, no-backend).
 - **Ships today that we don't:** data capture/sync, fleet management, funding, UR partnership.
-- **Decision impact:** **inspiration, not competition.** Same transport stack we ship; treats the same problem space at industrial scale. Watching their feature surface tells us what becomes table-stakes for "robotics dev environment." Our distribution shape (browser-only, no backend, MIT) is the moat — they can ship features in 18 months; restructuring their cloud-product distribution model to match would be a different company.
+- **Decision impact:** **inspiration, not competition.** Same transport stack we ship; treats the same problem space at industrial scale. Watching their feature surface tells us what becomes table-stakes for "robotics dev environment." The distribution shapes differ structurally: account-anchored cloud product vs browser-only, no-backend, MIT.
 
 ### Freedom Robotics
 - **Claims:** browser-based teleop and remote operation of fielded robots.
 - **Overlap:** WebRTC video + control via browser; SDK/agent runs on the robot ([freedomrobotics.com](https://www.freedomrobotics.com/)).
 - **Divergence:** server-resident B2B cloud SaaS, TURN-relay-anchored teleop, account + fleet model. No standalone deploy, no offline mode, no LLM/scripting surface.
 - **Ships today that we don't:** production teleop UX for industrial deployments, observability tooling, customer base in delivery + service robotics.
-- **Decision impact:** same audience-shape conflict as Viam — enterprise/industrial vs. consumer/education/hobbyist. Worth tracking for transport / observability conventions; not a wedge threat.
+- **Decision impact:** same audience-shape split as Viam — enterprise/industrial vs. consumer/education/hobbyist. Worth tracking for transport / observability conventions; a different lane.
 
 ### Improv Wi-Fi (open standard)
 - **Claims:** the onboarding moment — "how does a fresh device join Wi-Fi."
@@ -89,12 +89,12 @@ Adjacent work that defines what positioning BetterRobotics can claim. Frame: "wh
 
 ## Concluding read
 
-**Anyone claiming the same shape — *write code for a robot in a browser tab, no install, AI assist optional, no backend*?** No. The field divides cleanly: **MicroBlocks** and **XRPCode** claim browser-IDE-to-hardware but deploy code *to* the device and have no in-browser AI layer; **LEGO SPIKE**, **Sphero EDU**, **Makeblock mBlock** claim classroom-web-app experience but are walled gardens with accounts and proprietary kits; **Viam** and **Freedom Robotics** are framing rhymes (server-resident dev environments) anchored to industrial cloud, accounts, fleet ops; **ESP RainMaker** and **Improv Wi-Fi** claim BLE-provisioning but stop there; **LeRobot** claims VLA/LLM orchestration but has no browser runtime or BLE story.
+**Anyone claiming the same shape — *write code for a robot in a browser tab, no install, AI assist optional, no backend*?** No. The field divides cleanly: **MicroBlocks** and **XRPCode** claim browser-IDE-to-hardware but deploy code *to* the device and have no in-browser AI layer; **LEGO SPIKE**, **Sphero EDU**, **Makeblock mBlock** claim classroom-web-app experience but require accounts and proprietary kits; **Viam** and **Freedom Robotics** are framing rhymes (server-resident dev environments) anchored to industrial cloud, accounts, fleet ops; **ESP RainMaker** and **Improv Wi-Fi** claim BLE-provisioning but stop there; **LeRobot** claims VLA/LLM orchestration but has no browser runtime or BLE story.
 
 **Anything say change direction?** No. Nearest tactical move: implement **Improv Wi-Fi** BLE onboarding alongside ours so Improv-aware tools (ESPHome Dashboard, WLED config, Home Assistant) can provision our robots. Interop win, not a strategy shift.
 
-**Positioning, ranked by durability (slowest to erode first):**
-- **Browser-native dev surface.** Every "robotics platform" worth naming requires *some* install — `viam-server`, ESP-IDF, gpiozero on Pi, Arduino IDE. Static-site, no-backend distribution is structurally hard to copy without restructuring a whole company's product surface.
+**Structural differences (not feature gaps):**
+- **Browser-native dev surface.** Every "robotics platform" worth naming requires *some* install — `viam-server`, ESP-IDF, gpiozero on Pi, Arduino IDE. Static-site, no-backend distribution is a different product shape, not a missing feature.
 - **Browser-resident model serving.** Open-vocab detector, closed-vocab reflex detector — all client-side. Viam, Freedom Robotics, LeRobot all assume server-side or per-device GPU.
 - **Layered safety.** Firmware-bounded motors the IDE-level planner can't bypass. Ask-human as terminal cascade rung. Standard in driving (openpilot-panda), rare in hobby/classroom.
 - **No backend, no accounts.** Static-site deployable, MIT-licensed. Sphero, Viam, Particle, RainMaker, Freedom — all account-anchor.

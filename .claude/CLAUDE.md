@@ -2,9 +2,7 @@
 
 The **browser-native robotics dev environment** — vibe-code robots in a tab, run them on real hardware over BLE. Pip (any tool-using LLM, with ask-human) is the AI-assist surface inside it. One of multiple authorable surfaces, not the headline.
 
-**Adjacent platforms.** Viam ("build robots like you build software" — modular components, multi-language SDKs, fleet management) is the closest framing rhyme. Viam and Freedom Robotics are server-resident B2B cloud SaaS — same transport stack, different audience and distribution shape. Inspiration for table-stakes, not competition.
-
-**What's defensible.** Browser is the dev surface — no install, no SDK download. Browser-resident model serving — perception, detection, fiducial pose all client-side, no GPU server, no inference bill. Layered safety — firmware-bounded motors that the IDE-level planner (user code or Pip) can't bypass; ask-human is the terminal cascade rung (openpilot-panda pattern). Static-site deployable — no backend, no accounts, no data leaving the browser.
+**Positioning** (full analysis + sources: `.claude/field.md`): four structural claims — browser-native dev surface (no install), browser-resident model serving (no GPU server), layered safety (firmware floor the planner can't bypass; ask-human as terminal cascade rung), static-site/no-accounts. Viam is the closest framing rhyme — server-resident B2B SaaS; inspiration for table-stakes, not competition.
 
 **Anti-drift guards.** Failure modes to refuse:
 - *"Yet another fleet manager"* — server-resident cloud for N robots. Viam's space; ours is one operator running their own.
@@ -14,7 +12,7 @@ The **browser-native robotics dev environment** — vibe-code robots in a tab, r
 
 The "openpilot panda" pattern: safety enforced *below* the intelligent layer, not inside it.
 
-- Firmware caps pulse duration and watchdog auto-stop. LLM-issued motion auto-stops at the end of the pulse window (4s on Pi, same on ESP32); the watchdog cuts persistent commands when the dashboard goes silent. The ultrasonic dist_cm clip stops pure-forward motion at walls regardless of who issued the move. The planner can't bypass these — not even via a malformed tool call.
+- Firmware caps pulse duration and watchdog auto-stop. LLM-issued motion auto-stops at the end of the pulse window (`LLM_MAX_DURATION_MS` — `protocol/constants.json`, shared with the hub contract); the watchdog cuts persistent commands when the dashboard goes silent. The ultrasonic dist_cm clip stops pure-forward motion at walls regardless of who issued the move. The planner can't bypass these — not even via a malformed tool call.
 - Magnitude is *not* capped LLM-side. Joypad and Pip share the same signed-byte range; the time-bound is what bounds a single bad decision. Earlier versions used `LLM_MAX_SPEED = 70` as an extra "reduced envelope for the planner" rung, but the duration cap already bounds the wrong-direction excursion, and the cap was making Pip-driven motion artificially slow vs joypad without buying meaningful safety.
 - LLM-issued motion is pulse-bounded (`duration_ms` mandatory; firmware auto-stops). Persistent speed is reserved for human joystick control where there's a 20Hz+ decision loop.
 - `ask_human_via_phone` is the terminal rung of the decision cascade — the planner asks to be overridden rather than waits for the operator to step in.
@@ -23,9 +21,9 @@ The "openpilot panda" pattern: safety enforced *below* the intelligent layer, no
 
 Different model shapes are good at different jobs — distinct primitives, not interchangeable "AI". Past planner-layer attempts to paper over capability gaps with prompt-engineering have bitten us.
 
-- **Closed-vocab reflex detector** (`mediapipe.js`, EfficientDet-Lite0 via MediaPipe Tasks API): 80 COCO classes, ~10–30 ms on GPU. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
+- **Closed-vocab reflex detector** (`mediapipe.js`): milliseconds-fast COCO detector. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 - **Tool-using LLM via API** (`claude.js`): seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Currently Claude; any tool-using LLM with the same tool surface fits here.
-- **Unproven / experimental**: YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26`). See `.claude/exploration.md` → "Wired but unproven." Keep out of user docs until validated. Grounding DINO was deleted once Claude vision via `view_robot_frame` absorbed the open-vocab role with scene reasoning the bbox-only detector couldn't do. Overhead ArUco localization (`aruco.js`) was removed 2026-07 — nothing ever consumed the pose it produced; see `.claude/exploration.md` → "Forks in the road."
+- **Unproven / experimental**: YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26`). See `.claude/exploration.md` → "Wired but unproven." Keep out of user docs until validated. Grounding DINO and overhead ArUco localization were removed — rationale + revisit triggers in `.claude/exploration.md` → "Forks in the road."
 
 # Transport channels
 
@@ -40,8 +38,8 @@ payload changes here.
 - **BLE** — control plane. Low latency, proximity-authenticated, lossy. Anything that sets motor speed, toggles an LED, commits state.
 - **Typed ops over BLE** — structured verbs on a single characteristic (`get-log`, `get-config`, `restart-service`, `wifi-scan`, `wifi-join`). Each verb is a deliberate, reviewable decision instead of a real-shell transport.
 - **WebRTC** — two distinct flows.
-  - *Phone ↔ desktop*: signaled over the hub broker's `pair/#` topics (`pair/broker-signal.js` + `broker-lobby.js`; hub CONTRACT.md § pair) — same-LAN only, no internet rendezvous, no ICE servers (host/mDNS candidates). `signal.neevs.io` retired 2026-07-10; accepted loss: cross-network pairing (operator's phone on LTE). The pair QR carries roomId + pubkey + hub host. Pair-ceremony authenticated (ECDSA P-256 pubkey + signed pair-request — `pair/peer-key.js`; "Ed25519" in older notes was a misnomer). Carries camera frames, ask-human responses, robot-command relays.
-  - *Robot ↔ desktop* (Pi only — ESP32 has no signal char): signaled over the BLE `SIGNAL` characteristic — no internet rendezvous, no Mixed-Content/PNA gate. BLE pair = signal = auth. Carries OTA bundles, log tail, and PTY shell. ESP32 camera is HTTP MJPEG only (`:81/stream`); the ESP32-side WebRTC peer (esp_peer/libpeer, camera video + WebRTC OTA) was removed 2026-07 — git history has the four-patch DTLS shape if reviving it.
+  - *Phone ↔ desktop*: signaled over the hub broker's `pair/#` topics (`pair/broker-signal.js` + `broker-lobby.js`; hub CONTRACT.md § pair) — same-LAN only, no internet rendezvous, no ICE servers (host/mDNS candidates). Accepted loss with the broker migration: cross-network pairing (operator's phone on LTE). The pair QR carries roomId + pubkey + hub host. Pair-ceremony authenticated (ECDSA P-256 pubkey + signed pair-request — `pair/peer-key.js`). Carries camera frames, ask-human responses, robot-command relays.
+  - *Robot ↔ desktop* (Pi only — ESP32 has no signal char): signaled over the BLE `SIGNAL` characteristic — no internet rendezvous, no Mixed-Content/PNA gate. BLE pair = signal = auth. Carries OTA bundles, log tail, and PTY shell. ESP32 camera is HTTP MJPEG only (`:81/stream`); the ESP32-side WebRTC peer was removed (`.claude/exploration.md` → "Forks in the road").
 - **Wifi-presence** — Pi exposes `<name>.local:81/health`; dashboard probes it for the "on wifi" badge + service-crash detection. ESP32 presence shows up only when BLE-paired (wifi-status notify). No internet rendezvous for robot presence.
 - **USB-CDC** — recovery plane. Last-resort serial console, runs as its own systemd unit so a `pi-robot.service` crash doesn't take recovery with it. Bounded by physical access.
 
@@ -75,7 +73,7 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 - `SMOKE.md` — manual checklist for architectural promises.
 - `USER-CODE.md` — surface that `scripts.js` exposes to user-authored code.
 - `HARDWARE.md` — wiring, board-specific knobs.
-- `.claude/direction.md` — what we're committing to close for the course pilot.
+- Pinned tracker (issue #45) — live pilot state: ranked gaps, watch-list. Rationale stays in `.claude/exploration.md`.
 - `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.
 - `.claude/field.md` — positioning analysis vs adjacent work.
 - `firmware/pi_robot/SYSTEMD.md` — preconditions-belong-in-the-script pattern.
