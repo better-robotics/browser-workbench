@@ -10,7 +10,21 @@ const fs      = require('fs');
 const path    = require('path');
 const dns     = require('dns');
 const net     = require('net');
+const os      = require('os');
 const { spawn, execSync } = require('child_process');
+
+// The phone URL must be the LAN IP over http: pairing signals over the hub
+// broker (ws://), and a https origin (the tunnel) can't open ws:// — mixed
+// content, with no override on iOS. The tunnel survives only as a remote
+// read-only view.
+function lanIp() {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs || []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address;
+    }
+  }
+  return null;
+}
 
 const PORT = 8080;
 const ROOT = path.join(__dirname, '..', 'docs');
@@ -53,8 +67,14 @@ try { execSync('pkill -f "cloudflared tunnel" 2>/dev/null'); } catch (_) {}
 // "::" binds both IPv6 and IPv4 via v4-mapped addresses on macOS/Linux.
 // Avoids the 5s IPv6→IPv4 fallback that bit the `--bind 0.0.0.0` version.
 server.listen(PORT, '::', () => {
+  const ip = lanIp();
   console.log('');
   console.log(`  \x1b[32m→  Desktop:\x1b[0m  http://localhost:${PORT}`);
+  if (ip) {
+    console.log(`  \x1b[32m→  Phone:  \x1b[0m  http://${ip}:${PORT}  \x1b[2m(open the dashboard here before showing the pair QR — the QR inherits this origin)\x1b[0m`);
+  } else {
+    console.log(`  \x1b[33m→  Phone:  \x1b[0m  no LAN IP found — phone features need a shared network`);
+  }
   console.log(`  \x1b[2m→  Tunnel:   starting…\x1b[0m`);
 
   const tunnel = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${PORT}`], {
@@ -68,7 +88,7 @@ server.listen(PORT, '::', () => {
     if (!match) return;
     tunnelUrl = match[0];
     waitForDns(new URL(tunnelUrl).hostname, () => {
-      console.log(`  \x1b[32m→  Phone:  \x1b[0m  ${tunnelUrl}`);
+      console.log(`  \x1b[2m→  Remote view:  ${tunnelUrl}  (https — no phone pairing / hub features)\x1b[0m`);
       console.log('');
     });
   }

@@ -27,6 +27,21 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
 ### Phone (`phone.html`)
 - `#pair=<uuid>[&pk=<pubkey>&hub=<host>]` — the pairing room id, normally injected by the QR. `pk` binds in-person trust; `hub` names the broker carrying the WebRTC signaling (`pair/#` topics — defaults to `hub.local`). Pairing is same-LAN only: signaling moved from signal.neevs.io to the hub broker 2026-07-10. Implementation: `mobile.js`, `pair/broker-signal.js`.
 
+## Serving contexts — what works from where
+
+The origin the dashboard is served from decides which transports exist.
+There is no single context that does everything:
+
+| served from | BLE (secure context) | LAN http/ws — hub transport, pairing signaling, presence, MJPEG |
+|---|---|---|
+| `http://localhost` (`make serve`) | ✓ | ✓ — the dev sweet spot |
+| `https://…github.io` | ✓ | ✗ mixed content (Chrome-only override degrades the badge; iOS has no override) |
+| `http://<LAN-IP>` / `http://hub.local` | ✗ | ✓ — the phone/classroom context (the hub serves the IDE at `http://hub.local/ide/?hub=hub.local`) |
+
+Consequences: show the pair QR from a page the *phone* can reach over http
+(LAN IP, not `localhost`, never the https tunnel); `sw.js`/PWA only
+registers on secure contexts, degrades silently elsewhere.
+
 ## Keyboard control
 
 WASD / arrow keys drive the **active motors target** — one robot at a time,
