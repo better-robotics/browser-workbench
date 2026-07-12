@@ -14,7 +14,7 @@
 // namespace.
 import { connectMqtt } from "../hub/mqtt.js";
 import { getMyPubkeyB64, signBytes, verifyBytes, canonical } from "./peer-key.js";
-import { getSignalBrokerHost } from "./broker-signal.js";
+import { getSignalBrokerHost, pairTransportBlocked } from "./broker-signal.js";
 import { WS_PORT } from "../protocol-constants.js";
 
 const REPUBLISH_MS = 25_000;
@@ -55,7 +55,9 @@ class BrokerLobby {
   }
 
   _connect() {
-    if (this._closed) return;
+    // No retry when the page can't open ws:// at all — otherwise the
+    // https deploy logs a mixed-content error every RECONNECT_MS forever.
+    if (this._closed || pairTransportBlocked()) return;
     connectMqtt(`ws://${this._host || getSignalBrokerHost()}:${WS_PORT}`, {
       clientId: `lobby-${Math.random().toString(36).slice(2, 10)}`,
       onMessage: (topic, payload) => this._onAd(topic, payload),

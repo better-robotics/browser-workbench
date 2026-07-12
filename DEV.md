@@ -35,7 +35,7 @@ There is no single context that does everything:
 | served from | BLE (secure context) | LAN http/ws — hub transport, pairing signaling, presence, MJPEG |
 |---|---|---|
 | `http://localhost` (`make serve`) | ✓ | ✓ — the dev sweet spot |
-| `https://…github.io` | ✓ | ✗ mixed content (Chrome-only override degrades the badge; iOS has no override) |
+| `https://…github.io` | ✓ | ✗ mixed content (Chrome-only override degrades the badge; iOS has no override). Pair button/dialog says so instead of a doomed ceremony — gate is `pairTransportBlocked()` (`pair/broker-signal.js`), feature-detected so the Chrome override still passes |
 | `http://<LAN-IP>` / `http://hub.local` | ✗ | ✓ — the phone/classroom context (the hub serves the IDE at `http://hub.local/ide/?hub=hub.local`) |
 
 Consequences: show the pair QR from a page the *phone* can reach over http

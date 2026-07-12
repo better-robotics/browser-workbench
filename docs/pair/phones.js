@@ -17,7 +17,7 @@ import { discover } from "./broker-lobby.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
 import { makeTrustStore } from "../trust.js";
 import { pairRequestClient } from "./pair-request.js";
-import { getSignalBrokerHost } from "./broker-signal.js";
+import { getSignalBrokerHost, pairTransportBlocked } from "./broker-signal.js";
 const _trust = makeTrustStore();
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the
@@ -110,6 +110,14 @@ export function requestPhoneCameraShare(phoneId, { timeoutMs = 60000 } = {}) {
 export async function initPhones() {
   const pairBtn = $("pair-phone-btn");
   if (pairBtn) pairBtn.addEventListener("click", beginPairing);
+  // Blocked transport = renderPhonePresence never fires, so the button's
+  // hover/SR label is the only pre-click hint that pairing needs the
+  // LAN-served page. The click still opens the dialog, which explains.
+  if (pairBtn && pairTransportBlocked()) {
+    const label = "Pair a phone — needs the LAN-served workbench (this https page can't reach the hub broker)";
+    pairBtn.title = label;
+    pairBtn.setAttribute("aria-label", label);
+  }
   const closeBtn = $("pair-dialog-close");
   if (closeBtn) closeBtn.addEventListener("click", dismissPairingDialog);
   const cancelBtn = $("pair-cancel-btn");
@@ -497,6 +505,20 @@ async function beginPairing() {
   const statusEl = $("pair-status");
   const qrEl = $("pair-qr");
   const urlEl = $("pair-url");
+  // On a blocked page the ceremony can never complete (signaling rides the
+  // hub broker's plain ws) — say so instead of a "Waiting for phone…"
+  // spinner that teaches the user the product is broken.
+  if (pairTransportBlocked()) {
+    qrEl.innerHTML = "";
+    urlEl.textContent = "";
+    statusEl.classList.remove("is-waiting");
+    statusEl.textContent = "Phone pairing needs the LAN-served workbench — "
+      + "pairing signals travel over the hub's local broker, which a https "
+      + "page can't reach. Open http://hub.local/ide/ (or a local dev "
+      + "server) and pair there.";
+    dialog.showModal();
+    return;
+  }
   // If a previous session was dismissed (× or Esc) and is still
   // waiting in the background, retire it now — opening this dialog
   // means the user wants a fresh QR.

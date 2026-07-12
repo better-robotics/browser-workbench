@@ -21,6 +21,26 @@
 import { connectMqtt } from "../hub/mqtt.js";
 import { WS_PORT } from "../protocol-constants.js";
 
+// A https page can't open the broker's plain-ws listener (mixed content),
+// which severs every pair transport at once — signaling, lobby presence,
+// pair-requests. Feature-detected (the WebSocket constructor throws
+// synchronously when blocked) rather than protocol-sniffed, so Chrome's
+// per-site "Insecure content: Allow" override still passes (DEV.md
+// serving-context matrix). Callers gate affordances and reconnect loops
+// on this instead of spinning on doomed sockets.
+let _blocked = null;
+export function pairTransportBlocked() {
+  if (_blocked === null) {
+    if (location.protocol !== "https:") {
+      _blocked = false;
+    } else {
+      try { new WebSocket("ws://mixed-content-probe.invalid").close(); _blocked = false; }
+      catch { _blocked = true; }
+    }
+  }
+  return _blocked;
+}
+
 let _host = null;
 export function setSignalBrokerHost(host) { _host = host || null; }
 export function getSignalBrokerHost() {
