@@ -320,9 +320,9 @@ export function makeWifiScanCap(schema) {
             `;
           }).join("")
         : scanning
-          ? `<li class="wifi-row wifi-row-status"><span class="wifi-spinner"></span> Looking for networks…</li>`
+          ? `<li class="wifi-row wifi-row-status" aria-live="polite"><span class="wifi-spinner"></span> Looking for networks…</li>`
           : Array.isArray(networks)
-            ? `<li class="wifi-row wifi-row-status">No networks found — try again.</li>`
+            ? `<li class="wifi-row wifi-row-status" aria-live="polite">No networks found — try again.</li>`
             : "";
       const otherRow = `
         <li class="wifi-row wifi-row-other" data-action="${actionManualJoin}" role="button" tabindex="0">

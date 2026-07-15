@@ -120,7 +120,7 @@ function warningChips(entry) {
   }
   if (!chips.length) return "";
   return `<div class="robot-warnings">${chips.map(c =>
-    `<span class="warning-chip warning-${c.sev}">${escapeHtml(c.text)}</span>`,
+    `<span class="alert-chip pill ${c.sev === "bad" ? "danger" : "warn"}">${escapeHtml(c.text)}</span>`,
   ).join("")}</div>`;
 }
 

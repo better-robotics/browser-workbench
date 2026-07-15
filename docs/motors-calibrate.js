@@ -94,7 +94,7 @@ export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) 
       // common "wheels spin the wrong way" case).
       const noOps = entry && !entry.opsChar;
       const opsWarn = noOps ? `
-        <div class="cal-warn">
+        <div class="alert-chip warn">
           <strong>Calibration unavailable.</strong> This robot's firmware
           doesn't expose the calibration ops channel — re-flash to the
           latest firmware to use the wizard. In the meantime, if your
@@ -125,7 +125,7 @@ export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) 
       if (o.invert_a) lines.push("Motor A's polarity is reversed (forward command spun it backward).");
       if (o.invert_b) lines.push("Motor B's polarity is reversed.");
       if (!o.swap && !o.invert_a && !o.invert_b) lines.push("Everything is wired in the canonical way — no flips needed.");
-      const warn = o.consistent ? "" : `<p class="cal-warn">Both pulses reported the same wheel. Either one motor is disconnected or you may have mis-clicked — recommend re-running.</p>`;
+      const warn = o.consistent ? "" : `<p class="alert-chip warn">Both pulses reported the same wheel. Either one motor is disconnected or you may have mis-clicked — recommend re-running.</p>`;
       body = `
         <p><strong>Step 3 of 3</strong> — confirm and save.</p>
         ${warn}

@@ -607,7 +607,7 @@ function renderEdit(entry) {
   if (soft.length) warnParts.push(`<span class="warn-soft">Latent: ${soft.map(([g, v]) => `GPIO ${g} (${fmt(v)})`).join("; ")}</span>`);
   if (reservedHits.length) warnParts.push(`<span class="warn-soft">Reserved: ${reservedHits.map(h => `GPIO ${h.pin} (${h.fn})`).join("; ")}</span>`);
   const warnLine = warnParts.length
-    ? `<div class="pinout-warn-line${hard.length ? " has-hard" : ""}">${warnParts.join(" · ")}</div>`
+    ? `<div class="alert-chip ${hard.length ? "danger" : "warn"}">${warnParts.join(" · ")}</div>`
     : "";
 
   const ledFlagCls = (c.led_pin != null && flagged.has(c.led_pin)) ? " conflict" : "";

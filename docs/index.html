@@ -152,7 +152,7 @@
     </label>
     <div class="modal-footer">
       <button type="button" class="secondary sm" id="wifi-join-cancel">Cancel</button>
-      <button type="submit" class="primary sm">Join</button>
+      <button type="submit" class="sm">Join</button>
     </div>
   </form>
 </dialog>
@@ -167,7 +167,7 @@
   <div class="modal-footer">
     <button class="secondary sm" id="update-fw-cancel">Cancel</button>
     <button class="secondary sm" id="update-fw-file">Choose a file…</button>
-    <button class="primary sm" id="update-fw-latest">Update from latest</button>
+    <button class="sm" id="update-fw-latest">Update from latest</button>
   </div>
 </dialog>
 
@@ -242,7 +242,7 @@
   </div>
   <div class="row" style="margin: 0 0 8px;">
     <button class="secondary sm" id="log-dialog-tail" hidden>Tail live</button>
-    <span class="status-row" id="log-dialog-status" hidden><span class="dot connecting"></span><span class="meta">Streaming…</span></span>
+    <span class="status-row" id="log-dialog-status" hidden aria-live="polite"><span class="dot connecting"></span><span class="meta">Streaming…</span></span>
   </div>
   <pre id="log-dialog-body" class="log-dialog-body">Loading…</pre>
 </dialog>
@@ -277,6 +277,7 @@
     <summary class="settings-disclosure-summary">
       <div class="settings-title">Dashboard key</div>
       <div class="meta key-fingerprint" id="key-fingerprint">—</div>
+      <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
     </summary>
     <div class="settings-disclosure-body">
       <div class="hint">Authorizes SSH + BLE ops on robots you prepare.</div>
@@ -292,6 +293,7 @@
     <summary class="settings-disclosure-summary">
       <div class="settings-title">Robot passwords</div>
       <div class="meta" id="passwords-summary">—</div>
+      <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
     </summary>
     <div class="settings-disclosure-body">
       <div class="hint">Auto-generated during Pi setup when the password is blank. SSH uses the dashboard key; these are for sudo / terminal login.</div>
@@ -339,7 +341,7 @@
     </div>
     <div class="console-toolbar-right">
       <span class="dot" id="console-status-dot"></span>
-      <span class="meta" id="console-status"></span>
+      <span class="meta" id="console-status" aria-live="polite"></span>
       <button class="link-btn" id="console-show-all">Show all serial ports</button>
       <button class="secondary sm" id="console-connect">Connect</button>
       <button class="secondary sm danger" id="esp-serial-flash">Flash firmware</button>
@@ -361,7 +363,7 @@
     <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-download"/></svg>Install firmware<span class="modal-subtitle" id="esp-flash-subtitle"></span></div>
     <button class="icon" id="esp-flash-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <div class="meta esp-flash-status" id="esp-flash-status">Connecting…</div>
+  <div class="meta esp-flash-status" id="esp-flash-status" aria-live="polite">Connecting…</div>
   <!-- Hidden by default; ~30 lines of esptool chatter per install (chip
        detect, sync, per-segment writes). Stored in-memory until the user
        opens the disclosure to avoid the per-byte DOM thrash that
@@ -384,11 +386,11 @@
   <!-- Progress state. Replaces pick once Install is clicked. -->
   <div class="esp-flash-progress" id="esp-flash-progress" hidden>
     <div class="esp-flash-progress-bar"><div class="esp-flash-progress-fill" id="esp-flash-progress-fill"></div></div>
-    <div class="meta esp-flash-progress-sub" id="esp-flash-progress-sub"></div>
+    <div class="meta esp-flash-progress-sub" id="esp-flash-progress-sub" aria-live="polite"></div>
   </div>
   <div class="row esp-flash-actions">
     <button class="secondary" id="esp-flash-cancel">Cancel</button>
-    <button class="primary" id="esp-flash-install" disabled>Install</button>
+    <button id="esp-flash-install" disabled>Install</button>
   </div>
 </dialog>
 
@@ -555,7 +557,7 @@
   </label>
   <div class="modal-footer">
     <button class="secondary sm" id="pair-request-deny">Deny</button>
-    <button class="primary sm" id="pair-request-accept">Accept</button>
+    <button class="sm" id="pair-request-accept">Accept</button>
   </div>
 </dialog>
 

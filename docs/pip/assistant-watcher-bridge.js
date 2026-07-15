@@ -55,7 +55,7 @@ export function wireWatcherFireBridge({ turn, scrollToBottom }) {
     if (!turn.isActive()) return;
     turn.pushObservation(obsText);
     const el = document.createElement("div");
-    el.className = `pip-reflex-notice${isReleaseShape ? " pip-reflex-notice--clear" : ""}`;
+    el.className = `alert-chip ${isReleaseShape ? "success" : "warn"}`;
     el.innerHTML =
       `<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">` +
         `<circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/>` +

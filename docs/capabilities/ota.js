@@ -434,7 +434,7 @@ export const ota = {
     return `
       <div class="robot-controls ota-section">
         <div class="row">
-          <div><div class="label">Firmware</div><div class="meta">${stateLine}</div></div>
+          <div><div class="label">Firmware</div><div class="meta" aria-live="polite">${stateLine}</div></div>
         </div>
         ${total ? `<progress class="ota-progress" value="${n}" max="${total}"></progress>` : ""}
       </div>
