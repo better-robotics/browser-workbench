@@ -6,21 +6,11 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 // Slash commands registered on the pip handle. /clear and /help ship as
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
 //
-// Provider list mirrors pip-core's bundle taxonomy (`./bundle/anthropic`,
-// `./bundle/openai`) plus the dashboard-specific `subscription` (= the
-// ai-bridge proxy on 127.0.0.1, which injects the Mac's Keychain token).
-// Anthropic's Claude variants nest under `anthropic` rather than living as
-// sibling top-level entries — they're not providers.
-//
-// `subscription`, not `local`: the token names what pays for the call, since
-// that is the axis separating it from anthropic/openai. It is NOT local
-// compute — the proxy forwards to api.anthropic.com — and `local` is
-// reserved for the planned on-robot Gemma backend.
-//
-// Descriptions answer the only question that changes the user's next
-// action: does picking this ask me for a key? The vendor name doesn't say
-// that. pip-core renders them in the dropdown's .desc column when a
-// completion returns {name, description} instead of a bare string.
+// Providers mirror pip-core's bundle taxonomy (anthropic, openai) plus
+// `subscription` — the ai-bridge proxy on 127.0.0.1, which injects the Mac's
+// Keychain token. Claude variants nest under a provider; they aren't providers.
+// The description carries whether picking it will ask for a key, which the
+// name can't say.
 const PIP_PROVIDERS = [
   { name: "subscription", description: "your Claude plan · no key" },
   { name: "anthropic",    description: "direct · needs Anthropic key" },
@@ -28,15 +18,10 @@ const PIP_PROVIDERS = [
 ];
 const PIP_PROVIDER_NAMES = PIP_PROVIDERS.map(p => p.name);
 
-// Mark the live backend. Its own channel, deliberately: pip-core paints
-// the highlighted row with --pip-accent, and that already means "the
-// keyboard cursor is here" — row zero is lit on open whether or not it's
-// the active provider, so reusing it for state would make the menu answer
-// a question the user didn't ask. A leading glyph in .desc is the one
-// channel left (pip-core gives us .name and .desc, and .name is inserted
-// into the input verbatim by acceptSlashSuggest, so it can't carry marks).
-// It's also the accessible half: .desc is read aloud; a background colour
-// isn't. State goes first because .desc truncates with an ellipsis.
+// The live entry is marked in .desc, not by the highlight: pip-core paints the
+// highlighted row with --pip-accent, which already means "cursor is here" (row
+// zero is lit on open regardless). .desc is also read aloud where a background
+// colour isn't. Leading, because .desc truncates with an ellipsis.
 const IN_USE = "✓ in use · ";
 function describeProvider(p) {
   return p.name === settings.pipBackend
