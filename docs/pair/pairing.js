@@ -21,6 +21,34 @@
 // picks the hub broker or a public one by what the page's origin can open.
 // That widens WHERE THE PAGE CAN BE SERVED FROM, never where the phone can
 // be — a phone on LTE still has no media path.
+//
+// ── Who is authenticated, and by what ───────────────────────────────────
+// Read this before touching iceServers.
+//
+// The QR's &pk= authenticates the DESKTOP TO THE PHONE: scanning in person
+// is the trust act (mobile.js stores it before WebRTC starts). Nothing
+// authenticates the PHONE TO THE DESKTOP. The room-join below accepts any
+// peer not prefixed with our own role and applies its offer without checking
+// a key, and mobile.js then hands over its pubkey to be trusted for next
+// time. Two things — NOT the ECDSA ceremony — are what actually keep a
+// stranger out:
+//
+//   1. Room secrecy. The roomId is a UUID shown on screen. On the hub broker
+//      only the LAN could see it. On the public rendezvous the topic is
+//      world-subscribable, so the id leaks the moment the phone offers —
+//      this protection is already gone there.
+//   2. THE EMPTY iceServers BELOW. An off-LAN attacker who reads the room
+//      still has no route to a host/mDNS-only peer, so their datachannel
+//      never opens. This is the only thing standing between the public
+//      rendezvous and a pairing hijack.
+//
+// So: giving the pair path STUN/TURN — the obvious way to "finally fix"
+// cross-network pairing — would silently upgrade a remote nuisance into a
+// remote takeover of any pairing on the public rendezvous. Do not add ICE
+// servers here without first authenticating the joining peer: carry a secret
+// in the QR (&s=) and require signals to be MAC'd with it, so the desktop can
+// reject anyone who never scanned the code. THEN the ceremony is the boundary
+// and this comment can go.
 import { openSignalChannel, getSignalRendezvous } from "./broker-signal.js";
 const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover on its own.
 // Backpressure: DataChannel.bufferedAmount grows unbounded if we outrun the
@@ -402,7 +430,11 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
   const myPeerId = makePeerId("desktop");
   const otherRolePrefix = "phone";
-  const iceServers = [];   // LAN-only: host/mDNS candidates; see module header
+  // LAN-only: host/mDNS candidates. Load-bearing for security, not just
+  // scope — this emptiness is what stops a stranger who read the room off the
+  // public rendezvous from completing a pair. See "Who is authenticated" in
+  // the module header before adding anything to it.
+  const iceServers = [];
   diagReset("desktop", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);
@@ -506,7 +538,11 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   const myPeerId = makePeerId("phone");
   const otherRolePrefix = "desktop";
   try { onStatus("Opening signal channel…"); } catch {}
-  const iceServers = [];   // LAN-only: host/mDNS candidates; see module header
+  // LAN-only: host/mDNS candidates. Load-bearing for security, not just
+  // scope — this emptiness is what stops a stranger who read the room off the
+  // public rendezvous from completing a pair. See "Who is authenticated" in
+  // the module header before adding anything to it.
+  const iceServers = [];
   diagReset("phone", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);

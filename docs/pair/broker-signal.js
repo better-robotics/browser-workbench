@@ -42,11 +42,16 @@ import { WS_PORT } from "../protocol-constants.js";
 // SLA, and every message on it is world-readable.
 const PUBLIC_RENDEZVOUS = "wss://broker.emqx.io:8084/mqtt";
 // Namespaced so we neither collide with strangers on the shared broker nor
-// leave litter nobody can attribute. This buys collision-avoidance and
-// hygiene, NOT privacy — anyone may subscribe <prefix>#. Survivable only
-// because the ECDSA P-256 ceremony (peer-key.js) is the trust boundary and
-// transport carries none: a reader learns room ids, pubkeys, and timing, and
-// can still neither join a room nor impersonate a peer.
+// leave litter nobody can attribute. Collision-avoidance and hygiene, NOT
+// privacy: anyone may subscribe <prefix>#, so a reader learns room ids,
+// pubkeys, SDP, and timing.
+//
+// Be precise about why that is survivable, because it is NOT "the ECDSA
+// ceremony covers it" — that authenticates the desktop to the phone, never
+// the phone to the desktop. A reader of this broker CAN join a room; what
+// stops them is that the pair path has no ICE servers, so an off-LAN peer
+// has no media path. Read "Who is authenticated" in pairing.js before
+// treating this fallback as safe, and before touching iceServers there.
 const PUBLIC_PREFIX = "better-robotics/";
 
 // Can this page open the hub's plain-ws listener at all? A https page can't
