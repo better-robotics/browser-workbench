@@ -25,7 +25,7 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
   `docs/hub/hub-transport.js` (lazy-imported by `app.js`).
 
 ### Phone (`phone.html`)
-- `#pair=<uuid>[&pk=<pubkey>&hub=<host>]` — the pairing room id, normally injected by the QR. `pk` binds in-person trust; `hub` names the broker carrying the WebRTC signaling (`pair/#` topics — defaults to `hub.local`). Pairing is same-LAN only: signaling moved from signal.neevs.io to the hub broker 2026-07-10. Implementation: `mobile.js`, `pair/broker-signal.js`.
+- `#pair=<uuid>[&pk=<pubkey>&hub=<host>]` — the pairing room id, normally injected by the QR. `pk` binds in-person trust; `hub` names the broker carrying the WebRTC signaling (`pair/#` topics — defaults to `hub.local`). `hub` carries *which* hub, never the scheme: each side derives that from its own origin, and since the QR is built from the desktop's origin both always land on the same rendezvous. **Media is same-LAN only** (no ICE servers on the pair path), but signaling is not: a https page signals over a public wss broker under a `better-robotics/` prefix instead. Implementation: `mobile.js`, `pair/broker-signal.js`.
 
 ## Serving contexts — what works from where
 
@@ -35,7 +35,7 @@ There is no single context that does everything:
 | served from | BLE (secure context) | LAN http/ws — hub transport, pairing signaling, presence, MJPEG |
 |---|---|---|
 | `http://localhost` (`make serve`) | ✓ | ✓ — the dev sweet spot |
-| `https://…github.io` | ✓ | ✗ mixed content (Chrome-only override degrades the badge; iOS has no override). Pair button/dialog says so instead of a doomed ceremony — gate is `pairTransportBlocked()` (`pair/broker-signal.js`), feature-detected so the Chrome override still passes |
+| `https://…github.io` | ✓ | ✗ mixed content (Chrome-only override degrades the badge; iOS has no override). **Pairing still works**: signaling falls back to a public wss rendezvous (`pair/broker-signal.js`, `getSignalRendezvous()`). Hub transport, presence lobby, and MJPEG have no such escape and stay dark — gate is `lanBrokerBlocked()`, feature-detected so the Chrome override still passes |
 | `http://<LAN-IP>` / `http://hub.local` | ✗ | ✓ — the phone/classroom context (the hub serves the IDE at `http://hub.local/ide/?hub=hub.local`) |
 
 Consequences: show the pair QR from a page the *phone* can reach over http

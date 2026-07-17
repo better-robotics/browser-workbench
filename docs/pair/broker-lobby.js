@@ -12,9 +12,18 @@
 // topics on close; a crashed publisher's ad ages out of every client's
 // view at ttl and only lingers as inert broker crud in an unguessable-id
 // namespace.
+//
+// The lobby stays on the hub broker even where signaling falls back to a
+// public one (broker-signal.js). Ads are always-on presence, not a one-shot
+// in-person ceremony: "a better-robotics Mac is here, and here is its pubkey",
+// retained and refreshed every 25s. The scope claim above is the whole point
+// of the 2026-07-10 move — putting that on a shared broker would widen it from
+// "everyone on this hub" to "everyone on the internet", which is wider than
+// the signal.neevs.io lobby it replaced. Signaling may travel because the QR
+// is the secret and the room is one-shot; presence has no such cover.
 import { connectMqtt } from "../hub/mqtt.js";
 import { getMyPubkeyB64, signBytes, verifyBytes, canonical } from "./peer-key.js";
-import { getSignalBrokerHost, pairTransportBlocked } from "./broker-signal.js";
+import { getSignalBrokerHost, lanBrokerBlocked } from "./broker-signal.js";
 import { WS_PORT } from "../protocol-constants.js";
 
 const REPUBLISH_MS = 25_000;
@@ -57,7 +66,7 @@ class BrokerLobby {
   _connect() {
     // No retry when the page can't open ws:// at all — otherwise the
     // https deploy logs a mixed-content error every RECONNECT_MS forever.
-    if (this._closed || pairTransportBlocked()) return;
+    if (this._closed || lanBrokerBlocked()) return;
     connectMqtt(`ws://${this._host || getSignalBrokerHost()}:${WS_PORT}`, {
       clientId: `lobby-${Math.random().toString(36).slice(2, 10)}`,
       onMessage: (topic, payload) => this._onAd(topic, payload),

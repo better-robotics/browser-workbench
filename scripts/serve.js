@@ -13,10 +13,12 @@ const net     = require('net');
 const os      = require('os');
 const { spawn, execSync } = require('child_process');
 
-// The phone URL must be the LAN IP over http: pairing signals over the hub
-// broker (ws://), and a https origin (the tunnel) can't open ws:// — mixed
-// content, with no override on iOS. The tunnel survives only as a remote
-// read-only view.
+// The phone URL is the LAN IP over http, still the right default: it keeps
+// signaling on the hub broker (ws://) and needs no internet at all. The https
+// tunnel can pair now too — broker-signal.js falls back to a public wss
+// rendezvous when an origin can't open ws:// — but hub transport and MJPEG
+// have no such escape and stay mixed-content-blocked, so the tunnel is a
+// remote view that happens to pair, not a full bench.
 function lanIp() {
   for (const addrs of Object.values(os.networkInterfaces())) {
     for (const a of addrs || []) {
@@ -88,7 +90,7 @@ server.listen(PORT, '::', () => {
     if (!match) return;
     tunnelUrl = match[0];
     waitForDns(new URL(tunnelUrl).hostname, () => {
-      console.log(`  \x1b[2m→  Remote view:  ${tunnelUrl}  (https — no phone pairing / hub features)\x1b[0m`);
+      console.log(`  \x1b[2m→  Remote view:  ${tunnelUrl}  (https — pairs via the public rendezvous; no hub transport)\x1b[0m`);
       console.log('');
     });
   }

@@ -13,11 +13,15 @@
 // late-joiners arrive; applied only when we're not already on a healthy
 // connection.
 //
-// LAN-only by design: no ICE servers, no TURN — signaling moved from
-// wss://signal.neevs.io to the hub broker, so both peers are on the same
-// network and host/mDNS candidates carry the connection. The robot↔desktop
-// WebRTC paths keep TURN via webrtc/ice.js.
-import { openSignalChannel, getSignalBrokerHost } from "./broker-signal.js";
+// LAN-only MEDIA by design: no ICE servers, no TURN — host/mDNS candidates
+// carry the connection, so both peers must be on the same network. The
+// robot↔desktop WebRTC paths keep TURN via webrtc/ice.js.
+//
+// Signaling is a separate question and may leave the LAN: broker-signal.js
+// picks the hub broker or a public one by what the page's origin can open.
+// That widens WHERE THE PAGE CAN BE SERVED FROM, never where the phone can
+// be — a phone on LTE still has no media path.
+import { openSignalChannel, getSignalRendezvous } from "./broker-signal.js";
 const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover on its own.
 // Backpressure: DataChannel.bufferedAmount grows unbounded if we outrun the
 // peer. Text/joypad traffic is tiny so we rarely get near this; the queue is
@@ -297,7 +301,7 @@ class Peer {
   _reopenSignal() {
     this._reopening = true;
     this._setStatus("reconnecting", "Signal channel dropped, reopening…");
-    const newWs = openSignalWs(this._roomId);
+    const newWs = openSignalWs(this._roomId, this._myPeerId);
     newWs.addEventListener("open", () => {
       const oldWs = this._ws;
       this._ws = newWs;
@@ -377,8 +381,8 @@ class Peer {
   }
 }
 
-function openSignalWs(roomId) {
-  return openSignalChannel(roomId);
+function openSignalWs(roomId, myPeerId) {
+  return openSignalChannel(roomId, myPeerId);
 }
 
 function wireIceTrickle(pc, ws, myPeerId) {
@@ -403,7 +407,7 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);
   pc.addEventListener("icecandidate", (e) => { if (e.candidate) diagLocal(e.candidate); });
-  const ws = openSignalWs(roomId);
+  const ws = openSignalWs(roomId, myPeerId);
   wireIceTrickle(pc, ws, myPeerId);
   let resolvePeer, rejectPeer;
   const peerPromise = new Promise((res, rej) => { resolvePeer = res; rejectPeer = rej; });
@@ -477,10 +481,12 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
       resolved = true;
       clearTimeout(timeoutId);
       pc.close();
+      const { url, public: isPublic } = getSignalRendezvous();
       rejectPeer(new Error(
-        `Couldn't reach the hub broker (${getSignalBrokerHost()}) for pairing. ` +
-        "Pairing signals over the hub — open the dashboard with ?hub=<host> " +
-        "on an http-served page, with both devices on the hub's network.",
+        `Couldn't reach the pairing rendezvous (${url}). ` +
+        (isPublic
+          ? "This page signals over a public broker — check this machine is online."
+          : "Pairing signals over the hub — check ?hub=<host> is right and both devices are on the hub's network."),
       ));
     }
   });
@@ -506,7 +512,7 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   diagPc(pc);
   pc.addEventListener("icecandidate", (e) => { if (e.candidate) diagLocal(e.candidate); });
   const channel = pc.createDataChannel("pip");
-  const ws = openSignalWs(roomId);
+  const ws = openSignalWs(roomId, myPeerId);
   wireIceTrickle(pc, ws, myPeerId);
 
   pc.addEventListener("iceconnectionstatechange", () => {
@@ -579,7 +585,11 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
       }
     });
 
-    ws.addEventListener("error", () => fail(new Error(`Couldn't reach the hub broker (${getSignalBrokerHost()}). Is this phone on the hub's Wi-Fi?`)));
+    ws.addEventListener("error", () => {
+      const { url, public: isPublic } = getSignalRendezvous();
+      fail(new Error(`Couldn't reach the pairing rendezvous (${url}). ` +
+        (isPublic ? "Is this phone online?" : "Is this phone on the hub's Wi-Fi?")));
+    });
     pc.addEventListener("connectionstatechange", () => {
       // Only fail the INITIAL connect this way; once Peer is constructed,
       // its own iceconnectionstatechange handler owns lifecycle.

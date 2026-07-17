@@ -1,35 +1,65 @@
-// WebRTC signaling over the hub broker (better-robotics/hub CONTRACT.md §
-// pair): pair/<roomId>/s/<peerId>, retained. Replaces wss://signal.neevs.io.
+// WebRTC signaling for phone↔desktop pairing: <prefix>pair/<roomId>/s/<peerId>,
+// retained. Two rendezvous, picked by what the page's origin is allowed to open:
 //
-// openSignalChannel(roomId) returns a WebSocket-shaped facade — send /
-// close / readyState / addEventListener("open"|"message"|"error"|"close")
-// — so pairing.js's ws call sites work unchanged. Semantics mapping:
+//   http-served  → the hub broker, ws://<host>:9001. No prefix: that topic
+//                  space is better-robotics/hub CONTRACT.md § pair, and the
+//                  namespace IS the contract.
+//   https-served → a public MQTT broker over wss. A https page cannot open
+//                  ws:// at all (mixed content), and with the hub broker as
+//                  the only rendezvous that severed pairing on the deployed
+//                  site — the one URL the README hands users.
+//
+// The peers never negotiate which: the QR is built from the desktop's own
+// origin (phones.js — new URL("phone.html", location.href)), so the phone
+// resolves the same scheme from the same origin and lands on the same broker.
+// &hub= carries WHICH hub, never the scheme.
+//
+// A rendezvous is a phone book, not a data path — SDP and ICE, nothing else.
+// The pair path still has no ICE servers (webrtc/ice.js owns TURN for the
+// robot↔desktop paths), so media rides host/mDNS candidates and both devices
+// must share a network. Internet signaling does NOT bring back the phone-on-
+// LTE case; it brings back pairing from a https page for two devices on one
+// wifi.
+//
+// openSignalChannel(roomId, myPeerId) returns a WebSocket-shaped facade —
+// send / close / readyState / addEventListener("open"|"message"|"error"|
+// "close") — so pairing.js's ws call sites work unchanged. Semantics mapping:
 //   - {type:"signal"} sends → retained publish on the sender's peer topic.
 //     Retention IS the old server's `state` snapshot: a (re)joining peer
 //     receives each peer's last signal on subscribe, which the facade
 //     delivers wrapped as {type:"state", peers:{...}} so pairing.js keeps
 //     its already-connected guard against stale-offer replay.
 //   - {type:"ping"} heartbeats are dropped — the MQTT keepalive owns that.
-//   - close() clears this side's retained topics (room hygiene; rooms are
-//     one-shot UUIDs either way).
-//
-// Host resolution: explicit setSignalBrokerHost() (the phone sets it from
-// the pair QR's &hub= param) → the page's ?hub=/#hub= param → "hub.local"
-// (both hub shapes set that hostname). LAN-only by design: no TURN, no
-// internet rendezvous — the pair ceremony (ECDSA P-256, peer-key.js)
-// authenticates peers end-to-end, transport carries no trust.
+//   - close() clears this side's retained topics; a pagehide handler calls it
+//     when the tab goes away, and a retained empty-payload Last Will is the
+//     backstop for a socket that dies with no close frame at all. A tab must
+//     not strand SDP on a broker we don't own.
 import { connectMqtt } from "../hub/mqtt.js";
 import { WS_PORT } from "../protocol-constants.js";
 
-// A https page can't open the broker's plain-ws listener (mixed content),
-// which severs every pair transport at once — signaling, lobby presence,
-// pair-requests. Feature-detected (the WebSocket constructor throws
-// synchronously when blocked) rather than protocol-sniffed, so Chrome's
+// EMQX's open broker speaks MQTT 3.1.1 over wss on 8084 under the 'mqtt'
+// subprotocol connectMqtt already sends. It is explicitly a test broker: no
+// SLA, and every message on it is world-readable.
+const PUBLIC_RENDEZVOUS = "wss://broker.emqx.io:8084/mqtt";
+// Namespaced so we neither collide with strangers on the shared broker nor
+// leave litter nobody can attribute. This buys collision-avoidance and
+// hygiene, NOT privacy — anyone may subscribe <prefix>#. Survivable only
+// because the ECDSA P-256 ceremony (peer-key.js) is the trust boundary and
+// transport carries none: a reader learns room ids, pubkeys, and timing, and
+// can still neither join a room nor impersonate a peer.
+const PUBLIC_PREFIX = "better-robotics/";
+
+// Can this page open the hub's plain-ws listener at all? A https page can't
+// (mixed content). Feature-detected — the WebSocket constructor throws
+// synchronously when blocked — rather than protocol-sniffed, so Chrome's
 // per-site "Insecure content: Allow" override still passes (DEV.md
-// serving-context matrix). Callers gate affordances and reconnect loops
-// on this instead of spinning on doomed sockets.
+// serving-context matrix).
+//
+// Signaling answers "no" by switching rendezvous, so pairing works either
+// way. The always-on presence lobby (broker-lobby.js) has no such escape and
+// gates on this instead — see the note there for why it must not follow.
 let _blocked = null;
-export function pairTransportBlocked() {
+export function lanBrokerBlocked() {
   if (_blocked === null) {
     if (location.protocol !== "https:") {
       _blocked = false;
@@ -51,7 +81,17 @@ export function getSignalBrokerHost() {
   return h || "hub.local";
 }
 
-export function openSignalChannel(roomId) {
+// The rendezvous this page will actually use. `public` is for callers that
+// need to say so out loud (error copy); `prefix` is "" on the hub.
+export function getSignalRendezvous() {
+  return lanBrokerBlocked()
+    ? { url: PUBLIC_RENDEZVOUS, prefix: PUBLIC_PREFIX, public: true }
+    : { url: `ws://${getSignalBrokerHost()}:${WS_PORT}`, prefix: "", public: false };
+}
+
+export function openSignalChannel(roomId, myPeerId) {
+  const { url, prefix } = getSignalRendezvous();
+  const topicBase = `${prefix}pair/${roomId}/s/`;
   const listeners = { open: [], message: [], error: [], close: [] };
   const fire = (type, ev = {}) => { for (const fn of listeners[type]) { try { fn(ev); } catch {} } };
   const published = new Set();   // this side's retained topics, cleared on close
@@ -66,13 +106,14 @@ export function openSignalChannel(roomId) {
       let msg;
       try { msg = JSON.parse(str); } catch { return; }
       if (msg.type !== "signal" || !msg.peer) return;   // pings die here
-      const topic = `pair/${roomId}/s/${msg.peer}`;
+      const topic = `${topicBase}${msg.peer}`;
       published.add(topic);
       client.publish(topic, str, { retain: true });
     },
     close() {
       closed = true;
       facade.readyState = WebSocket.CLOSED;
+      window.removeEventListener("pagehide", onPageHide);
       if (client) {
         for (const t of published) { try { client.publish(t, "", { retain: true }); } catch {} }
         try { client.close(); } catch {}
@@ -81,11 +122,26 @@ export function openSignalChannel(roomId) {
     },
   };
 
-  connectMqtt(`ws://${getSignalBrokerHost()}:${WS_PORT}`, {
+  // Closing the tab sends a normal WS close frame, and a broker is entitled
+  // to read that as a graceful disconnect and drop the will — measured
+  // against EMQX, which does exactly that. So the will alone would leave our
+  // retained SDP behind on the single most common exit; clear it ourselves
+  // while we still can. `persisted` = bfcache, where the page may yet come
+  // back and pairing.js's reopen path should keep the room.
+  const onPageHide = (e) => { if (!e.persisted) facade.close(); };
+  window.addEventListener("pagehide", onPageHide);
+
+  connectMqtt(url, {
     clientId: `pair-${roomId.slice(0, 8)}-${Math.random().toString(36).slice(2, 8)}`,
+    // Last line of defence, not the first: the only topic we ever retain is
+    // our own peer's, and this clears it if the socket dies with no close
+    // frame at all (crash, kill, wifi drop). A clean close is the pagehide
+    // handler's job — EMQX suppresses the will there. Unverified against a
+    // real RST: a browser gives no way to fake one.
+    will: myPeerId ? { topic: `${topicBase}${myPeerId}`, payload: "" } : null,
     onMessage(topic, payload, { retain } = {}) {
       if (!payload) return;                             // cleared retained topic
-      if (!topic.startsWith(`pair/${roomId}/s/`)) return;
+      if (!topic.startsWith(topicBase)) return;
       if (!retain) { fire("message", { data: payload }); return; }
       // Retained replay → state snapshot, so pairing.js applies it only
       // when not already on a healthy connection.
@@ -102,7 +158,7 @@ export function openSignalChannel(roomId) {
   }).then((c) => {
     if (closed) { try { c.close(); } catch {} return; }
     client = c;
-    c.subscribe(`pair/${roomId}/s/+`);
+    c.subscribe(`${topicBase}+`);
     facade.readyState = WebSocket.OPEN;
     fire("open", {});
   }).catch((err) => {

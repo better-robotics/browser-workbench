@@ -30,8 +30,13 @@ function packet(typeAndFlags, body) {
 
 // Resolves once CONNACK accepts; rejects on refusal, socket error, or close
 // before connect. After that, failures surface through onClose.
+// `will` = { topic, payload } publishes retained on an UNGRACEFUL exit (crash,
+// kill, lost wifi) — the broker sends it for us. A retained empty payload
+// clears a topic, so `{ topic, payload: "" }` is the crash-path twin of a
+// close() that clears its own retained state. Omit it and the CONNECT bytes
+// are byte-identical to before, which is what hub-transport.js still sends.
 export function connectMqtt(url, {
-  clientId, username, password, keepalive = 30, onMessage, onClose,
+  clientId, username, password, keepalive = 30, onMessage, onClose, will = null,
 } = {}) {
   return new Promise((resolve, reject) => {
     // Mosquitto's WS listener requires the 'mqtt' subprotocol.
@@ -64,11 +69,15 @@ export function connectMqtt(url, {
 
     ws.onopen = () => {
       const flags = 0x02 /* clean session */
+        | (will ? 0x04 | 0x20 : 0) /* will flag + will retain, will QoS 0 */
         | (username ? 0x80 : 0) | (password ? 0x40 : 0);
       ws.send(packet(0x10, [
         ...mqttString("MQTT"), 4 /* protocol level = 3.1.1 */, flags,
         (keepalive >> 8) & 0xff, keepalive & 0xff,
+        // Payload field order is fixed by the spec: ClientId, Will Topic,
+        // Will Message, Username, Password.
         ...mqttString(clientId || `workbench-${Math.random().toString(16).slice(2, 10)}`),
+        ...(will ? [...mqttString(will.topic), ...mqttString(will.payload ?? "")] : []),
         ...(username ? mqttString(username) : []),
         ...(password ? mqttString(password) : []),
       ]));
