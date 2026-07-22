@@ -16,6 +16,7 @@
 #include "ota.h"
 #include "rgb.h"
 #include "servo.h"
+#include "ws2812.h"
 #include "pin_config.h"
 #include "telemetry.h"
 #include "wifi_sta.h"
@@ -67,6 +68,7 @@ void app_main(void) {
     encoders_init(&pins);
     servo_init(pins.servo);
     rgb_init(pins.rgb_r, pins.rgb_g, pins.rgb_b);
+    ws2812_init(pins.ws2812);   // onboard addressable RGB (S3-CAM); no-op elsewhere
     // Storage: flash-only mount, no radio. Before fw_info so the "fs" cap
     // is advertised only when the partition actually mounted (boot probe).
     fs_svc_init();

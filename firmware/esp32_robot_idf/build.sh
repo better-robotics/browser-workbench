@@ -7,11 +7,12 @@
 # Usage:
 #   BOARD=aithinker_cam ./build.sh
 #   BOARD=devkit ./build.sh
+#   BOARD=s3_cam ./build.sh
 #   BOARD=c3_supermini ./build.sh
 
 set -euo pipefail
 
-BOARD="${BOARD:?BOARD env var required (aithinker_cam | devkit | c3_supermini)}"
+BOARD="${BOARD:?BOARD env var required (aithinker_cam | devkit | s3_cam | c3_supermini)}"
 
 case "$BOARD" in
   aithinker_cam)
@@ -23,6 +24,12 @@ case "$BOARD" in
     TARGET=esp32
     DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.board.devkit"
     BOOTLOADER_OFFSET="0x1000"
+    ;;
+  s3_cam)
+    TARGET=esp32s3
+    DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.board.s3_cam"
+    # esp32s3 bootloader lands at 0x0 (same as C3 — no ROM stub at 0x1000).
+    BOOTLOADER_OFFSET="0x0"
     ;;
   c3_supermini)
     TARGET=esp32c3

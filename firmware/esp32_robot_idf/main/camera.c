@@ -12,8 +12,28 @@
 
 static const char *TAG = "camera";
 
-// AI-Thinker ESP32-CAM pin map. If a board variant shows up, switch on
-// an ifdef rather than patching in place.
+// Camera pin map — board-specific. Selected by CONFIG_BR_BOARD_*.
+#if CONFIG_BR_BOARD_S3_CAM
+// Freenove ESP32-S3-WROOM CAM (OV2640) — the vendor's documented layout,
+// matching better-robotics/robot's proven CAM_PINS_FREENOVE_S3 map.
+#define PWDN_GPIO_NUM     -1
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM     15
+#define SIOD_GPIO_NUM      4
+#define SIOC_GPIO_NUM      5
+#define Y9_GPIO_NUM       16
+#define Y8_GPIO_NUM       17
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       12
+#define Y5_GPIO_NUM       10
+#define Y4_GPIO_NUM        8
+#define Y3_GPIO_NUM        9
+#define Y2_GPIO_NUM       11
+#define VSYNC_GPIO_NUM     6
+#define HREF_GPIO_NUM      7
+#define PCLK_GPIO_NUM     13
+#else
+// AI-Thinker ESP32-CAM pin map (the canonical classic-ESP32 layout).
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -30,6 +50,7 @@ static const char *TAG = "camera";
 #define VSYNC_GPIO_NUM    25
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
+#endif
 
 // LEDC for the camera XCLK runs at 20 MHz on its own timer/channel —
 // motors + flash own TIMER_0 / channels 0..4 at 1 kHz, so the camera

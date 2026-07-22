@@ -2,7 +2,7 @@
 
 ## Current: ESP32-CAM-MB
 
-The kit ships with the **ESP32-CAM-MB**: AI Thinker ESP32-CAM on a programmer carrier with a USB micro-B port. Plug in, flash from the dashboard. Published binaries in `docs/firmware/bins/` target this board; nothing else has prebuilt artifacts yet.
+The kit ships with the **ESP32-CAM-MB**: AI Thinker ESP32-CAM on a programmer carrier with a USB micro-B port. Plug in, flash from the dashboard. CI publishes prebuilt binaries in `docs/firmware/bins/` for every supported board — `aithinker_cam`, `devkit`, `s3_cam`, and `c3_supermini`; the dashboard's Flash button picks the right one from the detected chip.
 
 **Bare ESP32-CAM ≠ ESP32-CAM-MB.** Two SKUs ship under the same name. The bare module has no USB; flashing requires an external FTDI/CP2102 adapter wired to U0R/U0T/GND with IO0 grounded for boot. The MB carrier *is* the USB-to-serial bridge. Buy the kit version unless you want the wiring exercise.
 
@@ -35,15 +35,26 @@ The AI-Thinker module's onboard AMS1117 LDO sags hard when WiFi TX bursts coinci
 
 The brownout-disabled firmware runs without these, trading "auto-protect on real undervolt" for "doesn't reset on transient dips."
 
-## Forward path: ESP32-C6 and ESP32-S3
+## Freenove ESP32-S3-WROOM CAM
 
-Source compiles for both. **CI doesn't publish prebuilt binaries yet.** Clone the repo and `make flash` locally. Once a board is validated, CI adds targets and the dashboard's Flash button routes via `manifest.json`.
+A published board (`s3_cam`) — CI builds it and the dashboard's Flash button
+routes to it. The S3 upgrade over the AI-Thinker CAM: octal PSRAM, more free
+GPIOs, and an onboard addressable RGB.
 
-**ESP32-C6** is the BLE-first match: native USB CDC, Bluetooth 5.3 LE, better RAM headroom than S3 when TLS shares memory with BLE during OTA. DevKitC-1 or any WROOM-based C6 board.
+- **Camera** — OV2640 on the Freenove S3 pin map (XCLK 15, SIOD 4, SIOC 5, data 11/9/8/10/12/18/17/16, VSYNC 6, HREF 7, PCLK 13, no PWDN/RESET). Same `esp_camera` auto-detect + HTTP MJPEG (`:81/stream`) transport as the CAM-MB.
+- **Onboard RGB** — a single WS2812 on GPIO48, driven by `ws2812.c` (led_strip/RMT). It backs the dashboard's **RGB** color-picker cap: the firmware fans the RGB characteristic write to both the 3-pin LEDC driver and the WS2812, so the same cap + UI works on either board with no client change.
+- **Motors** — default to GPIO 1/2/42/41 (PWM-on-direction), chosen clear of the camera lines, the flash/octal-PSRAM block (26–37), USB (19/20), UART0 (43/44), and strapping pins. Remap in the Pinout editor for your carrier.
+- **Flash offset** — the S3 bootloader lands at `0x0` (not `0x1000`); `build.sh` and each board's `manifest.json` carry the per-target offset.
+- **Flashing** — `BOARD=s3_cam ./build.sh`, or the dashboard web-flasher (auto-detects the S3 and picks the `s3_cam` bins).
 
-**ESP32-S3** is the path for dual-core or camera. ESP32-S3-CAM, Freenove ESP32-S3-WROOM, or any DevKitC-S3. Native USB CDC, larger BLE/WiFi memory footprint than C6.
+## Forward path: ESP32-C6
 
-Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-C6) (C6, S3), DigiKey, Mouser. Espressif's official store ships globally. Freenove kit ships from Amazon.
+Source compiles for the **ESP32-C6** too, but CI doesn't publish it yet — clone
+and `make flash` locally. C6 is the BLE-first match: native USB CDC, Bluetooth
+5.3 LE, better RAM headroom than S3 when TLS shares memory with BLE during OTA.
+DevKitC-1 or any WROOM-based C6 board.
+
+Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-S3) (S3, C6), DigiKey, Mouser. Espressif's official store ships globally. The Freenove ESP32-S3-WROOM CAM kit ships from Amazon.
 
 ## Raspberry Pi (the classroom hub)
 
@@ -58,8 +69,8 @@ in that repo — workbench itself only drives ESP32 rovers.
 
 Two variables track the ESP32 board:
 
-- **target** for `idf.py set-target` — `esp32` for CAM-MB; `esp32s3` for S3. Per-target defaults in `sdkconfig.defaults.esp32` / `sdkconfig.defaults.esp32s3`.
-- **`LED_PIN`** in `firmware/esp32_robot_idf/main/pin_config.c` — GPIO 33 active-low on CAM-MB. S3 boards vary; many use a WS2812 neopixel (GPIO 48 on DevKitC-S3) which needs a different driver entirely. The dashboard's Pinout editor overrides at runtime via NVS, no rebuild.
+- **board** for `build.sh` — `BOARD=aithinker_cam|devkit|s3_cam|c3_supermini ./build.sh` sets the target and composes `sdkconfig.defaults.board.<board>`. The `CONFIG_BR_BOARD_*` choice drives the pin-map defaults, forbidden-pin set, and camera/PSRAM/WS2812 presence.
+- **LED pin** in `firmware/esp32_robot_idf/main/pin_config.c` — GPIO 33 active-low on the CAM-MB; no plain LED on the S3-CAM (its onboard LED is the WS2812 RGB, GPIO48, handled by `ws2812.c`). The dashboard's Pinout editor overrides pins at runtime via NVS, no rebuild.
 
 The IDF partition layout (1.9 MB OTA slots, otadata at 0xE000) matches arduino-esp32's `min_spiffs` so a fielded ESP32 originally flashed with the .ino can OTA into this firmware without bricking.
 

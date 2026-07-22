@@ -23,5 +23,13 @@ dependencies:
   joltwallet/littlefs:
     version: "^1.14.8"
 
+  # Addressable-RGB driver for the S3-CAM's onboard WS2812 (ws2812.c).
+  # esp32s3 only — the other boards have a plain-GPIO LED and don't select
+  # BR_HAS_WS2812, so their CMakeLists doesn't REQUIRE it.
+  espressif/led_strip:
+    version: "^2.5.4"
+    rules:
+      - if: "target == esp32s3"
+
   idf:
     version: ">=5.1.0"

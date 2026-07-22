@@ -91,6 +91,36 @@ const DEVKIT_PINS_BOT = [
   { label: "IO23", gpio: 23, kind: "gpio", status: "free" },
 ];
 
+// Freenove ESP32-S3-WROOM CAM (N8R8): OV2640 + octal PSRAM, onboard WS2812
+// on GPIO48, µSD. The camera claims 4–18 (minus 14); SPI flash + octal
+// PSRAM occupy 26–37; USB-JTAG on 19/20, UART0 on 43/44. Order here is
+// logical (grouped by role), not the exact silkscreen layout — see
+// footerNote. Every entry's status is accurate for pin-assignment safety.
+const S3_CAM_PINS_TOP = [
+  { label: "5V",   kind: "5v" },
+  { label: "GND",  kind: "gnd" },
+  { label: "3V3",  kind: "3v3" },
+  { label: "IO1",  gpio: 1,  kind: "gpio", status: "free", note: "GPIO1 (ADC1_0). Default left-motor IN1." },
+  { label: "IO2",  gpio: 2,  kind: "gpio", status: "free", note: "GPIO2 (ADC1_1). Default left-motor IN2." },
+  { label: "IO42", gpio: 42, kind: "gpio", status: "free", note: "Default right-motor IN1." },
+  { label: "IO41", gpio: 41, kind: "gpio", status: "free", note: "Default right-motor IN2." },
+  { label: "IO14", gpio: 14, kind: "gpio", status: "free", note: "Free — not a camera line on this board." },
+  { label: "IO21", gpio: 21, kind: "gpio", status: "free" },
+  { label: "IO47", gpio: 47, kind: "gpio", status: "free" },
+];
+const S3_CAM_PINS_BOT = [
+  { label: "IO40", gpio: 40, kind: "gpio", status: "sd-shared", note: "µSD DATA line — free only if the onboard microSD is unused." },
+  { label: "IO39", gpio: 39, kind: "gpio", status: "sd-shared", note: "µSD CLK — free only if the microSD is unused." },
+  { label: "IO38", gpio: 38, kind: "gpio", status: "sd-shared", note: "µSD CMD — free only if the microSD is unused." },
+  { label: "RGB",  gpio: 48, kind: "gpio", status: "forbidden", note: "Onboard WS2812 addressable LED — driven by firmware as the RGB cap; not reassignable." },
+  { label: "IO19", gpio: 19, kind: "gpio", status: "reserved", note: "USB D− (USB-Serial-JTAG). Reassigning breaks the USB console/reset path." },
+  { label: "IO20", gpio: 20, kind: "gpio", status: "reserved", note: "USB D+ (USB-Serial-JTAG)." },
+  { label: "TX0",  gpio: 43, kind: "gpio", status: "reserved", note: "UART0 TX — serial console + programming line." },
+  { label: "RX0",  gpio: 44, kind: "gpio", status: "reserved", note: "UART0 RX — serial console + programming line." },
+  { label: "IO0",  gpio: 0,  kind: "gpio", status: "reserved", note: "Boot-mode strap — hold LOW to enter download mode. Do not reassign." },
+  { label: "IO45", gpio: 45, kind: "gpio", status: "warn", note: "VDD_SPI strapping pin — leave at its default level at reset." },
+];
+
 // ESP32-C3 SuperMini (RISC-V, 24-pin board). Native USB on GPIO 18/19;
 // onboard LED on GPIO 8 (also strapping). Flash pins 11–17 are internal
 // flash on the FH4 package — not on the header but listed forbidden in
@@ -194,6 +224,35 @@ export const BOARDS = [
       m_ena: -1, m_enb: -1,
       enc_l: -1, enc_r: -1,
       servo: -1, rgb_r: -1, rgb_g: -1, rgb_b: -1,
+    },
+  },
+  {
+    id: "s3_cam",
+    chip: "esp32s3",
+    label: "Freenove ESP32-S3-WROOM CAM",
+    sub: "S3 + OV2640 + octal PSRAM. Onboard WS2812, more GPIOs than the AI-Thinker.",
+    // CH343 UART bridge (WCH, 0x1a86 — shared with the DevKit's CH340, but
+    // the install picker resolves it post-chip-detect: esp32 vs esp32s3).
+    // 0x303a covers boards flashed over the S3's native USB-Serial-JTAG.
+    usbHints: [0x1a86, 0x303a],
+    pcbLabel: "ESP32-S3 · camera · µSD · RGB",
+    pinsTop: S3_CAM_PINS_TOP,
+    pinsBot: S3_CAM_PINS_BOT,
+    footerNote: "Camera pins (IO4–IO18, minus IO14) are fixed by the Freenove layout. SPI flash + octal PSRAM (IO26–IO37), USB (IO19/IO20), and UART0 (IO43/IO44) are off-limits; the onboard WS2812 (IO48) is the RGB cap. µSD lines (IO38–IO40) are free only if the microSD is unused. Row order is grouped by role, not the exact silkscreen.",
+    cameraReservedGpios: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18],
+    // Mirrors PINS_FORBIDDEN in pin_config.c (CONFIG_BR_BOARD_S3_CAM) exactly.
+    forbiddenGpios: [
+      0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 43, 44, 45, 46, 48,
+    ],
+    maxGpio: 48,
+    pinDefaults: {
+      led: -1, flash: -1,
+      m_l_fwd: 1, m_l_bwd: 2, m_r_fwd: 42, m_r_bwd: 41,
+      m_ena: -1, m_enb: -1,
+      enc_l: -1, enc_r: -1,
+      servo: -1, rgb_r: -1, rgb_g: -1, rgb_b: -1,
+      ws2812: 48,
     },
   },
   {

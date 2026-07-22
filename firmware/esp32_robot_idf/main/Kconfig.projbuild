@@ -3,6 +3,7 @@ menu "Better Robotics"
 choice BR_BOARD
     prompt "Target board"
     default BR_BOARD_AITHINKER_CAM if IDF_TARGET_ESP32
+    default BR_BOARD_S3_CAM        if IDF_TARGET_ESP32S3
     default BR_BOARD_C3_SUPERMINI  if IDF_TARGET_ESP32C3
     help
         Selects board-specific defaults: camera/PSRAM presence, pin map
@@ -19,6 +20,13 @@ config BR_BOARD_DEVKIT
     bool "ESP32 DevKitV1 / WROOM-32 (no camera, no PSRAM)"
     depends on IDF_TARGET_ESP32
 
+config BR_BOARD_S3_CAM
+    bool "Freenove ESP32-S3-WROOM CAM (camera + octal PSRAM + onboard WS2812)"
+    depends on IDF_TARGET_ESP32S3
+    select BR_HAS_CAMERA
+    select BR_HAS_PSRAM
+    select BR_HAS_WS2812
+
 config BR_BOARD_C3_SUPERMINI
     bool "ESP32-C3 SuperMini (RISC-V, no camera, no PSRAM)"
     depends on IDF_TARGET_ESP32C3
@@ -32,6 +40,11 @@ config BR_HAS_CAMERA
     bool
 
 config BR_HAS_PSRAM
+    bool
+
+# Onboard single-wire addressable RGB (WS2812/NeoPixel). Gates ws2812.c and
+# the led_strip dependency; boards with a plain-GPIO LED don't select it.
+config BR_HAS_WS2812
     bool
 
 endmenu

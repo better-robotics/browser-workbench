@@ -14,6 +14,7 @@
 #include "motors.h"
 #include "rgb.h"
 #include "servo.h"
+#include "ws2812.h"
 
 static const char *TAG = "fw_info";
 
@@ -26,6 +27,8 @@ static const char *TAG = "fw_info";
 //             toggles left).
 #if CONFIG_IDF_TARGET_ESP32
 #  define BR_CHIP_STR "esp32"
+#elif CONFIG_IDF_TARGET_ESP32S3
+#  define BR_CHIP_STR "esp32s3"
 #elif CONFIG_IDF_TARGET_ESP32C3
 #  define BR_CHIP_STR "esp32c3"
 #else
@@ -38,6 +41,9 @@ static const char *TAG = "fw_info";
 #elif CONFIG_BR_BOARD_DEVKIT
 #  define BR_BOARD_STR   "devkit"
 #  define BR_VARIANT_STR "devkit"
+#elif CONFIG_BR_BOARD_S3_CAM
+#  define BR_BOARD_STR   "s3_cam"
+#  define BR_VARIANT_STR "s3_cam"
 #elif CONFIG_BR_BOARD_C3_SUPERMINI
 #  define BR_BOARD_STR   "c3_supermini"
 #  define BR_VARIANT_STR "c3_supermini"
@@ -126,6 +132,12 @@ void fw_info_init(const pin_config_t *pins) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",{\"name\":\"rgb\",\"type\":\"rgb\",\"pins\":{\"r\":%d,\"g\":%d,\"b\":%d}}",
             pins->rgb_r, pins->rgb_g, pins->rgb_b);
+    } else if (ws2812_enabled()) {
+        // Onboard single-wire addressable RGB (S3-CAM, GPIO48). Same "rgb"
+        // color-picker cap + RGB char — one data pin instead of three. The
+        // gatt rgb write path fans out to the WS2812 driver.
+        o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
+            ",{\"name\":\"rgb\",\"type\":\"rgb\",\"pin\":%d}", pins->ws2812);
     }
     if (servo_enabled()) {
         // SG90-class hobby servo. Reuses the level runtime (slider 0..180);

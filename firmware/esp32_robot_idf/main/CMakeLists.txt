@@ -25,6 +25,7 @@ set(BR_SRCS
     "encoders.c"
     "servo.c"
     "rgb.c"
+    "ws2812.c"
     "ota.c"
     "camera.c"
     "snapshot.c"
@@ -59,6 +60,13 @@ set(BR_REQS
 
 if(CONFIG_BR_HAS_CAMERA)
     list(APPEND BR_REQS esp32-camera)
+endif()
+
+# WS2812 driver (ws2812.c) needs led_strip only where an onboard one exists;
+# the component is esp32s3-only in idf_component.yml, so this REQUIRES line
+# is gated to the same boards to keep resolution clean on the others.
+if(CONFIG_BR_HAS_WS2812)
+    list(APPEND BR_REQS led_strip)
 endif()
 
 idf_component_register(

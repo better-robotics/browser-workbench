@@ -33,6 +33,16 @@ static const ledc_channel_t s_chan[3] = {
 static const ledc_channel_t s_chan[3] = {
     LEDC_CHANNEL_2, LEDC_CHANNEL_3, LEDC_CHANNEL_4,
 };
+#elif CONFIG_IDF_TARGET_ESP32S3
+// S3 is low-speed-only like the C3. On the S3-CAM the onboard RGB is the
+// WS2812 (RMT, ws2812.c), so this 3-pin LEDC path stays dormant — but it
+// must compile, and it's here for any future 3-pin-RGB S3 board. Same
+// channel/timer choice + motor-mode guard as the C3.
+#  define RGB_MODE        LEDC_LOW_SPEED_MODE
+#  define RGB_TIMER       LEDC_TIMER_2
+static const ledc_channel_t s_chan[3] = {
+    LEDC_CHANNEL_2, LEDC_CHANNEL_3, LEDC_CHANNEL_4,
+};
 #else
 #  error "rgb: unknown IDF target — pick LEDC mode/timer/channels"
 #endif

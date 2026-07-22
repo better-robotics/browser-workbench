@@ -20,6 +20,7 @@
 #include "rgb.h"
 #include "servo.h"
 #include "snapshot.h"
+#include "ws2812.h"
 #include "telemetry.h"
 #include "uuids.h"
 #include "wifi_sta.h"
@@ -150,19 +151,26 @@ static int servo_access(uint16_t conn, uint16_t attr,
 
 // 3-byte payload [R, G, B], duty 0..255 per channel. Atomic write: all
 // three colors updated in one BLE round-trip so the LEDs never flash an
-// intermediate combination during a color change.
+// intermediate combination during a color change. Fans out to both LED
+// transports — the 3-pin LEDC rgb.c and the single-wire ws2812.c — so one
+// "rgb" cap + color picker drives whichever the board actually wired. Each
+// apply is a no-op when its driver isn't attached, so exactly one runs.
 static int rgb_access(uint16_t conn, uint16_t attr,
                       struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         uint8_t buf[3] = {0};
         uint16_t copied = 0;
         ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
-        if (copied >= 3) rgb_apply(buf[0], buf[1], buf[2]);
+        if (copied >= 3) {
+            rgb_apply(buf[0], buf[1], buf[2]);
+            ws2812_apply(buf[0], buf[1], buf[2]);
+        }
         return 0;
     }
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         uint8_t v[3];
-        rgb_get(&v[0], &v[1], &v[2]);
+        if (ws2812_enabled()) ws2812_get(&v[0], &v[1], &v[2]);
+        else                  rgb_get(&v[0], &v[1], &v[2]);
         return os_mbuf_append(ctxt->om, v, 3) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
     return BLE_ATT_ERR_UNLIKELY;

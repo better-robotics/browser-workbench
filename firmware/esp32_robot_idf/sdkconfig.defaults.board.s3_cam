@@ -1,0 +1,22 @@
+# Freenove ESP32-S3-WROOM CAM (N8R8): 8 MB QIO flash + 8 MB Octal PSRAM,
+# OV2640, onboard WS2812 on GPIO48. Overlays sdkconfig.defaults; build.sh
+# composes both and runs `idf.py set-target esp32s3` first.
+CONFIG_BR_BOARD_S3_CAM=y
+
+# Flash: the partition table (partitions.csv) spans the first 4 MB (ota_0/1
+# + the storage tail ending at 0x400000). An 8 MB chip runs it fine — the
+# upper 4 MB is simply unused; keep the flash size at the table's span.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Octal PSRAM — required for the camera frame buffers. Reserve internal RAM
+# for the time-critical radios (NimBLE, camera DMA) rather than letting
+# WiFi/LWIP pools land in SPIRAM.
+CONFIG_ESP32S3_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# 240 MHz — the S3 headroom the camera JPEG path wants.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

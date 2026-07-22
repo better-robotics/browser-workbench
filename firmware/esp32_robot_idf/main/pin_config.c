@@ -45,12 +45,31 @@ static const int PINS_FORBIDDEN[] = {
 static const int PINS_FORBIDDEN[] = { 6, 7, 8, 9, 10, 11 };
 #elif CONFIG_BR_BOARD_C3_SUPERMINI
 static const int PINS_FORBIDDEN[] = { 11, 12, 13, 14, 15, 16, 17 };
+#elif CONFIG_BR_BOARD_S3_CAM
+// Freenove ESP32-S3-WROOM CAM (N8R8):
+//   { 4,5,6,7,8,9,10,11,12,13,15,16,17,18 } — OV2640 signal lines
+//     (camera.c's Freenove S3 map).
+//   { 26..37 } — SPI flash + octal PSRAM (WROOM-1 N8R8 pins); driving any
+//     crashes the chip.
+//   { 19, 20 } — native USB D-/D+ (USB-Serial-JTAG); reassigning breaks
+//     the USB console + reset path.
+//   { 43, 44 } — UART0 TX0/RX0, the serial console + programming lines.
+//   { 0, 3, 45, 46 } — boot/JTAG strapping + VDD_SPI; unsafe to drive.
+//   { 48 } — onboard WS2812, driven by ws2812.c.
+// Broken-out SD lines (38/39/40) stay assignable — flagged sd-shared, not
+// forbidden — so a carrier without a µSD can use them.
+static const int PINS_FORBIDDEN[] = {
+    0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20,
+    26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 43, 44, 45, 46, 48
+};
 #endif
 
 #if CONFIG_IDF_TARGET_ESP32
 #define PIN_MAX 39
 #elif CONFIG_IDF_TARGET_ESP32C3
 #define PIN_MAX 21
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define PIN_MAX 48
 #else
 #error "pin_config: unknown IDF target — add PIN_MAX"
 #endif
@@ -90,6 +109,8 @@ void pin_config_load(pin_config_t *out) {
     // side's Motor(enable=) behavior).
     out->motor_ena = -1;
     out->motor_enb = -1;
+    // Addressable RGB off unless a board wires an onboard one (S3-CAM below).
+    out->ws2812 = -1;
 #if CONFIG_BR_BOARD_AITHINKER_CAM
     // ESP32-CAM has ~8 user-assignable GPIOs (most SD- or PSRAM-shared)
     // — these four are the only set that doesn't collide with the camera
@@ -113,6 +134,20 @@ void pin_config_load(pin_config_t *out) {
     out->motor_l_bwd = 17;
     out->motor_r_fwd = 18;
     out->motor_r_bwd = 19;
+#elif CONFIG_BR_BOARD_S3_CAM
+    // Freenove S3-CAM: no plain LED (the onboard RGB is the WS2812 below).
+    // Motors on four broken-out GPIOs clear of the camera (4–18), the
+    // flash/PSRAM block (26–37), USB (19/20), UART0 (43/44), and the
+    // strapping pins — 1/2 (ADC-capable) and 41/42. PWM-on-direction
+    // (ENA/ENB tied high on the carrier), same legacy default as the CAM.
+    out->led         = -1;
+    out->flash       = -1;
+    out->motor_l_fwd = 1;
+    out->motor_l_bwd = 2;
+    out->motor_r_fwd = 42;
+    out->motor_r_bwd = 41;
+    // Onboard single-wire addressable RGB — drives the "rgb" cap.
+    out->ws2812      = 48;
 #elif CONFIG_BR_BOARD_C3_SUPERMINI
     // SuperMini onboard LED on GPIO 8 (also a strapping pin, but its
     // purpose on this board is the LED — leaving the LED unwired won't
@@ -171,6 +206,7 @@ void pin_config_load(pin_config_t *out) {
     out->rgb_r       = nvs_get_pin(h, "rgb_r",   out->rgb_r);
     out->rgb_g       = nvs_get_pin(h, "rgb_g",   out->rgb_g);
     out->rgb_b       = nvs_get_pin(h, "rgb_b",   out->rgb_b);
+    out->ws2812      = nvs_get_pin(h, "ws2812",  out->ws2812);
     nvs_close(h);
 }
 
@@ -221,9 +257,10 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     int rgb_r  = extract_int_key(json, len, "rgb_r");
     int rgb_g  = extract_int_key(json, len, "rgb_g");
     int rgb_b  = extract_int_key(json, len, "rgb_b");
+    int ws2812 = extract_int_key(json, len, "ws2812");
 
-    int candidates[14] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo, rgb_r, rgb_g, rgb_b };
-    for (int i = 0; i < 14; i++) {
+    int candidates[15] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo, rgb_r, rgb_g, rgb_b, ws2812 };
+    for (int i = 0; i < 15; i++) {
         int p = candidates[i];
         if (p == PIN_ABSENT || p == -1) continue;
         if (p < 0 || p > PIN_MAX) {
@@ -234,7 +271,7 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
             ESP_LOGW(TAG, "GPIO %d is board-forbidden, ignored", p);
             return;
         }
-        for (int j = i + 1; j < 14; j++) {
+        for (int j = i + 1; j < 15; j++) {
             if (candidates[j] == p) {
                 ESP_LOGW(TAG, "GPIO %d assigned twice, ignored", p);
                 return;
@@ -261,6 +298,7 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     if (rgb_r  != PIN_ABSENT) nvs_set_i32(h, "rgb_r",   rgb_r);
     if (rgb_g  != PIN_ABSENT) nvs_set_i32(h, "rgb_g",   rgb_g);
     if (rgb_b  != PIN_ABSENT) nvs_set_i32(h, "rgb_b",   rgb_b);
+    if (ws2812 != PIN_ABSENT) nvs_set_i32(h, "ws2812",  ws2812);
     nvs_commit(h);
     nvs_close(h);
 

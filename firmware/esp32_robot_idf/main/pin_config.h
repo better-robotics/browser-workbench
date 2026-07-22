@@ -30,6 +30,8 @@ typedef struct {
     int rgb_r;       // -1 = no RGB LED wired. Red signal pin.
     int rgb_g;       // Green signal pin (paired with rgb_r and rgb_b).
     int rgb_b;       // Blue signal pin.
+    int ws2812;      // -1 = none. Single-wire addressable RGB (onboard on
+                     // the S3-CAM, GPIO48). Drives the "rgb" cap when set.
 } pin_config_t;
 
 bool pin_valid(int pin);

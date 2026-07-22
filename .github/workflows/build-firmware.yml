@@ -81,6 +81,7 @@ jobs:
         board:
           - aithinker_cam
           - devkit
+          - s3_cam
           - c3_supermini
     steps:
       - name: Checkout
