@@ -71,11 +71,16 @@ void mp_hal_stdout_tx_strn_cooked(const char *str, size_t len) { out_write(str, 
 // robot.move(left, right, duration_ms) — pulse-bounded motion. Goes straight
 // through motors_pulse, which clamps duration to LLM_MAX_DURATION_MS: a script
 // gets the same firmware floor as the joypad and Pip, and cannot exceed it.
+// Blocks for the (capped) pulse window so scripts sequence naturally — move()
+// drives for duration_ms, then returns.
 static mp_obj_t robot_move(mp_obj_t left_o, mp_obj_t right_o, mp_obj_t dur_o) {
     int left = mp_obj_get_int(left_o);
     int right = mp_obj_get_int(right_o);
     int dur = mp_obj_get_int(dur_o);
-    motors_pulse((int8_t)left, (int8_t)right, (uint16_t)(dur < 0 ? 0 : dur));
+    if (dur < 0) dur = 0;
+    if (dur > LLM_MAX_DURATION_MS) dur = LLM_MAX_DURATION_MS;
+    motors_pulse((int8_t)left, (int8_t)right, (uint16_t)dur);
+    if (dur) vTaskDelay(pdMS_TO_TICKS(dur));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(robot_move_obj, robot_move);
@@ -87,6 +92,15 @@ static mp_obj_t robot_led(mp_obj_t on_o) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(robot_led_obj, robot_led);
 
+// robot.sleep(ms) — pause without motion (the minimal VM config omits the
+// `time` module, and this keeps the whole surface on one `robot` object).
+static mp_obj_t robot_sleep(mp_obj_t ms_o) {
+    int ms = mp_obj_get_int(ms_o);
+    if (ms > 0) vTaskDelay(pdMS_TO_TICKS(ms));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(robot_sleep_obj, robot_sleep);
+
 // Inject a `robot` module into the global namespace (runtime qstrs, so the
 // generated qstr tables don't need to carry these names). Wrapped in its own
 // nlr frame; a raise here (OOM) aborts injection without crashing the task.
@@ -95,8 +109,9 @@ static void inject_robot(void) {
     if (nlr_push(&nlr) == 0) {
         mp_obj_t mod = mp_obj_new_module(qstr_from_str("robot"));
         mp_obj_t g = MP_OBJ_FROM_PTR(mp_obj_module_get_globals(mod));
-        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("move")), MP_OBJ_FROM_PTR(&robot_move_obj));
-        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("led")),  MP_OBJ_FROM_PTR(&robot_led_obj));
+        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("move")),  MP_OBJ_FROM_PTR(&robot_move_obj));
+        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("led")),   MP_OBJ_FROM_PTR(&robot_led_obj));
+        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("sleep")), MP_OBJ_FROM_PTR(&robot_sleep_obj));
         mp_store_global(qstr_from_str("robot"), mod);
         nlr_pop();
     }

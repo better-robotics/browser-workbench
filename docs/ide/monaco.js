@@ -3,7 +3,7 @@
 // is the supported CDN path). sw.js caches cross-origin CDN assets
 // (isCacheableCrossOrigin), so the ~2 MB payload is a one-time fetch that
 // then serves offline.
-import { WORKBENCH_DTS, WORKBENCH_DTS_PATH } from "./api-types.js";
+import { registerPythonApi } from "./python-api.js";
 
 const MONACO_VERSION = "0.52.2";
 const ROOT = `https://cdn.jsdelivr.net/npm/monaco-editor@${MONACO_VERSION}/min`;
@@ -54,18 +54,8 @@ let _configured = false;
 function configure(monaco) {
   if (_configured) return;
   _configured = true;
-  const js = monaco.languages.typescript.javascriptDefaults;
-  js.setCompilerOptions({
-    target: monaco.languages.typescript.ScriptTarget.ES2020,
-    allowNonTsExtensions: true,
-    lib: ["es2020", "dom"],
-  });
-  // User scripts run inside an AsyncFunction wrapper (script-runtime.js), so
-  // top-level `return` and `await` are legal here even though Monaco parses
-  // each file as a standalone script. Silence the three diagnostics that
-  // would otherwise squiggle every template: 1108 return-outside-function,
-  // 1375 / 1378 top-level-await-needs-module.
-  js.setDiagnosticsOptions({ diagnosticCodesToIgnore: [1108, 1375, 1378] });
-  // The headline feature: real IntelliSense for the whole script API.
-  js.addExtraLib(WORKBENCH_DTS, WORKBENCH_DTS_PATH);
+  // Scripts are Python now (they run on the robot's MicroPython VM). Monaco's
+  // built-in Python grammar handles syntax highlighting; python-api.js adds
+  // completions for the robot API (no Python language server to lean on).
+  registerPythonApi(monaco);
 }

@@ -7,7 +7,8 @@
 import { $ } from "../dom.js";
 import { state } from "../state.js";
 import { loadMonaco } from "./monaco.js";
-import { runUserScript, TEMPLATES } from "./script-runtime.js";
+import { TEMPLATES } from "./script-runtime.js";
+import { runOnRobot, pyCapable } from "./script-runner.js";
 import {
   fsAvailable, listFiles, readFileText, writeFile, deleteFile,
 } from "../fs/fs-client.js";
@@ -75,9 +76,25 @@ function appendOutput(line, cls) {
   out.scrollTop = out.scrollHeight;
   out.hidden = false;
 }
+// Append streamed VM output (print / traceback text) into one running node so
+// partial-line chunks concatenate instead of each becoming its own row.
+let _streamEl = null;
+function appendStream(text) {
+  const out = $("ide-output");
+  if (!out) return;
+  if (!_streamEl) {
+    _streamEl = document.createElement("div");
+    _streamEl.className = "ide-out-stream";
+    out.appendChild(_streamEl);
+  }
+  _streamEl.textContent += text;
+  out.scrollTop = out.scrollHeight;
+  out.hidden = false;
+}
 function clearOutput() {
   const out = $("ide-output");
   if (out) { out.innerHTML = ""; out.hidden = true; }
+  _streamEl = null;
 }
 
 // ---- tabs ----------------------------------------------------------------
@@ -170,8 +187,8 @@ async function openTab({ source, robotId, name, body }) {
     }
   }
   if (text == null && source === "local") text = readLocal()[name] ?? "";
-  const uri = _monaco.Uri.parse(`inmemory://ide/${encodeURIComponent(key)}.js`);
-  const model = _monaco.editor.createModel(text, "javascript", uri);
+  const uri = _monaco.Uri.parse(`inmemory://ide/${encodeURIComponent(key)}.py`);
+  const model = _monaco.editor.createModel(text, "python", uri);
   const tab = { key, source, robotId, name, model, saved: text };
   model.onDidChangeContent(() => { if (key === _activeKey) renderTabs(); });
   _tabs.set(key, tab);
@@ -224,29 +241,60 @@ function saveErrorText(err) {
 
 // ---- run -----------------------------------------------------------------
 
-let _running = false;
+let _activeRun = null;
+
+// Which robot runs the active file: a board file runs on its own robot; a
+// Local draft runs on the first connected Python-capable robot (shipped there).
+function pickRunTarget(tab) {
+  if (tab.source === "board") {
+    const entry = state.devices.get(tab.robotId);
+    return pyCapable(entry) ? entry : null;
+  }
+  return [...state.devices.values()].find(pyCapable) || null;
+}
+
+function setRunning(on) {
+  const btn = $("ide-run");
+  if (!btn) return;
+  const label = btn.querySelector(".run-label");
+  if (label) label.textContent = on ? "Stop" : "Run";
+  btn.classList.toggle("running", on);
+}
+
+// Run toggles: fire → ship+run on the robot; while running → stop.
 async function run() {
-  if (_running) return;
+  if (_activeRun) { await stopRun(); return; }
   const tab = _tabs.get(_activeKey);
   if (!tab) return;
-  _running = true;
-  const btn = $("ide-run");
-  if (btn) btn.disabled = true;
+  const entry = pickRunTarget(tab);
   clearOutput();
-  const body = tab.model.getValue();
-  // Auto-persist the running body so a crash mid-run doesn't lose it, same
-  // as the old dialog saved on Run. Board files aren't auto-pushed (a BLE
-  // write per run is wasteful + slow); only local drafts persist here.
-  if (tab.source === "local") saveLocalFile(tab.name, body);
-  try {
-    await runUserScript(body, {
-      onLog: (line) => appendOutput(line),
-      onError: (msg) => appendOutput(`Error: ${msg}`, "ide-out-error"),
-    });
-  } finally {
-    _running = false;
-    if (btn) btn.disabled = false;
+  if (!entry) {
+    appendOutput("No Python-capable robot connected — flash the S3 firmware and connect one to run on it.", "ide-out-error");
+    return;
   }
+  const body = tab.model.getValue();
+  if (tab.source === "local") saveLocalFile(tab.name, body);
+  appendOutput(`Running ${tab.name} on ${entry.name}…`, "ide-out-note");
+  setRunning(true);
+  try {
+    _activeRun = await runOnRobot(entry, tab.name, body, {
+      onText: (t) => appendStream(t),
+      onDone: () => { setRunning(false); _activeRun = null; appendOutput("— done —", "ide-out-note"); renderTree(); },
+      onError: (tb) => { appendStream(tb); setRunning(false); _activeRun = null; appendOutput("— error —", "ide-out-error"); },
+    });
+  } catch (err) {
+    appendOutput(`Run failed: ${err.message}`, "ide-out-error");
+    setRunning(false);
+    _activeRun = null;
+  }
+}
+
+async function stopRun() {
+  const r = _activeRun;
+  _activeRun = null;
+  setRunning(false);
+  if (r) { try { await r.stop(); } catch {} }
+  appendOutput("— stopped —", "ide-out-note");
 }
 
 // ---- new file / templates ------------------------------------------------
@@ -262,8 +310,8 @@ function promptName(defaultName) {
   return trimmed;
 }
 
-async function newFile(source, robotId, seedBody = "// New script\n") {
-  const name = promptName(source === "board" ? "script.js" : "draft.js");
+async function newFile(source, robotId, seedBody = "# New script\n") {
+  const name = promptName(source === "board" ? "script.py" : "draft.py");
   if (!name) return;
   if (source === "local") {
     saveLocalFile(name, seedBody);
@@ -290,12 +338,12 @@ function loadTemplateInto() {
 function uniqueLocalName(name) {
   const map = readLocal();
   if (!map[name]) return name;
-  const stem = name.replace(/\.js$/, "");
+  const stem = name.replace(/\.py$/, "");
   for (let i = 2; i < 999; i++) {
-    const candidate = `${stem}-${i}.js`;
+    const candidate = `${stem}-${i}.py`;
     if (!map[candidate]) return candidate;
   }
-  return `${stem}-${Date.now()}.js`;
+  return `${stem}-${Date.now()}.py`;
 }
 
 // ---- file tree -----------------------------------------------------------
@@ -503,7 +551,8 @@ export async function openIde() {
       fontSize: 13,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
-      tabSize: 2,
+      tabSize: 4,
+      insertSpaces: true,
       padding: { top: 10 },
     });
     _editor.addCommand(_monaco.KeyMod.CtrlCmd | _monaco.KeyCode.Enter, () => run());

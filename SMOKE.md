@@ -59,14 +59,15 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 - [ ] Click Reload on the banner → page reloads with new version, no stale assets.
 - [ ] Dismiss banner with × → no reload, banner gone for the session.
 
-## Scripts (IDE view)
+## Scripts (IDE view) — Python on the robot
 
-- [ ] Open Scripts → editor loads → "New from template…" seeds each template as a Local draft → Run executes.
-- [ ] Typing `robot.` offers API completions (move, led, op, watchFor, …) with hover docs — the Monaco TS worker + workbench.d.ts are live.
-- [ ] Cmd/Ctrl-Enter runs the active file; output pane shows log lines + return value.
-- [ ] `pip.ask` template fires Claude call → returns text.
-- [ ] `stop-sign` template: hold a stop sign to the robot camera → cruise halts within ~1 s, output logs detection + score. Confirms MediaPipe reflex path (closed-vocab, ~10–30ms) is live.
-- [ ] Offline: with no robot connected, the Local section + editor still work (draft create / edit / run).
+- [ ] Open Scripts → Monaco loads in Python mode → "New from template…" seeds each `.py` template as a Local draft.
+- [ ] Typing `robot.` offers completions (move / led / sleep) with signatures. Status bar reads "Python".
+- [ ] With no Python-capable robot connected, Run surfaces "No Python-capable robot connected…" — authoring + Local drafts still work offline.
+- [ ] With an S3 robot (VM firmware) connected: Run ships the file to /fs and executes it on-device; `print()` output streams into the panel; Cmd/Ctrl-Enter runs.
+- [ ] A moving script's motion auto-stops at the pulse window (robot.move duration cap) — a script can't hold the motors past the floor.
+- [ ] Run toggles to Stop mid-run; Stop halts the script (script-stop op).
+- [ ] A Python error surfaces its traceback in the output panel, not the serial console.
 
 ## On-robot files (BLE file service)
 

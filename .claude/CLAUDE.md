@@ -69,7 +69,7 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 
 - `DEV.md` — URL flags, `window.*` handles, IndexedDB stores, common debug paths.
 - `SMOKE.md` — manual checklist for architectural promises.
-- `USER-CODE.md` — surface that `ide/script-runtime.js` exposes to user-authored code (the IDE view's Run path; `ide/api-types.js` is its type-level twin for Monaco IntelliSense).
+- `USER-CODE.md` — the on-robot Python surface (issue #47): the IDE authors Python, ships it to `/fs`, the robot's embedded MicroPython VM (`firmware/.../main/pyvm.c`) runs it. `ide/python-api.js` drives Monaco completions; `ide/script-runner.js` + `ide/script-output.js` handle ship/run/stream.
 - `HARDWARE.md` — wiring, board-specific knobs.
 - Pinned tracker (issue #45) — live pilot state: ranked gaps, watch-list. Rationale stays in `.claude/exploration.md`.
 - `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.

@@ -1,9 +1,10 @@
 import { SERVICE_UUID,
   FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID,
   OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID,
-  FS_OP_CHAR_UUID, FS_DATA_CHAR_UUID,
+  FS_OP_CHAR_UUID, FS_DATA_CHAR_UUID, SCRIPT_OUTPUT_CHAR_UUID,
   decodeJson } from "./ble.js";
 import { attachFs, detachFs, ingestFsData } from "../fs/fs-client.js";
+import { ingestScriptOutput } from "../ide/script-output.js";
 import { log, logFor } from "../log.js";
 import {
   state, persist, loadKnown,
@@ -303,6 +304,18 @@ export async function connect(id) {
         ingestFsData(entry, e.target.value);
       });
     } catch { /* fs chars absent (no storage partition) — IDE falls back to local drafts */ }
+
+    // Script-output (notify) — the on-robot Python VM's stdout/traceback
+    // stream. Optional; present only on boards that embed the VM (the "python"
+    // cap). The IDE's script-runner subscribes per-run; here we just pump
+    // notifications into the decoder.
+    try {
+      const soChar = await service.getCharacteristic(SCRIPT_OUTPUT_CHAR_UUID);
+      await soChar.startNotifications();
+      soChar.addEventListener("characteristicvaluechanged", (e) => {
+        ingestScriptOutput(entry, e.target.value);
+      });
+    } catch { /* no VM on this board — Run-on-robot stays disabled */ }
 
     entry.runtimeCaps = [];
     for (const cap of CAPABILITIES) {
