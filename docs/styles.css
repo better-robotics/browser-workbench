@@ -975,8 +975,8 @@ details.tray.has-alert > summary::after {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
 .ide-act {
-  width: 44px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -984,11 +984,14 @@ details.tray.has-alert > summary::after {
   background: none;
   cursor: pointer;
   color: var(--ink-muted);
-  border-left: 2px solid transparent;
+  border-radius: 9px;
+  transition: color 0.1s ease, background 0.1s ease;
 }
-.ide-act:hover { color: var(--ink); }
-.ide-act.active { color: var(--ink); border-left-color: var(--accent-ink); }
-.ide-act .icon-svg { width: 22px; height: 22px; }
+.ide-act:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+/* Active view: soft rounded fill + full-ink icon — same language as the
+   active tab and selected tree row, not a hard VS Code-style rule. */
+.ide-act.active { color: var(--ink); background: color-mix(in srgb, var(--ink) 16%, transparent); }
+.ide-act .icon-svg { width: 24px; height: 24px; }
 
 /* Flash view — swapped in for the file tree when the Flash activity is on. */
 .ide-flash-view { flex: 1; overflow-y: auto; padding: 4px 0 8px; }
