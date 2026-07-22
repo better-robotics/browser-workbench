@@ -24,6 +24,8 @@
 #include "led.h"
 #include "motors.h"
 #include "protocol_constants.h"
+#include "rgb.h"
+#include "ws2812.h"
 
 static const char *TAG = "pyvm";
 
@@ -85,12 +87,34 @@ static mp_obj_t robot_move(mp_obj_t left_o, mp_obj_t right_o, mp_obj_t dur_o) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(robot_move_obj, robot_move);
 
-// robot.led(on)
+// robot.led(on) — drive the plain LED where the board has one; on boards
+// whose only light is an RGB / onboard WS2812 (e.g. the S3-CAM's GPIO48),
+// fall back to driving that white/off so led() is still visible.
 static mp_obj_t robot_led(mp_obj_t on_o) {
-    led_apply(mp_obj_is_true(on_o));
+    bool on = mp_obj_is_true(on_o);
+    led_apply(on);
+    if (!led_enabled()) {
+        uint8_t v = on ? 255 : 0;
+        rgb_apply(v, v, v);
+        ws2812_apply(v, v, v);
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(robot_led_obj, robot_led);
+
+// robot.rgb(r, g, b) — 0..255 per channel. Fans out to whichever RGB the
+// board has (the 3-pin rgb.c driver and/or the onboard WS2812); the absent
+// one is a no-op, matching gatt_svr's rgb write path.
+static int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+static mp_obj_t robot_rgb(mp_obj_t r_o, mp_obj_t g_o, mp_obj_t b_o) {
+    uint8_t r = (uint8_t)clamp255(mp_obj_get_int(r_o));
+    uint8_t g = (uint8_t)clamp255(mp_obj_get_int(g_o));
+    uint8_t b = (uint8_t)clamp255(mp_obj_get_int(b_o));
+    rgb_apply(r, g, b);
+    ws2812_apply(r, g, b);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(robot_rgb_obj, robot_rgb);
 
 // robot.sleep(ms) — pause without motion (the minimal VM config omits the
 // `time` module, and this keeps the whole surface on one `robot` object).
@@ -111,6 +135,7 @@ static void inject_robot(void) {
         mp_obj_t g = MP_OBJ_FROM_PTR(mp_obj_module_get_globals(mod));
         mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("move")),  MP_OBJ_FROM_PTR(&robot_move_obj));
         mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("led")),   MP_OBJ_FROM_PTR(&robot_led_obj));
+        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("rgb")),   MP_OBJ_FROM_PTR(&robot_rgb_obj));
         mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(qstr_from_str("sleep")), MP_OBJ_FROM_PTR(&robot_sleep_obj));
         mp_store_global(qstr_from_str("robot"), mod);
         nlr_pop();

@@ -18,14 +18,16 @@ robot.move(60, 60, 400)     # forward
 robot.sleep(300)            # pause, no motion
 robot.move(-60, -60, 400)   # back
 
-robot.led(True)             # LED on
+robot.led(True)             # LED on (drives the onboard RGB white on boards
+                            # whose only light is an RGB / WS2812)
+robot.rgb(255, 0, 0)        # onboard RGB LED, 0..255 per channel
 ```
 
-In scope inside a script: the injected `robot` object (`move`, `led`,
+In scope inside a script: the injected `robot` object (`move`, `led`, `rgb`,
 `sleep`) and `print()`, plus MicroPython's built-in language. The IDE offers
-completions for the `robot` API (`robot.` → move / led / sleep) and ships the
-templates as "New from template" seed files. The surface is deliberately
-small — it grows as the firmware's `robot` module does (pyvm.c).
+completions for the `robot` API (`robot.` → move / led / rgb / sleep) and
+ships the templates as "New from template" seed files. The surface is
+deliberately small — it grows as the firmware's `robot` module does (pyvm.c).
 
 ## Where files live
 

@@ -29,6 +29,13 @@ export function registerPythonApi(monaco) {
       detail: "robot.led(on)",
     },
     {
+      label: "rgb", kind: K.Method, range,
+      insertText: "rgb(${1:255}, ${2:0}, ${3:0})",
+      insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+      documentation: "robot.rgb(r, g, b) — set the onboard RGB LED, 0–255 per channel.",
+      detail: "robot.rgb(r, g, b)",
+    },
+    {
       label: "sleep", kind: K.Method, range,
       insertText: "sleep(${1:500})",
       insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,

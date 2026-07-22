@@ -21,17 +21,24 @@ print("done")
 `,
   },
   {
-    id: "blink",
-    name: "blink.py",
-    label: "Blink — LED on/off",
-    body: `# Blink the robot's LED five times.
-for i in range(5):
-    robot.led(True)
-    robot.sleep(200)
-    robot.led(False)
-    robot.sleep(200)
-    print("blink", i + 1)
+    id: "lights",
+    name: "lights.py",
+    label: "Lights — cycle the onboard RGB",
+    body: `# Cycle the onboard RGB LED through a few colors.
+# robot.rgb(r, g, b) — 0..255 per channel.
+colors = [
+    (255, 0, 0),    # red
+    (0, 255, 0),    # green
+    (0, 0, 255),    # blue
+    (255, 255, 0),  # yellow
+]
+for i in range(2):
+    for r, g, b in colors:
+        robot.rgb(r, g, b)
+        print("rgb", r, g, b)
+        robot.sleep(300)
 
+robot.rgb(0, 0, 0)   # off
 print("done")
 `,
   },
