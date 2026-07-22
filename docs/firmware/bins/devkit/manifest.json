@@ -1,8 +1,8 @@
 {
   "board": "devkit",
   "chip": "esp32",
-  "version": "9502392-dirty",
-  "built_at": "2026-07-22T04:08:45Z",
+  "version": "8b1923f-dirty",
+  "built_at": "2026-07-22T04:19:08Z",
   "files": [
     {
       "path": "bootloader.bin",
