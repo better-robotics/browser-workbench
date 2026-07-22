@@ -50,14 +50,18 @@ void app_main(void) {
     pin_config_t pins;
     pin_config_load(&pins);
 
-    // Stable per-chip suffix — low 16 bits of the WiFi MAC. Identity must
-    // not change across reflashes or paired robots in localStorage break.
+    // Stable per-chip id — the low 16 bits of the WiFi MAC as 4 hex digits,
+    // the fleet-wide `robot-<id>` convention (better-robotics/hub CONTRACT.md
+    // § names). Identity must not change across reflashes or paired robots in
+    // localStorage break. Both the BLE name and the mDNS hostname carry it,
+    // lowercase, so a workbench robot reads the same on the dashboard and on
+    // the hub broker.
     uint8_t mac[6];
     ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
     char ble_name[16];
     char hostname[32];
-    snprintf(ble_name, sizeof(ble_name), "ESP-%02X%02X", mac[4], mac[5]);
-    snprintf(hostname, sizeof(hostname), "esp-%02x%02x", mac[4], mac[5]);
+    snprintf(ble_name, sizeof(ble_name), "robot-%02x%02x", mac[4], mac[5]);
+    snprintf(hostname, sizeof(hostname), "robot-%02x%02x", mac[4], mac[5]);
     ESP_LOGI(TAG, "robot id: ble=%s host=%s", ble_name, hostname);
 
     camera_probe();

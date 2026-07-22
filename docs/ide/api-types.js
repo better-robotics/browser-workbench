@@ -20,7 +20,7 @@ interface Detection {
 interface Robot {
   /** Stable per-chassis id (BLE device id). */
   readonly id: string;
-  /** Advertised name, e.g. "ESP-1A2B". */
+  /** Advertised name, e.g. "robot-1a2b". */
   readonly name: string;
   /** True while the BLE link is up. */
   readonly connected: boolean;

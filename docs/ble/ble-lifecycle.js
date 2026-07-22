@@ -95,7 +95,7 @@ export async function scanForNew() {
       : [{ services: [SERVICE_UUID] }];
     // Hide already-paired robots from the chooser — Scan is the "add new"
     // path, Reconnect on the existing card is the re-pair path. Names are
-    // unique per chassis (ESP-XXXX hash from MAC) so name-exclusion is safe.
+    // unique per chassis (robot-XXXX from the MAC) so name-exclusion is safe.
     // exclusionFilters is Chrome 114+; older browsers silently ignore the
     // option and show every match as before — graceful degradation.
     const exclusionFilters = [...state.devices.values()]

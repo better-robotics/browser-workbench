@@ -83,16 +83,24 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 }
 
 static void start_advertising(void) {
+    // The 31-byte adv packet holds flags (3 B) + the 128-bit service UUID
+    // (18 B) = 21 B, leaving 10 B — too little for a complete "robot-xxxx"
+    // name (2 + 10 = 12 B). So the UUID (what the dashboard filters on) rides
+    // the adv packet and the name rides the scan response; Chrome merges both.
     struct ble_hs_adv_fields fields = {0};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.name = (uint8_t *)s_name;
-    fields.name_len = strlen(s_name);
-    fields.name_is_complete = 1;
     fields.uuids128 = (ble_uuid128_t *)gatt_svr_service_uuid();
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) { ESP_LOGE(TAG, "adv_set_fields rc=%d", rc); return; }
+
+    struct ble_hs_adv_fields rsp = {0};
+    rsp.name = (uint8_t *)s_name;
+    rsp.name_len = strlen(s_name);
+    rsp.name_is_complete = 1;
+    rc = ble_gap_adv_rsp_set_fields(&rsp);
+    if (rc != 0) { ESP_LOGE(TAG, "adv_rsp_set_fields rc=%d", rc); return; }
 
     struct ble_gap_adv_params adv = {0};
     adv.conn_mode = BLE_GAP_CONN_MODE_UND;
