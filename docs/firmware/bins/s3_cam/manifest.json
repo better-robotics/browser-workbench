@@ -1,8 +1,8 @@
 {
-  "board": "c3_supermini",
-  "chip": "esp32c3",
+  "board": "s3_cam",
+  "chip": "esp32s3",
   "version": "3f60bd2",
-  "built_at": "2026-07-22T02:26:51Z",
+  "built_at": "2026-07-22T02:26:49Z",
   "files": [
     { "path": "bootloader.bin",  "offset": "0x0" },
     { "path": "partitions.bin",  "offset": "0x8000" },

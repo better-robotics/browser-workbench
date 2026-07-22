@@ -1,8 +1,8 @@
 {
   "board": "devkit",
   "chip": "esp32",
-  "version": "8517e3b",
-  "built_at": "2026-07-22T02:00:46Z",
+  "version": "3f60bd2",
+  "built_at": "2026-07-22T02:26:48Z",
   "files": [
     { "path": "bootloader.bin",  "offset": "0x1000" },
     { "path": "partitions.bin",  "offset": "0x8000" },
