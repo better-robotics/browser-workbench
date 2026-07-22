@@ -11,6 +11,7 @@
 #include "ble_host.h"
 #include "camera.h"
 #include "flash.h"
+#include "fs_svc.h"
 #include "fw_info.h"
 #include "led.h"
 #include "motors.h"
@@ -42,6 +43,8 @@ static ble_uuid128_t s_snapshot_data_uuid;
 static ble_uuid128_t s_telemetry_uuid;
 static ble_uuid128_t s_fw_info_uuid;
 static ble_uuid128_t s_ops_uuid;
+static ble_uuid128_t s_fs_op_uuid;
+static ble_uuid128_t s_fs_data_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -54,6 +57,7 @@ static uint16_t s_ota_status_handle;
 static uint16_t s_snapshot_data_handle;
 static uint16_t s_telemetry_handle;
 static uint16_t s_fw_info_handle;
+static uint16_t s_fs_data_handle;
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -315,6 +319,28 @@ static int snapshot_data_access(uint16_t conn, uint16_t attr,
     return 0;
 }
 
+// FS_OP write. One frame (opcode + payload) per write; fs_svc buffers /
+// dispatches. WRITE_NO_RSP too so the browser can stream write-session
+// chunks without a per-frame ATT ack (mirrors ota_data). Buffer sized for
+// a full chunk under the negotiated MTU.
+static int fs_op_access(uint16_t conn, uint16_t attr,
+                        struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t buf[256];
+        uint16_t copied = 0;
+        ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
+        if (copied > 0) fs_svc_handle_op(buf, copied);
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+// Notify-only; the fs worker task drives it via gatt_svr_fs_send.
+static int fs_data_access(uint16_t conn, uint16_t attr,
+                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    return 0;
+}
+
 static int telemetry_access(uint16_t conn, uint16_t attr,
                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
@@ -429,6 +455,18 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_fw_info_handle,
     },
+    {
+        .uuid = &s_fs_op_uuid.u,
+        .access_cb = fs_op_access,
+        // WRITE | WRITE_NR — write-session chunks stream without per-frame acks.
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+    },
+    {
+        .uuid = &s_fs_data_uuid.u,
+        .access_cb = fs_data_access,
+        .flags = BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_fs_data_handle,
+    },
     { 0 },
 };
 
@@ -459,6 +497,8 @@ void gatt_svr_init(void) {
     parse_uuid128(SNAPSHOT_DATA_CHAR_UUID,    &s_snapshot_data_uuid);
     parse_uuid128(TELEMETRY_CHAR_UUID,        &s_telemetry_uuid);
     parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
+    parse_uuid128(FS_OP_CHAR_UUID,            &s_fs_op_uuid);
+    parse_uuid128(FS_DATA_CHAR_UUID,          &s_fs_data_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -487,4 +527,13 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len) {
     // ble_gatts_notify_custom takes ownership of the mbuf (frees on
     // success and on error), so no cleanup path on the caller side.
     ble_gatts_notify_custom(conn, s_snapshot_data_handle, om);
+}
+
+void gatt_svr_fs_send(const uint8_t *buf, size_t len) {
+    uint16_t conn = ble_host_active_conn();
+    if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+    if (!s_fs_data_handle) return;
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
+    if (!om) return;
+    ble_gatts_notify_custom(conn, s_fs_data_handle, om);
 }

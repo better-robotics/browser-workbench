@@ -20,6 +20,7 @@ set(BR_SRCS
     "pin_config.c"
     "led.c"
     "flash.c"
+    "fs_svc.c"
     "motors.c"
     "encoders.c"
     "servo.c"
@@ -51,6 +52,9 @@ set(BR_REQS
     esp_timer
     # JSON parsing (cJSON via ESP-IDF's json component)
     json
+    # On-robot file service — LittleFS over the `storage` partition (fs_svc.c).
+    # Managed component joltwallet/littlefs registers as `littlefs`.
+    littlefs
 )
 
 if(CONFIG_BR_HAS_CAMERA)

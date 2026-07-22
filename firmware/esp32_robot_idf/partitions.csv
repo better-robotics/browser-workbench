@@ -5,11 +5,18 @@
 # the dashboard's BLE OTA only updates the app bin, not bootloader / part
 # table. Each app slot is 1920K — comfortable headroom for camera + BLE.
 #
-# spiffs / coredump partitions from arduino-esp32's layout are dropped
-# here — the IDF build doesn't use SPIFFS (NVS handles all persistence)
-# and we'd rather have the flash for headroom.
+# coredump partition from arduino-esp32's layout is dropped here. The
+# `storage` partition below reclaims the 192 KB flash tail (ota_1 ends at
+# 0x3D0000; the 4 MB part runs to 0x400000) as a LittleFS student drive —
+# see main/fs_svc.c. No existing offset moves, so the OTA-compat constraint
+# above holds: a fielded unit OTAs the app bin into the same ota_0/ota_1
+# slots regardless of whether its flashed partition table carries `storage`.
+# OTA never rewrites the partition table, so a unit that app-only-updates
+# onto this build keeps its old table (no `storage`); fs_svc probes for the
+# partition by label at boot and reports the fs unavailable when absent.
 # Name,   Type, SubType, Offset,    Size,     Flags
 nvs,      data, nvs,     0x9000,    0x5000
 otadata,  data, ota,     0xE000,    0x2000
 ota_0,    app,  ota_0,   0x10000,   0x1E0000
 ota_1,    app,  ota_1,   0x1F0000,  0x1E0000
+storage,  data, spiffs,  0x3D0000,  0x30000

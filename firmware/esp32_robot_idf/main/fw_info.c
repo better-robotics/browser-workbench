@@ -9,6 +9,7 @@
 #include "camera.h"
 #include "encoders.h"
 #include "flash.h"
+#include "fs_svc.h"
 #include "led.h"
 #include "motors.h"
 #include "rgb.h"
@@ -44,7 +45,10 @@ static const char *TAG = "fw_info";
 #  error "fw_info: no BR_BOARD_* defined"
 #endif
 
-#define FW_INFO_BUF_SIZE 768
+// Headroom for the fully-loaded board (motors + rgb + servo + encoders +
+// camera + snapshot + fs). snprintf truncation would corrupt the JSON, so
+// keep margin above the ~900 B a maxed cap list reaches.
+#define FW_INFO_BUF_SIZE 1024
 static char s_buf[FW_INFO_BUF_SIZE];
 
 void fw_info_init(const pin_config_t *pins) {
@@ -85,6 +89,14 @@ void fw_info_init(const pin_config_t *pins) {
     // dashboard side.
     o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
         ",{\"name\":\"ops\",\"type\":\"command\"}");
+
+    // File service — only when the `storage` partition mounted (fs_svc's
+    // boot probe). A unit app-only-OTA'd onto an old partition table omits
+    // this cap, and the dashboard's IDE view falls back to local drafts.
+    if (fs_svc_available()) {
+        o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
+            ",{\"name\":\"fs\",\"type\":\"file-service\"}");
+    }
 
     if (motors_enabled()) {
         // Schema matches gpiozero Motor() on the Pi side — `enable` is

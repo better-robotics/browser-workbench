@@ -14,5 +14,15 @@ export const OP_BEGIN = 1;
 export const OP_CHUNK = 2;
 export const OP_COMMIT = 3;
 
+// fs_transfer
+export const FS_OP_JSON = 1;
+export const FS_OP_WBYTES = 2;
+export const FS_RSP_BEGIN = 1;
+export const FS_RSP_CHUNK = 2;
+export const FS_RSP_END = 3;
+export const FS_FILE_BEGIN = 4;
+export const FS_FILE_CHUNK = 5;
+export const FS_FILE_END = 6;
+
 // hub_broker
 export const WS_PORT = 9001;

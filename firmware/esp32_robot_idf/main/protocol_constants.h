@@ -14,3 +14,13 @@
 #define OP_BEGIN                 1
 #define OP_CHUNK                 2
 #define OP_COMMIT                3
+
+// fs_transfer
+#define FS_OP_JSON               1
+#define FS_OP_WBYTES             2
+#define FS_RSP_BEGIN             1
+#define FS_RSP_CHUNK             2
+#define FS_RSP_END               3
+#define FS_FILE_BEGIN            4
+#define FS_FILE_CHUNK            5
+#define FS_FILE_END              6

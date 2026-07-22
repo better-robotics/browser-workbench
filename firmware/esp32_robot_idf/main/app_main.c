@@ -8,6 +8,7 @@
 #include "camera.h"
 #include "encoders.h"
 #include "flash.h"
+#include "fs_svc.h"
 #include "fw_info.h"
 #include "http_stream.h"
 #include "led.h"
@@ -66,6 +67,9 @@ void app_main(void) {
     encoders_init(&pins);
     servo_init(pins.servo);
     rgb_init(pins.rgb_r, pins.rgb_g, pins.rgb_b);
+    // Storage: flash-only mount, no radio. Before fw_info so the "fs" cap
+    // is advertised only when the partition actually mounted (boot probe).
+    fs_svc_init();
 
     // fw-info reflects the cap surface; built once after caps are up.
     // Changes (camera profile, pin config) reboot, so a fresh boot

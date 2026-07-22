@@ -29,3 +29,9 @@ void gatt_svr_notify_fw_info(void);
 // no central is connected. The snapshot task drives this directly with
 // the begin/chunk/commit/error envelope.
 void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
+
+// Push an FS_DATA frame (the file service's JSON reply / file-read stream)
+// to the active central. Same custom-payload notify path as
+// gatt_svr_snapshot_send; the fs worker task drives it with the
+// begin/chunk/end envelope. No-op when no central is connected.
+void gatt_svr_fs_send(const uint8_t *buf, size_t len);

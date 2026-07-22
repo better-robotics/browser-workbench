@@ -15,5 +15,13 @@ dependencies:
     rules:
       - if: "target in [esp32, esp32s2, esp32s3]"
 
+  # LittleFS over the `storage` partition (partitions.csv) — the on-robot
+  # student drive (main/fs_svc.c). Power-loss-resilient (copy-on-write,
+  # wear-leveled) where SPIFFS corrupts on a mid-write brownout, which a
+  # classroom robot yanked off USB will do. Mounts on a `spiffs`-subtype
+  # data partition; the label ("storage") is what fs_svc probes for.
+  joltwallet/littlefs:
+    version: "^1.14.8"
+
   idf:
     version: ">=5.1.0"

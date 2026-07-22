@@ -22,3 +22,5 @@
 #define PIN_CONFIG_CHAR_UUID             "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4"
 #define SERVO_CHAR_UUID                  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da6"
 #define RGB_CHAR_UUID                    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da7"
+#define FS_OP_CHAR_UUID                  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da8"
+#define FS_DATA_CHAR_UUID                "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da9"

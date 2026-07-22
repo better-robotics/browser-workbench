@@ -17,6 +17,18 @@
     "OP_CHUNK": 2,
     "OP_COMMIT": 3
   },
+  "fs_transfer": {
+    "_targets": ["c", "js"],
+    "_comment": "On-robot file service framing (main/fs_svc.c <-> docs/fs/fs-client.js). Two characteristics, each with a 1-byte leading opcode. FS_OP (browser->board write): FS_OP_JSON carries a JSON control request {op,...}; FS_OP_WBYTES carries raw file bytes for the open write session (like OTA_DATA chunks). FS_DATA (board->browser notify): a JSON response stream (BEGIN[u32 len]/CHUNK/END, mirroring OPS_RESPONSE) and a binary file-read stream (FILE_BEGIN[u32 len]/FILE_CHUNK/FILE_END, mirroring SNAPSHOT_DATA). The two FS_DATA streams never interleave — a read reply sends its JSON header first, then the file stream.",
+    "FS_OP_JSON": 1,
+    "FS_OP_WBYTES": 2,
+    "FS_RSP_BEGIN": 1,
+    "FS_RSP_CHUNK": 2,
+    "FS_RSP_END": 3,
+    "FS_FILE_BEGIN": 4,
+    "FS_FILE_CHUNK": 5,
+    "FS_FILE_END": 6
+  },
   "hub_broker": {
     "_targets": ["js"],
     "_comment": "MQTT-over-WebSockets listener port — fixed convention with the hub's pi/mosquitto.example.conf (better-robotics/hub CONTRACT.md). js-only: in this repo only the dashboard (hub transport + pair signaling/lobby) dials the broker; robot firmware never does.",
