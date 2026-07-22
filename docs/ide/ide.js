@@ -92,12 +92,19 @@ function renderTabs() {
   bar.innerHTML = "";
   for (const tab of _tabs.values()) {
     const el = document.createElement("div");
-    el.className = "ide-tab" + (tab.key === _activeKey ? " active" : "");
+    el.className = "ide-tab" + (tab.key === _activeKey ? " active" : "") + (isDirty(tab) ? " dirty" : "");
     el.title = tab.source === "board" ? `${tab.name} — on ${robotName(tab.robotId)}` : `${tab.name} — Local`;
+    el.appendChild(fileIconEl());
     const label = document.createElement("span");
     label.className = "ide-tab-label";
-    label.textContent = (isDirty(tab) ? "• " : "") + tab.name;
+    label.textContent = tab.name;
     el.appendChild(label);
+    if (isDirty(tab)) {
+      const dot = document.createElement("span");
+      dot.className = "ide-tab-dirty";
+      dot.textContent = "●";
+      el.appendChild(dot);
+    }
     const close = document.createElement("button");
     close.className = "ide-tab-close";
     close.setAttribute("aria-label", `Close ${tab.name}`);
@@ -125,6 +132,8 @@ function activateTab(key) {
   _editor.setModel(tab.model);
   _editor.focus();
   renderTabs();
+  highlightTreeActive();
+  updateStatus();
 }
 
 function closeTab(key) {
@@ -311,6 +320,7 @@ async function renderTree() {
       }
       for (const f of files) {
         list.appendChild(treeRow(f.name, `${fmtBytes(f.size)}`, {
+          key: keyFor("board", entry.id, f.name),
           onOpen: () => openTab({ source: "board", robotId: entry.id, name: f.name }),
           onDelete: async () => {
             if (!confirm(`Delete ${f.name} from ${entry.name}?`)) return;
@@ -343,6 +353,7 @@ async function renderTree() {
   }
   for (const name of names) {
     localSec.list.appendChild(treeRow(name, "", {
+      key: keyFor("local", null, name),
       onOpen: () => openTab({ source: "local", name }),
       onDelete: () => {
         if (!confirm(`Delete local draft ${name}?`)) return;
@@ -352,6 +363,7 @@ async function renderTree() {
       },
     }));
   }
+  highlightTreeActive();
 }
 
 function treeSection(title, onNew) {
@@ -373,12 +385,17 @@ function treeSection(title, onNew) {
   return { header, list, meta };
 }
 
-function treeRow(name, meta, { onOpen, onDelete }) {
+function treeRow(name, meta, { key, onOpen, onDelete }) {
   const li = document.createElement("li");
   li.className = "ide-tree-row";
+  if (key) li.dataset.key = key;
   const openBtn = document.createElement("button");
   openBtn.className = "ide-tree-file";
-  openBtn.textContent = name;
+  openBtn.appendChild(fileIconEl());
+  const nameEl = document.createElement("span");
+  nameEl.className = "ide-tree-name";
+  nameEl.textContent = name;
+  openBtn.appendChild(nameEl);
   openBtn.addEventListener("click", onOpen);
   const metaEl = document.createElement("span");
   metaEl.className = "ide-tree-size";
@@ -387,7 +404,7 @@ function treeRow(name, meta, { onOpen, onDelete }) {
   del.className = "ide-tree-del";
   del.setAttribute("aria-label", `Delete ${name}`);
   del.textContent = "🗑";
-  del.addEventListener("click", onDelete);
+  del.addEventListener("click", (e) => { e.stopPropagation(); onDelete(); });
   li.append(openBtn, metaEl, del);
   return li;
 }
@@ -396,6 +413,37 @@ function fmtBytes(n) {
   if (n == null) return "";
   if (n < 1024) return `${n} B`;
   return `${(n / 1024).toFixed(1)} KB`;
+}
+
+// A code-file glyph for tree rows + tabs (static markup — no injection risk).
+function fileIconEl() {
+  const span = document.createElement("span");
+  span.className = "ide-file-icon";
+  span.innerHTML = `<svg class="icon-svg"><use href="icons.svg#icon-file-code"/></svg>`;
+  return span;
+}
+
+// Highlight the tree row for the active tab (VS Code's "open file is selected").
+function highlightTreeActive() {
+  const tree = $("ide-tree");
+  if (!tree) return;
+  tree.querySelectorAll(".ide-tree-row").forEach((li) => {
+    li.classList.toggle("active", li.dataset.key === _activeKey);
+  });
+}
+
+// Status bar: active file path + cursor position.
+function updateStatus() {
+  const active = _tabs.get(_activeKey);
+  const fileEl = $("ide-status-file");
+  if (fileEl) {
+    fileEl.textContent = active
+      ? (active.source === "board" ? `${robotName(active.robotId)} / ${active.name}` : `Local / ${active.name}`)
+      : "";
+  }
+  const posEl = $("ide-status-pos");
+  const pos = _editor?.getPosition();
+  if (posEl && pos) posEl.textContent = `Ln ${pos.lineNumber}, Col ${pos.column}`;
 }
 
 // ---- session (which local tabs were open) --------------------------------
@@ -460,6 +508,7 @@ export async function openIde() {
     });
     _editor.addCommand(_monaco.KeyMod.CtrlCmd | _monaco.KeyCode.Enter, () => run());
     _editor.addCommand(_monaco.KeyMod.CtrlCmd | _monaco.KeyCode.KeyS, () => save());
+    _editor.onDidChangeCursorPosition(() => updateStatus());
   }
   if ($("ide-tree")) $("ide-tree").dataset.ready = "1";
   await renderTree();

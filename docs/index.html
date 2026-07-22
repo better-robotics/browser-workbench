@@ -291,11 +291,22 @@
     </div>
   </div>
   <div class="ide-body">
-    <aside class="ide-sidebar" id="ide-tree"></aside>
+    <aside class="ide-sidebar">
+      <div class="ide-sidebar-head">Explorer</div>
+      <div class="ide-tree" id="ide-tree"></div>
+    </aside>
     <div class="ide-main">
       <div class="ide-tabs" id="ide-tabs"></div>
       <div class="ide-editor" id="ide-editor"></div>
       <div class="ide-output" id="ide-output" aria-live="polite" hidden></div>
+    </div>
+  </div>
+  <div class="ide-statusbar">
+    <div class="ide-status-left" id="ide-status-file"></div>
+    <div class="ide-status-right">
+      <span id="ide-status-pos">Ln 1, Col 1</span>
+      <span>Spaces: 2</span>
+      <span>JavaScript</span>
     </div>
   </div>
 </dialog>
