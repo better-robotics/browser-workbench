@@ -1,8 +1,8 @@
 {
   "board": "aithinker_cam",
   "chip": "esp32",
-  "version": "8b1923f-dirty",
-  "built_at": "2026-07-22T04:18:56Z",
+  "version": "dbb4ba4-dirty",
+  "built_at": "2026-07-22T05:11:55Z",
   "files": [
     {
       "path": "bootloader.bin",
