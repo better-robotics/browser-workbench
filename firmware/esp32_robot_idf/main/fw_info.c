@@ -5,8 +5,6 @@
 #include "sdkconfig.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
-#include "esp_ota_ops.h"
-#include "esp_partition.h"
 
 #include "camera.h"
 #include "encoders.h"
@@ -55,10 +53,11 @@ static const char *TAG = "fw_info";
 #endif
 
 // Headroom for the fully-loaded board (motors + rgb + servo + encoders +
-// camera + snapshot + fs) plus the flash map (partition table + running
-// slot). snprintf truncation would corrupt the JSON, so keep margin above
-// the ~1.2 KB a maxed cap list + partitions reaches.
-#define FW_INFO_BUF_SIZE 1536
+// camera + snapshot + fs + python). Kept lean on purpose: fw_info is read
+// over BLE in one shot, and an oversized payload fails that read (which drops
+// the whole capability list). Don't pile large fields in here — the flash map
+// lives client-side (partitions.csv is fixed), not in this string.
+#define FW_INFO_BUF_SIZE 1024
 static char s_buf[FW_INFO_BUF_SIZE];
 
 void fw_info_init(const pin_config_t *pins) {
@@ -173,26 +172,6 @@ void fw_info_init(const pin_config_t *pins) {
             ",{\"name\":\"snapshot\",\"type\":\"ble-snapshot\"}");
     }
     o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, "]");
-
-    // Flash map — the actual partition table + which app slot is running, so
-    // the IDE can show what's on the robot beyond the /fs drive (the compiled
-    // firmware lives in ota_0/ota_1 as raw images, not files).
-    const esp_partition_t *run = esp_ota_get_running_partition();
-    if (run) o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, ",\"running\":\"%s\"", run->label);
-    o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, ",\"part\":[");
-    esp_partition_iterator_t it =
-        esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, NULL);
-    bool pfirst = true;
-    while (it != NULL) {
-        const esp_partition_t *p = esp_partition_get(it);
-        o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
-            "%s{\"label\":\"%s\",\"addr\":%u,\"size\":%u}",
-            pfirst ? "" : ",", p->label, (unsigned)p->address, (unsigned)p->size);
-        pfirst = false;
-        it = esp_partition_next(it);  // releases the iterator when it returns NULL
-    }
-    o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, "]");
-
     if (!camera_present() && camera_init_error() != 0) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",\"camera_err\":%d", camera_init_error());

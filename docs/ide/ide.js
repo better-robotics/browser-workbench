@@ -565,6 +565,18 @@ function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+// Flash layout — fixed by partitions.csv (shared across boards), so it's a
+// client-side constant rather than a fw_info field (that payload is read over
+// BLE in one shot and must stay small). The compiled firmware lives in the two
+// app slots as raw images; storage is the LittleFS /fs drive.
+const FLASH_MAP = [
+  { label: "nvs",     size: 0x5000,   note: "config" },
+  { label: "otadata", size: 0x2000 },
+  { label: "ota_0",   size: 0x1E0000, note: "app" },
+  { label: "ota_1",   size: 0x1E0000, note: "app" },
+  { label: "storage", size: 0x30000,  note: "/fs" },
+];
+
 // Firmware section: the flash map (what's on the robot beyond /fs) + the
 // existing OTA path surfaced in the IDE. The compiled firmware lives in the
 // ota_0/ota_1 partitions as raw images — shown here read-only, updated via
@@ -584,24 +596,21 @@ function firmwareSection(entry) {
   meta.textContent = `${info.chip || "esp32"} · ${info.version || "unknown"}`;
   wrap.appendChild(meta);
 
-  if (Array.isArray(info.part)) {
-    const list = document.createElement("ul");
-    list.className = "ide-fw-parts";
-    for (const p of info.part) {
-      const running = p.label === info.running;
-      const li = document.createElement("li");
-      li.className = "ide-fw-part" + (running ? " running" : "");
-      const label = document.createElement("span");
-      label.className = "ide-fw-part-label";
-      label.textContent = (running ? "▶ " : "") + p.label + (p.label === "storage" ? "  /fs" : "");
-      const size = document.createElement("span");
-      size.className = "ide-fw-part-size";
-      size.textContent = fmtBytes(p.size);
-      li.append(label, size);
-      list.appendChild(li);
-    }
-    wrap.appendChild(list);
+  const list = document.createElement("ul");
+  list.className = "ide-fw-parts";
+  for (const p of FLASH_MAP) {
+    const li = document.createElement("li");
+    li.className = "ide-fw-part";
+    const label = document.createElement("span");
+    label.className = "ide-fw-part-label";
+    label.textContent = p.label + (p.note ? `  ${p.note}` : "");
+    const size = document.createElement("span");
+    size.className = "ide-fw-part-size";
+    size.textContent = fmtBytes(p.size);
+    li.append(label, size);
+    list.appendChild(li);
   }
+  wrap.appendChild(list);
 
   const status = document.createElement("div");
   status.className = "ide-fw-status";
