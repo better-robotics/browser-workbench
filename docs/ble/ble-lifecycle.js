@@ -1,7 +1,9 @@
 import { SERVICE_UUID,
   FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID,
   OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID,
+  FS_OP_CHAR_UUID, FS_DATA_CHAR_UUID,
   decodeJson } from "./ble.js";
+import { attachFs, detachFs, ingestFsData } from "../fs/fs-client.js";
 import { log, logFor } from "../log.js";
 import {
   state, persist, loadKnown,
@@ -288,6 +290,20 @@ export async function connect(id) {
       });
     } catch { /* ops-response char absent on older firmware — optional */ }
 
+    // File service (notify FS_DATA + write FS_OP) — optional; present only
+    // when the robot mounted its `storage` partition (fw-info "fs" cap). The
+    // client (fs-client.js) reassembles the JSON reply + file streams; here
+    // we just hand it the chars and pump notifications into ingestFsData.
+    try {
+      const fsOpChar = await service.getCharacteristic(FS_OP_CHAR_UUID);
+      const fsDataChar = await service.getCharacteristic(FS_DATA_CHAR_UUID);
+      attachFs(entry, fsOpChar, fsDataChar);
+      await fsDataChar.startNotifications();
+      fsDataChar.addEventListener("characteristicvaluechanged", (e) => {
+        ingestFsData(entry, e.target.value);
+      });
+    } catch { /* fs chars absent (no storage partition) — IDE falls back to local drafts */ }
+
     entry.runtimeCaps = [];
     for (const cap of CAPABILITIES) {
       try { await cap.probe(entry, service); } catch { /* optional */ }
@@ -375,6 +391,8 @@ export function onDisconnected(id) {
   for (const cap of CAPABILITIES) cap.cleanup(entry);
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];
+  // Reject any in-flight fs op and drop the chars so a reconnect re-probes.
+  detachFs(entry);
   // Stop any running reflex watcher — its detect loop would otherwise
   // poll a now-vanished camera element forever (transient-null tolerance
   // is for blips, not disconnects).
