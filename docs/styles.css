@@ -1099,6 +1099,51 @@ details.tray.has-alert > summary::after {
 .ide-tree-row:hover .ide-tree-del { opacity: 0.6; }
 .ide-tree-del:hover { opacity: 1; background: color-mix(in srgb, var(--danger) 18%, transparent); }
 
+/* Firmware section — flash map + OTA, per robot. Visually distinct from the
+   file list (those are editable; this is raw flash). */
+.ide-fw {
+  margin: 4px 10px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
+}
+.ide-fw-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+.ide-fw-meta { font-size: 12px; color: var(--ink); margin-top: 2px; }
+.ide-fw-parts { list-style: none; margin: 6px 0; padding: 0; }
+.ide-fw-part {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  padding: 1px 0;
+}
+.ide-fw-part.running { color: var(--ink); }
+.ide-fw-part.running .ide-fw-part-label { color: var(--accent-ink); }
+.ide-fw-part-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ide-fw-part-size { flex: none; opacity: 0.8; }
+.ide-fw-status { font-size: 11px; color: var(--accent-ink); min-height: 0; margin: 2px 0; }
+.ide-fw-status:empty { display: none; }
+.ide-fw-actions { display: flex; gap: 6px; margin-top: 6px; }
+.ide-fw-btn {
+  flex: 1;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+}
+.ide-fw-btn:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
 .pinout-edit-input { width: 70px; padding: 4px 8px; }
 .pinout-edit-input.conflict { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }

@@ -12,6 +12,7 @@ import { runOnRobot, runOnFleet, pyCapable } from "./script-runner.js";
 import {
   fsAvailable, listFiles, readFileText, writeFile, deleteFile,
 } from "../fs/fs-client.js";
+import { updateFirmware, updateFromFile } from "../capabilities/ota.js";
 
 // Local drafts: a name→body map, so the offline path survives with no robot.
 // One-doc predecessor (the old scripts dialog) migrates in as draft.js.
@@ -426,6 +427,9 @@ async function renderTree() {
       li.textContent = `Unavailable: ${err.message}`;
       list.appendChild(li);
     }
+    // Firmware section for this robot — the flash map + OTA, distinct from
+    // the file list above (those are editable files; this is raw flash).
+    tree.appendChild(firmwareSection(entry));
   }
 
   // Local section — always present; the offline path.
@@ -499,7 +503,88 @@ function treeRow(name, meta, { key, onOpen, onDelete }) {
 function fmtBytes(n) {
   if (n == null) return "";
   if (n < 1024) return `${n} B`;
-  return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// Firmware section: the flash map (what's on the robot beyond /fs) + the
+// existing OTA path surfaced in the IDE. The compiled firmware lives in the
+// ota_0/ota_1 partitions as raw images — shown here read-only, updated via
+// OTA, never edited as files (they aren't files).
+function firmwareSection(entry) {
+  const info = entry.fwInfo || {};
+  const wrap = document.createElement("div");
+  wrap.className = "ide-fw";
+
+  const head = document.createElement("div");
+  head.className = "ide-fw-head";
+  head.textContent = "Firmware";
+  wrap.appendChild(head);
+
+  const meta = document.createElement("div");
+  meta.className = "ide-fw-meta";
+  meta.textContent = `${info.chip || "esp32"} · ${info.version || "unknown"}`;
+  wrap.appendChild(meta);
+
+  if (Array.isArray(info.part)) {
+    const list = document.createElement("ul");
+    list.className = "ide-fw-parts";
+    for (const p of info.part) {
+      const running = p.label === info.running;
+      const li = document.createElement("li");
+      li.className = "ide-fw-part" + (running ? " running" : "");
+      const label = document.createElement("span");
+      label.className = "ide-fw-part-label";
+      label.textContent = (running ? "▶ " : "") + p.label + (p.label === "storage" ? "  /fs" : "");
+      const size = document.createElement("span");
+      size.className = "ide-fw-part-size";
+      size.textContent = fmtBytes(p.size);
+      li.append(label, size);
+      list.appendChild(li);
+    }
+    wrap.appendChild(list);
+  }
+
+  const status = document.createElement("div");
+  status.className = "ide-fw-status";
+  wrap.appendChild(status);
+  patchFwStatus(entry, status);
+
+  const actions = document.createElement("div");
+  actions.className = "ide-fw-actions";
+  const upd = document.createElement("button");
+  upd.className = "ide-fw-btn";
+  upd.textContent = "Update firmware";
+  upd.addEventListener("click", () => startOta(entry, () => updateFirmware(entry.id), status));
+  const fromFile = document.createElement("button");
+  fromFile.className = "ide-fw-btn";
+  fromFile.textContent = "From file…";
+  fromFile.addEventListener("click", () => startOta(entry, () => updateFromFile(entry.id), status));
+  actions.append(upd, fromFile);
+  wrap.appendChild(actions);
+
+  return wrap;
+}
+
+function patchFwStatus(entry, el) {
+  const s = entry.otaStatus;
+  if (!s || s.st === "idle") { el.textContent = ""; return; }
+  const total = s.total || 0;
+  const n = s.n || entry.otaSent || 0;
+  const pct = total ? Math.round((100 * n) / total) : 0;
+  el.textContent = s.err ? `${s.st} — ${s.err}` : total ? `${s.st} ${pct}%` : s.st;
+}
+
+// Kick off an OTA and mirror its progress into the IDE status line until it
+// settles (ota.js drives entry.otaStatus via its own notify subscription).
+function startOta(entry, fn, statusEl) {
+  if (!entry.otaDataChar) { statusEl.textContent = "Firmware update not supported by this robot"; return; }
+  fn();
+  const timer = setInterval(() => {
+    patchFwStatus(entry, statusEl);
+    const st = entry.otaStatus?.st;
+    if (!st || st === "idle" || st === "done" || st === "failed") clearInterval(timer);
+  }, 500);
 }
 
 // A code-file glyph for tree rows + tabs (static markup — no injection risk).
