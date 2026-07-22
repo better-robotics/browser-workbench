@@ -26,6 +26,7 @@ config BR_BOARD_S3_CAM
     select BR_HAS_CAMERA
     select BR_HAS_PSRAM
     select BR_HAS_WS2812
+    select BR_HAS_PYVM
 
 config BR_BOARD_C3_SUPERMINI
     bool "ESP32-C3 SuperMini (RISC-V, no camera, no PSRAM)"
@@ -40,6 +41,11 @@ config BR_HAS_CAMERA
     bool
 
 config BR_HAS_PSRAM
+    bool
+
+# Embedded MicroPython VM (issue #47) — runs student Python scripts from the
+# LittleFS drive. Needs PSRAM for the GC heap, so only PSRAM boards select it.
+config BR_HAS_PYVM
     bool
 
 # Onboard single-wire addressable RGB (WS2812/NeoPixel). Gates ws2812.c and

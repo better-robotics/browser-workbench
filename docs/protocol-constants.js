@@ -24,5 +24,10 @@ export const FS_FILE_BEGIN = 4;
 export const FS_FILE_CHUNK = 5;
 export const FS_FILE_END = 6;
 
+// script_stream
+export const SCRIPT_OUT_TEXT = 1;
+export const SCRIPT_OUT_DONE = 2;
+export const SCRIPT_OUT_ERROR = 3;
+
 // hub_broker
 export const WS_PORT = 9001;

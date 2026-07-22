@@ -23,3 +23,4 @@ export const SERVO_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da6";
 export const RGB_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da7";
 export const FS_OP_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da8";
 export const FS_DATA_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da9";
+export const SCRIPT_OUTPUT_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4daa";

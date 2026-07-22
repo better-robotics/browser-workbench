@@ -33,6 +33,9 @@ set(BR_SRCS
     "fw_info.c"
     "telemetry.c"
     "http_stream.c"
+    # pyvm.c has an #else no-op stub, so it stays in SRCS unconditionally; the
+    # micropython_embed component is only required on CONFIG_BR_HAS_PYVM boards.
+    "pyvm.c"
 )
 
 set(BR_REQS
@@ -61,6 +64,13 @@ set(BR_REQS
 if(CONFIG_BR_HAS_CAMERA)
     list(APPEND BR_REQS esp32-camera)
 endif()
+
+# Embedded MicroPython VM (issue #47). Required unconditionally — the
+# component self-gates on CONFIG_BR_HAS_PYVM (registers an empty library on
+# non-PSRAM boards), which is more robust than a conditional REQUIRES: IDF's
+# early requirement expansion doesn't reliably honor a CONFIG-guarded append
+# for a local component.
+list(APPEND BR_REQS micropython_embed)
 
 # WS2812 driver (ws2812.c) needs led_strip only where an onboard one exists;
 # the component is esp32s3-only in idf_component.yml, so this REQUIRES line

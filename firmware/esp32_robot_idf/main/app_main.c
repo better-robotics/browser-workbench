@@ -14,6 +14,7 @@
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
+#include "pyvm.h"
 #include "rgb.h"
 #include "servo.h"
 #include "ws2812.h"
@@ -76,6 +77,9 @@ void app_main(void) {
     // Storage: flash-only mount, no radio. Before fw_info so the "fs" cap
     // is advertised only when the partition actually mounted (boot probe).
     fs_svc_init();
+    // Python VM (PSRAM boards): allocate the GC heap after PSRAM is up, before
+    // fw_info so the "python" cap reflects whether the VM actually came up.
+    pyvm_init();
 
     // fw-info reflects the cap surface; built once after caps are up.
     // Changes (camera profile, pin config) reboot, so a fresh boot

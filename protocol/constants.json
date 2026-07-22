@@ -29,6 +29,13 @@
     "FS_FILE_CHUNK": 5,
     "FS_FILE_END": 6
   },
+  "script_stream": {
+    "_targets": ["c", "js"],
+    "_comment": "On-robot Python VM output stream (main/pyvm.c -> the IDE). Each SCRIPT_OUTPUT notify leads with a 1-byte opcode: TEXT carries UTF-8 stdout as the script runs; DONE ends a clean run; ERROR carries the traceback text of an uncaught exception. Run/stop are ops verbs (script-run{name} / script-stop) on the OPS char, not a new characteristic.",
+    "SCRIPT_OUT_TEXT": 1,
+    "SCRIPT_OUT_DONE": 2,
+    "SCRIPT_OUT_ERROR": 3
+  },
   "hub_broker": {
     "_targets": ["js"],
     "_comment": "MQTT-over-WebSockets listener port — fixed convention with the hub's pi/mosquitto.example.conf (better-robotics/hub CONTRACT.md). js-only: in this repo only the dashboard (hub transport + pair signaling/lobby) dials the broker; robot firmware never does.",

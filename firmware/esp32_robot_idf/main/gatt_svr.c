@@ -17,6 +17,7 @@
 #include "motors.h"
 #include "ota.h"
 #include "pin_config.h"
+#include "pyvm.h"
 #include "rgb.h"
 #include "servo.h"
 #include "snapshot.h"
@@ -46,6 +47,7 @@ static ble_uuid128_t s_fw_info_uuid;
 static ble_uuid128_t s_ops_uuid;
 static ble_uuid128_t s_fs_op_uuid;
 static ble_uuid128_t s_fs_data_uuid;
+static ble_uuid128_t s_script_output_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -59,6 +61,7 @@ static uint16_t s_snapshot_data_handle;
 static uint16_t s_telemetry_handle;
 static uint16_t s_fw_info_handle;
 static uint16_t s_fs_data_handle;
+static uint16_t s_script_output_handle;
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -242,6 +245,13 @@ static int ops_access(uint16_t conn, uint16_t attr,
         bool invert_a = cJSON_IsTrue(ia);
         bool invert_b = cJSON_IsTrue(ib);
         motors_set_orientation(swap, invert_a, invert_b);
+    } else if (strcmp(op_name, "script-run") == 0) {
+        // Run /fs/<name> on the embedded Python VM; output streams back on
+        // SCRIPT_OUTPUT. No-op (returns false, ignored) on non-VM boards.
+        const cJSON *nm = cJSON_GetObjectItemCaseSensitive(args, "name");
+        if (cJSON_IsString(nm) && nm->valuestring) pyvm_run_file(nm->valuestring);
+    } else if (strcmp(op_name, "script-stop") == 0) {
+        pyvm_stop();
     } else {
         ESP_LOGW(TAG, "ops: unknown verb '%s', ignored", op_name);
     }
@@ -346,6 +356,12 @@ static int fs_op_access(uint16_t conn, uint16_t attr,
 // Notify-only; the fs worker task drives it via gatt_svr_fs_send.
 static int fs_data_access(uint16_t conn, uint16_t attr,
                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    return 0;
+}
+
+// Notify-only; the Python VM task drives it via gatt_svr_script_send.
+static int script_output_access(uint16_t conn, uint16_t attr,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     return 0;
 }
 
@@ -475,6 +491,12 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_fs_data_handle,
     },
+    {
+        .uuid = &s_script_output_uuid.u,
+        .access_cb = script_output_access,
+        .flags = BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_script_output_handle,
+    },
     { 0 },
 };
 
@@ -507,6 +529,7 @@ void gatt_svr_init(void) {
     parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
     parse_uuid128(FS_OP_CHAR_UUID,            &s_fs_op_uuid);
     parse_uuid128(FS_DATA_CHAR_UUID,          &s_fs_data_uuid);
+    parse_uuid128(SCRIPT_OUTPUT_CHAR_UUID,    &s_script_output_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -544,4 +567,13 @@ void gatt_svr_fs_send(const uint8_t *buf, size_t len) {
     struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
     if (!om) return;
     ble_gatts_notify_custom(conn, s_fs_data_handle, om);
+}
+
+void gatt_svr_script_send(const uint8_t *buf, size_t len) {
+    uint16_t conn = ble_host_active_conn();
+    if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+    if (!s_script_output_handle) return;
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
+    if (!om) return;
+    ble_gatts_notify_custom(conn, s_script_output_handle, om);
 }

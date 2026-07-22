@@ -24,3 +24,8 @@
 #define FS_FILE_BEGIN            4
 #define FS_FILE_CHUNK            5
 #define FS_FILE_END              6
+
+// script_stream
+#define SCRIPT_OUT_TEXT          1
+#define SCRIPT_OUT_DONE          2
+#define SCRIPT_OUT_ERROR         3

@@ -35,3 +35,7 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
 // gatt_svr_snapshot_send; the fs worker task drives it with the
 // begin/chunk/end envelope. No-op when no central is connected.
 void gatt_svr_fs_send(const uint8_t *buf, size_t len);
+
+// Push a SCRIPT_OUTPUT frame (the on-robot Python VM's stdout / traceback
+// stream, pyvm.c) to the active central. Same custom-payload notify path.
+void gatt_svr_script_send(const uint8_t *buf, size_t len);

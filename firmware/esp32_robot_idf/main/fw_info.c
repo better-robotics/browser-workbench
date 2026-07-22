@@ -11,6 +11,7 @@
 #include "flash.h"
 #include "fs_svc.h"
 #include "led.h"
+#include "pyvm.h"
 #include "motors.h"
 #include "rgb.h"
 #include "servo.h"
@@ -102,6 +103,13 @@ void fw_info_init(const pin_config_t *pins) {
     if (fs_svc_available()) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",{\"name\":\"fs\",\"type\":\"file-service\"}");
+    }
+
+    // On-robot Python VM — only where it came up (PSRAM boards). The IDE's
+    // "Run on robot" appears against this cap.
+    if (pyvm_available()) {
+        o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
+            ",{\"name\":\"python\",\"type\":\"script-vm\"}");
     }
 
     if (motors_enabled()) {
