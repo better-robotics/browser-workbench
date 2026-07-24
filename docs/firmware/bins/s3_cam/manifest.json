@@ -1,8 +1,8 @@
 {
   "board": "s3_cam",
   "chip": "esp32s3",
-  "version": "ac9e791-dirty",
-  "built_at": "2026-07-22T11:44:53Z",
+  "version": "3152bc1-dirty",
+  "built_at": "2026-07-24T02:47:48Z",
   "files": [
     {
       "path": "bootloader.bin",
