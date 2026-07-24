@@ -188,6 +188,17 @@ h1 {
   line-height: 1.45;
 }
 
+/* Focus ring, themed ONCE for every control — any new button otherwise
+   falls back to Chrome's white UA ring (which also fires on dialog .show(),
+   since programmatic focus can match :focus-visible). Never remove the
+   ring, only restyle it: keyboard operators steer by it. :where() keeps
+   specificity at zero so the per-component box-shadow variants (label-btn,
+   cap-toggle, segmented …) still win where they've earned an exception. */
+:where(button, select, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
 button {
   font: inherit;
   border: none;
