@@ -7,6 +7,10 @@ mature than this one, and each entry says where.
 Every claim links to the vendor's own documentation. If something here is out of
 date or unfair, open an issue — misdescribing someone else's work is a bug.
 
+**Surveyed May 2026.** These products move faster than this page does, and a
+claim below can go stale without anything here changing. Where this page and a
+vendor's own docs disagree, theirs are right.
+
 ## Classroom kits with browser apps
 
 ### LEGO SPIKE (spike.legoeducation.com)
